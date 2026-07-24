@@ -198,18 +198,54 @@ class _Sidebar extends StatelessWidget {
   }
 }
 
-class _SearchField extends StatelessWidget {
+/// Stateful so it owns a [TextEditingController]: the clear (X) affordance
+/// only appears while the field has text, and pressing it must both empty
+/// the visible field and reset the library's search filter in one tap.
+class _SearchField extends StatefulWidget {
   final LibraryModel library;
   const _SearchField({required this.library});
 
   @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _clear() {
+    _controller.clear();
+    widget.library.setSearch('');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return TextField(
-      decoration: const InputDecoration(
-        prefixIcon: Icon(Icons.search),
-        hintText: 'Search title, artist, album',
+    // ValueListenableBuilder (rather than setState in onChanged) so the
+    // suffix icon also tracks programmatic controller changes like _clear.
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (context, value, _) => TextField(
+        controller: _controller,
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search),
+          hintText: 'Search title, artist, album',
+          suffixIcon: value.text.isEmpty
+              ? null
+              : IconButton(
+                  key: const Key('search-clear'),
+                  icon: const Icon(Icons.close,
+                      size: 16, color: AppColors.inkSecondary),
+                  tooltip: 'Clear search',
+                  onPressed: _clear,
+                ),
+        ),
+        onChanged: widget.library.setSearch,
       ),
-      onChanged: library.setSearch,
     );
   }
 }
