@@ -13,8 +13,10 @@ A custom music player replacing foobar2000: Windows desktop app now, Android nex
 | Core engine (`fooplayer_core`: content-ID hashing, manifest, scanner, seed, `foolib` CLI) | ✅ Done, merged to main | `core/` |
 | Library seeding (full library + scoped 5-root reseed) | ✅ Done | manifests inside each music folder |
 | Windows desktop app — v1 (dark) | ✅ Superseded by UI rework | branch `windows-app` |
-| UI rework: light iTunes theme, centered bar, draggable dividers, multi-root + settings, auto-rescan, sortable columns | 🔄 ~90% — final fix loop + verification in flight | branch `windows-app`, built at `C:\dev\foobar-app` |
-| Android build (Pixel 7 emulator smoke test) | 🔄 In progress (parallel branch) | branch `android-app`, `C:\dev\foobar-android` |
+| UI rework: light iTunes theme, centered bar, draggable dividers, multi-root + settings, auto-rescan, sortable columns | ✅ Done — all tasks review-approved, verified live on the 5 roots (5,443 tracks); whole-branch review running | branch `windows-app`, built at `C:\dev\foobar-app` |
+| Android build | 🟡 Code complete, APK builds, tests green — emulator BLOCKED (Windows Hypervisor Platform disabled; needs admin enable + reboot, or test on the real Pixel 7 via USB) | branch `android-app`, `C:\dev\fooplayer-android` |
+| GitHub | ✅ github.com/mklod/fooplayer — main, windows-app, android-app pushed | remote `origin` |
+| Local repo rename to `L:\PROJECTS\fooplayer` | ⏸ Deferred — persistent SMB file lock on the old path (suspect Syncthing); retry after reboot/sync pause | — |
 | File-dates fix for foobar2000/Explorer | ⏸ ON HOLD pending Mike's decision | [music-library-dates-issue.md](music-library-dates-issue.md) |
 | LAN sync / phone library sync (Plan 3) | ⛔ Not started | — |
 
