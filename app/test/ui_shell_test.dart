@@ -45,4 +45,25 @@ void main() {
     expect(find.text('Oldest Song'), findsOneWidget);
     expect(find.text('Newest Song'), findsNothing);
   });
+
+  testWidgets('genre selection cascades into artist panel and track list',
+      (tester) async {
+    final lib = fixtureLibrary();
+    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: HomeScreen(library: lib, player: player)));
+    // Both artists visible initially in the Artist panel.
+    expect(find.text('Muse'), findsWidgets);
+    expect(find.text('Feed Me'), findsWidgets);
+    await tester.tap(find.text('Rock')); // select genre
+    await tester.pumpAndSettle();
+    expect(lib.genreFilter, 'Rock');
+    expect(find.text('Feed Me'), findsNothing); // filtered out everywhere
+    expect(find.text('Oldest Song'), findsNothing); // track list narrowed
+    await tester.tap(find.text('Rock')); // tap again clears
+    await tester.pumpAndSettle();
+    expect(lib.genreFilter, isNull);
+    expect(find.text('Oldest Song'), findsOneWidget);
+  });
 }

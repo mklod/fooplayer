@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/library_model.dart';
 import '../player/player_service.dart';
+import 'filter_panel.dart';
 import 'track_list.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -26,7 +27,44 @@ class HomeScreen extends StatelessWidget {
                         padding: const EdgeInsets.all(8),
                         child: _SearchField(library: library),
                       ),
-                      // Filter panels row inserted here in Task 7.
+                      SizedBox(
+                        height: 180,
+                        child: ListenableBuilder(
+                          listenable: library,
+                          builder: (context, _) => Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                child: FilterPanel(
+                                  title: 'Genre',
+                                  values: library.genres,
+                                  selected: library.genreFilter,
+                                  onSelect: library.setGenre,
+                                ),
+                              ),
+                              const VerticalDivider(width: 1),
+                              Expanded(
+                                child: FilterPanel(
+                                  title: 'Artist',
+                                  values: library.artists,
+                                  selected: library.artistFilter,
+                                  onSelect: library.setArtist,
+                                ),
+                              ),
+                              const VerticalDivider(width: 1),
+                              Expanded(
+                                child: FilterPanel(
+                                  title: 'Album',
+                                  values: library.albums,
+                                  selected: library.albumFilter,
+                                  onSelect: library.setAlbum,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
                       Expanded(
                           child: TrackListView(library: library, player: player)),
                       _StatusBar(library: library),
