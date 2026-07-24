@@ -24,7 +24,7 @@ Nothing below executes until the reboot confirmation (his explicit instruction).
 
 ## Decision gates (Mike only)
 
-- **File-dates fix** for foobar2000/Explorer sorting — options documented in [music-library-dates-issue.md](music-library-dates-issue.md); NO filesystem-date action without his explicit go-ahead.
+- **File-dates fix** for foobar2000/Explorer sorting — options documented in [music-library-dates-issue.md](docs/music-library-dates-issue.md); NO filesystem-date action without his explicit go-ahead.
 
 ## Backlog (deferred minors, triaged non-blocking)
 
