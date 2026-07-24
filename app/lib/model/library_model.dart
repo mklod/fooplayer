@@ -58,7 +58,14 @@ const _defaultRescanRootTimeout = Duration(seconds: 120);
 
 /// Sortable track-list columns (see the header row in `ui/track_list.dart`
 /// and [LibraryModel.setSort]/[LibraryModel.visibleTracks]).
-enum SortColumn { title, artist, album, duration, dateAdded }
+///
+/// [trackNumber] backs the '#' column, which is only ever visible (see
+/// `ui/track_list.dart`) when a single album is selected or a playlist is
+/// active -- but it is still a selectable [setSort] target like any other
+/// column, both because [setAlbum] switches to it automatically (see its
+/// doc) and because that's what makes its header cell clickable the same
+/// way every other visible header is.
+enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
 
 class LibraryModel extends ChangeNotifier {
   List<Track> allTracks = [];
@@ -252,14 +259,30 @@ class LibraryModel extends ChangeNotifier {
 
       // Part A -- instant feed: apply any cached tags synchronously (cheap
       // map lookups) so the date-sorted view renders within ~2s of launch.
-      // Tracks with no cached tags keep the manifest's filename-derived
-      // title for now and get enriched in the background below.
+      // Tracks with no cached tags don't wait for background enrichment to
+      // get real Title/Artist/Album columns: the manifest constructs every
+      // track's `title` as the raw, unsplit filename (see
+      // `manifest_io.dart`), so leaving that alone here would show e.g.
+      // "RÜFÜS du Sol - The Life" as the Title with Artist/Album blank until
+      // enrichment reaches that file, possibly minutes into a large scan.
+      // [parseFromFilename] is pure string manipulation -- no file I/O --
+      // so running it synchronously over every miss here (thousands of
+      // tracks) is cheap and keeps the instant feed's columns properly
+      // split from the very first frame. Real tag enrichment (Part B,
+      // below) still upgrades these to on-disk tag data afterward.
       final tracks = mergedTracks.values.toList();
       final missing = <int>[]; // indices into `tracks` needing enrichment
       for (var i = 0; i < tracks.length; i++) {
         final t = tracks[i];
         final tags = cache.entries[t.contentId];
         if (tags == null) {
+          final fb = parseFromFilename(t.relPath);
+          tracks[i] = t.copyWith(
+            title: fb.title,
+            artist: fb.artist,
+            album: fb.album,
+            trackNumber: fb.trackNumber,
+          );
           missing.add(i);
           continue;
         }
@@ -269,6 +292,7 @@ class LibraryModel extends ChangeNotifier {
           album: tags.album,
           genre: tags.genre,
           durationMs: tags.durationMs,
+          trackNumber: tags.trackNumber,
         );
       }
       allTracks = tracks;
@@ -320,6 +344,7 @@ class LibraryModel extends ChangeNotifier {
               album: tags.album,
               genre: tags.genre,
               durationMs: tags.durationMs,
+              trackNumber: tags.trackNumber,
             );
           }
           done += batch.length;
@@ -419,6 +444,7 @@ class LibraryModel extends ChangeNotifier {
             artist: fallback.artist ?? '',
             album: fallback.album ?? '',
             genre: fallback.genre ?? '',
+            trackNumber: fallback.trackNumber,
           ));
           newIndices.add(tracks.length - 1);
           totalNew++;
@@ -490,6 +516,7 @@ class LibraryModel extends ChangeNotifier {
           album: tags.album,
           genre: tags.genre,
           durationMs: tags.durationMs,
+          trackNumber: tags.trackNumber,
         );
       }
       allTracks = List<Track>.of(out);
@@ -554,8 +581,25 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Selects [a] as the album filter (or clears it, when `null`).
+  ///
+  /// Also drives the track-list's default sort for the single-album view:
+  /// selecting an album switches to track-number order (ascending -- LP
+  /// side one, track one, first), matching how a real album is listened to
+  /// and making the now-visible '#' column (see `ui/track_list.dart`)
+  /// meaningful; clearing the album filter reverts to the library's normal
+  /// newest-first order. This only sets the *default* -- [setSort] (a
+  /// user's own header click) still always wins afterward, same as any
+  /// other sort change.
   void setAlbum(String? a) {
     albumFilter = a;
+    if (a != null) {
+      sortColumn = SortColumn.trackNumber;
+      sortAscending = true;
+    } else {
+      sortColumn = SortColumn.dateAdded;
+      sortAscending = false;
+    }
     notifyListeners();
   }
 
@@ -576,17 +620,17 @@ class LibraryModel extends ChangeNotifier {
 /// the input's relative order -- same technique as [sortByDateAddedDesc]).
 ///
 /// Text columns (title/artist/album) compare case-insensitively. The
-/// duration column sorts tracks with no known duration ([Track.durationMs]
-/// null, e.g. not yet tag-enriched) after every track with a known one,
-/// regardless of [ascending] -- "last" always means the end of the list, not
-/// "first when descending".
+/// duration and trackNumber columns sort tracks with no known value
+/// ([Track.durationMs]/[Track.trackNumber] null, e.g. not yet tag-enriched)
+/// after every track with a known one, regardless of [ascending] -- "last"
+/// always means the end of the list, not "first when descending".
 List<Track> sortTracks(List<Track> tracks, SortColumn column, bool ascending) {
   int compareText(String a, String b) {
     final c = a.toLowerCase().compareTo(b.toLowerCase());
     return ascending ? c : -c;
   }
 
-  int compareDuration(int? a, int? b) {
+  int compareNullableInt(int? a, int? b) {
     if (a == null && b == null) return 0;
     if (a == null) return 1; // null always sorts last
     if (b == null) return -1;
@@ -602,7 +646,9 @@ List<Track> sortTracks(List<Track> tracks, SortColumn column, bool ascending) {
       case SortColumn.album:
         return compareText(a.album, b.album);
       case SortColumn.duration:
-        return compareDuration(a.durationMs, b.durationMs);
+        return compareNullableInt(a.durationMs, b.durationMs);
+      case SortColumn.trackNumber:
+        return compareNullableInt(a.trackNumber, b.trackNumber);
       case SortColumn.dateAdded:
         return ascending
             ? a.dateAdded.compareTo(b.dateAdded)

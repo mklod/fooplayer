@@ -25,6 +25,37 @@ void main() {
     });
   });
 
+  group('parseFromFilename track-number prefix', () {
+    test('"NN Title.ext" -> trackNumber and a title with the prefix stripped', () {
+      final t = parseFromFilename('03 You Love Me (Remix).mp3');
+      expect(t.trackNumber, 3);
+      expect(t.title, 'You Love Me (Remix)');
+      expect(t.artist, isNull);
+    });
+
+    test('"Artist - Title.ext" with no leading number -> trackNumber null', () {
+      final t = parseFromFilename('Artist - Title.mp3');
+      expect(t.trackNumber, isNull);
+      expect(t.artist, 'Artist');
+      expect(t.title, 'Title');
+    });
+
+    test('"NN - Title.ext" -> trackNumber and the "NN - " prefix cleanly stripped', () {
+      final t = parseFromFilename('07 - No One Gets Left Behind.mp3');
+      expect(t.trackNumber, 7);
+      expect(t.title, 'No One Gets Left Behind');
+      expect(t.artist, isNull);
+    });
+
+    test('a leading four-digit year is not mistaken for a track number '
+        '(falls through to the ordinary artist/title split instead)', () {
+      final t = parseFromFilename('1999 - Live Forever.mp3');
+      expect(t.trackNumber, isNull);
+      expect(t.artist, '1999');
+      expect(t.title, 'Live Forever');
+    });
+  });
+
   test('readTags falls back to filename parse on unreadable file', () async {
     final tmp = await Directory.systemTemp.createTemp('tags');
     final f = File('${tmp.path}/Muse - New Born.mp3');
@@ -79,6 +110,21 @@ void main() {
       expect(j.containsKey('durationMs'), isTrue);
       expect(j['durationMs'], isNull);
       expect(TrackTags.fromJson(j).durationMs, isNull);
+    });
+
+    test('trackNumber round-trips through toJson/fromJson', () {
+      const t = TrackTags(title: 'T', trackNumber: 7);
+      final j = t.toJson();
+      expect(j['trackNumber'], 7);
+      expect(TrackTags.fromJson(j).trackNumber, 7);
+    });
+
+    test('a null trackNumber still serializes the key, with a null value', () {
+      const t = TrackTags(title: 'T');
+      final j = t.toJson();
+      expect(j.containsKey('trackNumber'), isTrue);
+      expect(j['trackNumber'], isNull);
+      expect(TrackTags.fromJson(j).trackNumber, isNull);
     });
   });
 }

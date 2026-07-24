@@ -18,6 +18,10 @@ class Track {
   // metadata/tags.dart); null when the file's tags/stream headers didn't
   // carry a duration, or before enrichment has read the file yet.
   final int? durationMs;
+  // 1-based position within its album, from TrackTags.trackNumber (see
+  // metadata/tags.dart); null when neither the file's tags nor its filename
+  // carried one, or before enrichment/instant-feed parsing has run yet.
+  final int? trackNumber;
 
   const Track({
     required this.contentId,
@@ -29,6 +33,7 @@ class Track {
     this.album = '',
     this.genre = '',
     this.durationMs,
+    this.trackNumber,
   });
 
   Track copyWith(
@@ -36,7 +41,8 @@ class Track {
           String? artist,
           String? album,
           String? genre,
-          int? durationMs}) =>
+          int? durationMs,
+          int? trackNumber}) =>
       Track(
         contentId: contentId,
         relPath: relPath,
@@ -47,5 +53,6 @@ class Track {
         album: album ?? this.album,
         genre: genre ?? this.genre,
         durationMs: durationMs ?? this.durationMs,
+        trackNumber: trackNumber ?? this.trackNumber,
       );
 }

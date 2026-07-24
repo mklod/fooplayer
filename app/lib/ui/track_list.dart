@@ -22,7 +22,8 @@ String _fmtDuration(int? ms) {
 // Column widths/flex shared between the header row and every track row so
 // the two stay pixel-aligned. Title+Artist share one flexible block (title
 // above, artist below -- see _TrackRow); Album gets its own flexible block;
-// Time and Date are fixed-width, right side of the row, foobar-style.
+// #, Time and Date are fixed-width, right side of the row, foobar-style.
+const double _kTrackNumberColumnWidth = 36;
 const double _kDurationColumnWidth = 44;
 const double _kDateColumnWidth = 82;
 const int _kTitleFlex = 3;
@@ -41,9 +42,16 @@ class TrackListView extends StatelessWidget {
       listenable: Listenable.merge([library, player]),
       builder: (context, _) {
         final tracks = library.visibleTracks;
+        // The '#' column only earns its place when it means something
+        // unambiguous: a single album's own track order, or a playlist's
+        // curated position. Anywhere else (the full library, a genre/artist
+        // filter spanning many albums) track numbers from different albums
+        // would collide meaninglessly, so the column stays hidden.
+        final isPlaylist = library.activePlaylist != null;
+        final showTrackNumber = isPlaylist || library.albumFilter != null;
         return Column(
           children: [
-            _TrackListHeader(library: library),
+            _TrackListHeader(library: library, showTrackNumber: showTrackNumber),
             Expanded(
               child: ListView.builder(
                 itemCount: tracks.length,
@@ -54,6 +62,16 @@ class TrackListView extends StatelessWidget {
                     track: t,
                     isCurrent: isCurrent,
                     onTap: () => player.playFrom(tracks, i),
+                    showTrackNumber: showTrackNumber,
+                    // Playlist order is curator-defined, not tag-derived, so
+                    // '#' shows where the track sits in that order (1-based)
+                    // rather than its (possibly nonexistent, possibly
+                    // unrelated) tag track number.
+                    trackNumberText: showTrackNumber
+                        ? (isPlaylist
+                            ? '${i + 1}'
+                            : t.trackNumber?.toString() ?? '')
+                        : null,
                   );
                 },
               ),
@@ -72,7 +90,8 @@ class TrackListView extends StatelessWidget {
 /// [AppColors.accent] showing the current direction.
 class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
-  const _TrackListHeader({required this.library});
+  final bool showTrackNumber;
+  const _TrackListHeader({required this.library, required this.showTrackNumber});
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +103,16 @@ class _TrackListHeader extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(
           children: [
+            if (showTrackNumber)
+              SizedBox(
+                width: _kTrackNumberColumnWidth,
+                child: _HeaderCell(
+                  label: '#',
+                  column: SortColumn.trackNumber,
+                  library: library,
+                  alignEnd: true,
+                ),
+              ),
             Expanded(
               flex: _kTitleArtistFlex,
               child: Row(
@@ -191,10 +220,17 @@ class _TrackRow extends StatelessWidget {
   final Track track;
   final bool isCurrent;
   final VoidCallback onTap;
+  final bool showTrackNumber;
+  // Precomputed by [TrackListView] (needs the row's position for playlist
+  // mode, which this widget doesn't otherwise know) -- null whenever
+  // [showTrackNumber] is false.
+  final String? trackNumberText;
   const _TrackRow({
     required this.track,
     required this.isCurrent,
     required this.onTap,
+    required this.showTrackNumber,
+    this.trackNumberText,
   });
 
   @override
@@ -208,6 +244,17 @@ class _TrackRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
             children: [
+              if (showTrackNumber)
+                SizedBox(
+                  width: _kTrackNumberColumnWidth,
+                  child: Text(
+                    trackNumberText ?? '',
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: secondaryStyle,
+                  ),
+                ),
               Expanded(
                 flex: _kTitleArtistFlex,
                 child: Column(

@@ -9,6 +9,7 @@ Track tr(
   String artist = '',
   String album = '',
   int? durationMs,
+  int? trackNumber,
   required DateTime dateAdded,
 }) =>
     Track(
@@ -19,6 +20,7 @@ Track tr(
       artist: artist,
       album: album,
       durationMs: durationMs,
+      trackNumber: trackNumber,
     );
 
 void main() {
@@ -30,10 +32,10 @@ void main() {
     // comparison is actually exercised, and one null duration (track 'c')
     // to exercise "nulls sort last" in both directions.
     lib.allTracks = [
-      tr('a', title: 'banana', artist: 'muse', album: 'Zeta', durationMs: 200000, dateAdded: DateTime.utc(2024, 1, 2)),
-      tr('b', title: 'Apple', artist: 'Feed Me', album: 'alpha', durationMs: 100000, dateAdded: DateTime.utc(2024, 1, 4)),
-      tr('c', title: 'cherry', artist: 'ZZ Top', album: 'Middle', dateAdded: DateTime.utc(2024, 1, 1)),
-      tr('d', title: 'Date Fruit', artist: 'apple corp', album: 'beta', durationMs: 50000, dateAdded: DateTime.utc(2024, 1, 3)),
+      tr('a', title: 'banana', artist: 'muse', album: 'Zeta', durationMs: 200000, trackNumber: 3, dateAdded: DateTime.utc(2024, 1, 2)),
+      tr('b', title: 'Apple', artist: 'Feed Me', album: 'alpha', durationMs: 100000, trackNumber: 1, dateAdded: DateTime.utc(2024, 1, 4)),
+      tr('c', title: 'cherry', artist: 'ZZ Top', album: 'Middle', dateAdded: DateTime.utc(2024, 1, 1)), // no durationMs, no trackNumber
+      tr('d', title: 'Date Fruit', artist: 'apple corp', album: 'beta', durationMs: 50000, trackNumber: 2, dateAdded: DateTime.utc(2024, 1, 3)),
     ];
   });
 
@@ -136,6 +138,53 @@ void main() {
       lib.setSort(SortColumn.dateAdded);
       expect(lib.sortAscending, isTrue);
       expect(ids(), ['c', 'a', 'd', 'b']);
+    });
+  });
+
+  group('trackNumber column: nulls last', () {
+    test('ascending: known track numbers low-to-high, then the null one', () {
+      lib.setSort(SortColumn.trackNumber);
+      expect(ids(), ['b', 'd', 'a', 'c']); // 1, 2, 3, null
+    });
+
+    test('descending: known track numbers high-to-low, null STILL last (not first)', () {
+      lib.setSort(SortColumn.trackNumber);
+      lib.setSort(SortColumn.trackNumber);
+      expect(ids(), ['a', 'd', 'b', 'c']); // 3, 2, 1, null
+    });
+  });
+
+  group('setAlbum default sort', () {
+    test('selecting an album switches the sort to trackNumber ascending', () {
+      expect(lib.sortColumn, SortColumn.dateAdded); // sanity: starts on default
+      lib.setAlbum('Zeta');
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      expect(lib.sortAscending, isTrue);
+    });
+
+    test('a selected album\'s tracks list in track-number order', () {
+      lib.allTracks = [
+        tr('t3', title: 'Third', album: 'Live Album', trackNumber: 3, dateAdded: DateTime.utc(2024, 1, 1)),
+        tr('t1', title: 'First', album: 'Live Album', trackNumber: 1, dateAdded: DateTime.utc(2024, 1, 4)),
+        tr('t2', title: 'Second', album: 'Live Album', trackNumber: 2, dateAdded: DateTime.utc(2024, 1, 2)),
+      ];
+      lib.setAlbum('Live Album');
+      expect(ids(), ['t1', 't2', 't3']);
+    });
+
+    test('clearing the album filter reverts to dateAdded descending', () {
+      lib.setAlbum('Zeta');
+      lib.setAlbum(null);
+      expect(lib.sortColumn, SortColumn.dateAdded);
+      expect(lib.sortAscending, isFalse);
+      expect(ids(), ['b', 'd', 'a', 'c']); // back to the default-sort order
+    });
+
+    test('a header click after selecting an album overrides the trackNumber default', () {
+      lib.setAlbum('Zeta');
+      lib.setSort(SortColumn.artist);
+      expect(lib.sortColumn, SortColumn.artist);
+      expect(lib.sortAscending, isTrue); // new non-date column starts ascending
     });
   });
 

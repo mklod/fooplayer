@@ -13,8 +13,18 @@ class TrackTags {
   // metadata exposed one (see the per-format dispatch in `_readRawTags`
   // below); null when the file's tags/stream headers didn't carry it.
   final int? durationMs;
+  // 1-based position within its album, when the format's parser metadata
+  // exposed one (see the per-format dispatch in `_readRawTags` below) or --
+  // failing that -- when [parseFromFilename] found a leading "NN " / "NN - "
+  // number prefix on the filename; null when neither source had one.
+  final int? trackNumber;
   const TrackTags(
-      {this.title, this.artist, this.album, this.genre, this.durationMs});
+      {this.title,
+      this.artist,
+      this.album,
+      this.genre,
+      this.durationMs,
+      this.trackNumber});
 
   bool get isEmpty =>
       (title == null || title!.isEmpty) &&
@@ -27,6 +37,7 @@ class TrackTags {
         'album': album,
         'genre': genre,
         'durationMs': durationMs,
+        'trackNumber': trackNumber,
       };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
         title: j['title'] as String?,
@@ -34,19 +45,39 @@ class TrackTags {
         album: j['album'] as String?,
         genre: j['genre'] as String?,
         durationMs: j['durationMs'] as int?,
+        trackNumber: j['trackNumber'] as int?,
       );
 }
+
+/// Matches a leading track-number prefix on a bare (extension-stripped)
+/// filename -- "03 " or "07 - " style -- so [parseFromFilename] can split it
+/// off before the artist/title separator check below runs. Capped at three
+/// digits so a four-digit year some filenames lead with (e.g. "1999 - Song")
+/// isn't mistaken for a track number.
+final RegExp _trackNumberPrefix = RegExp(r'^(\d{1,3})(?:\s*-\s*|\s+)');
 
 TrackTags parseFromFilename(String relPath) {
   final base = p.basenameWithoutExtension(relPath);
   final dir = p.dirname(relPath);
   final album = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
-  final sep = base.indexOf(' - ');
-  if (sep < 0) return TrackTags(title: base, album: album);
+
+  int? trackNumber;
+  var rest = base;
+  final numMatch = _trackNumberPrefix.firstMatch(base);
+  if (numMatch != null) {
+    trackNumber = int.parse(numMatch.group(1)!);
+    rest = base.substring(numMatch.end);
+  }
+
+  final sep = rest.indexOf(' - ');
+  if (sep < 0) {
+    return TrackTags(title: rest, album: album, trackNumber: trackNumber);
+  }
   return TrackTags(
-    artist: base.substring(0, sep).trim(),
-    title: base.substring(sep + 3).trim(),
+    artist: rest.substring(0, sep).trim(),
+    title: rest.substring(sep + 3).trim(),
     album: album,
+    trackNumber: trackNumber,
   );
 }
 
@@ -60,6 +91,7 @@ class _RawTags {
   final String? album;
   final String? genre;
   final int? durationMs;
+  final int? trackNumber;
   final List<Picture> pictures;
   const _RawTags({
     this.title,
@@ -67,6 +99,7 @@ class _RawTags {
     this.album,
     this.genre,
     this.durationMs,
+    this.trackNumber,
     this.pictures = const [],
   });
 }
@@ -117,6 +150,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.pictures,
       );
     }
@@ -128,6 +162,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.pictures,
       );
     }
@@ -139,6 +174,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber.firstOrNull,
         pictures: m.pictures,
       );
     }
@@ -150,6 +186,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genre,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.picture == null ? const [] : [m.picture!],
       );
     }
@@ -161,6 +198,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber.firstOrNull,
         pictures: m.pictures,
       );
     }
@@ -185,6 +223,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       album: _blankAsNull(raw.album),
       genre: _blankAsNull(raw.genre),
       durationMs: raw.durationMs,
+      trackNumber: raw.trackNumber,
     );
     if (fromTags.isEmpty) {
       // No usable title/artist/album tags, but the duration came from the
@@ -197,6 +236,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
         album: fb.album,
         genre: fb.genre,
         durationMs: raw.durationMs,
+        trackNumber: fromTags.trackNumber ?? fb.trackNumber,
       );
     }
     // Fill gaps (e.g. tagged title but no artist) from the filename.
@@ -207,6 +247,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       album: fromTags.album ?? fb.album,
       genre: fromTags.genre,
       durationMs: fromTags.durationMs,
+      trackNumber: fromTags.trackNumber ?? fb.trackNumber,
     );
   } catch (_) {
     return parseFromFilename(relPath ?? audioFile.path);
