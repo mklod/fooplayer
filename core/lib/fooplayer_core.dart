@@ -6,3 +6,4 @@ export 'src/manifest.dart';
 export 'src/scanner.dart';
 export 'src/library_ops.dart';
 export 'src/seed/metadb_index.dart';
+export 'src/seed/seed_migration.dart';
