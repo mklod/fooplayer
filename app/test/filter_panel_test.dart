@@ -271,6 +271,106 @@ void main() {
     expect(selected, isEmpty);
   });
 
+  group('drill-down mode (onDrill/headerText/onClearHeader -- the Folder pane)', () {
+    testWidgets('plain click routes to onDrill instead of replacing the '
+        'selection; Ctrl+click still toggles via onSelect', (tester) async {
+      final drilled = <String>[];
+      Set<String>? selectResult;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            height: 260,
+            child: FilterPanel(
+              title: 'Folder',
+              values: const ['2007-08', '2007-09'],
+              selected: const {'2007-08'},
+              onSelect: (v) => selectResult = v,
+              onDrill: drilled.add,
+            ),
+          ),
+        ),
+      ));
+
+      await tester.tap(find.text('2007-09'));
+      await tester.pump();
+      expect(drilled, ['2007-09']);
+      expect(selectResult, isNull, reason: 'plain click must not touch onSelect');
+
+      // Even the sole-selected value drills on plain click (no
+      // "click-to-deselect" in drill-down mode).
+      await tester.tap(find.widgetWithText(ListTile, '2007-08'));
+      await tester.pump();
+      expect(drilled, ['2007-09', '2007-08']);
+      expect(selectResult, isNull);
+
+      await ctrlClick(tester, () => tester.tap(find.text('2007-09')));
+      await tester.pump();
+      expect(selectResult, {'2007-08', '2007-09'}); // toggle, no drill
+      expect(drilled, hasLength(2));
+    });
+
+    testWidgets('headerText pins the breadcrumb + clear button even with an '
+        'empty selection set, and the X calls onClearHeader', (tester) async {
+      var cleared = 0;
+      Set<String>? selectResult;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            height: 260,
+            child: FilterPanel(
+              title: 'Folder',
+              values: const ['2007-08', '2007-09'],
+              selected: const {}, // drilled in, but no Ctrl-selected siblings
+              onSelect: (v) => selectResult = v,
+              headerText: 'monthly / 2007-08',
+              onClearHeader: () => cleared++,
+            ),
+          ),
+        ),
+      ));
+
+      expect(find.text('monthly / 2007-08'), findsOneWidget);
+      expect(find.byKey(const Key('filter-clear')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('filter-clear')));
+      await tester.pump();
+      expect(cleared, 1);
+      expect(selectResult, isNull, reason: 'X must use onClearHeader, not onSelect');
+    });
+
+    testWidgets('headerText overrides the derived "N selected" text, and '
+        '"All (N)" still clears just the selection set via onSelect',
+        (tester) async {
+      var cleared = 0;
+      Set<String>? selectResult;
+      await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            height: 260,
+            child: FilterPanel(
+              title: 'Folder',
+              values: const ['2007-08', '2007-09'],
+              selected: const {'2007-08', '2007-09'},
+              onSelect: (v) => selectResult = v,
+              headerText: '2 selected',
+              onClearHeader: () => cleared++,
+            ),
+          ),
+        ),
+      ));
+
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.tap(find.text('All (2)'));
+      await tester.pump();
+      expect(selectResult, isEmpty); // sibling set cleared...
+      expect(cleared, 0); // ...but not the whole drill-down
+    });
+  });
+
   testWidgets('multiple selected values are all highlighted in the list',
       (tester) async {
     await tester.pumpWidget(MaterialApp(

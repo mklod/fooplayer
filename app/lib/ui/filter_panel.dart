@@ -22,11 +22,40 @@ import 'app_theme.dart';
 /// instead of replacing it, so several values can be selected at once
 /// (their tracks OR together within this panel). Clicking `All (N)` always
 /// clears the selection outright, regardless of modifier keys.
+///
+/// Drill-down mode (the Folder pane -- see `LibraryModel.folderEntries`):
+/// providing [onDrill] reroutes plain clicks to it (the owner replaces
+/// [values] with the clicked folder's children -- navigation, not
+/// replace-the-selection), while Ctrl+click keeps its toggle-into-
+/// [selected] behavior. [headerText] pins the owner-computed breadcrumb
+/// ("monthly / 2007-08") even while [selected] itself is empty, and
+/// [onClearHeader] lets the pinned ✕ reset the whole drill-down rather
+/// than just emptying [selected].
 class FilterPanel extends StatelessWidget {
   final String title;
   final List<String> values;
   final Set<String> selected;
   final ValueChanged<Set<String>> onSelect;
+
+  /// When non-null, a plain (un-modified) click on a value is a *drill-in*
+  /// -- routed here instead of the default replace-selection [onSelect]
+  /// call. Ctrl+click is unaffected (still toggles via [onSelect]), as is
+  /// `All (N)` (still `onSelect({})`).
+  final ValueChanged<String>? onDrill;
+
+  /// When non-null, the pinned header region shows regardless of whether
+  /// [selected] is empty, with this as its text -- overriding the default
+  /// single-value / "N selected" derivation. Lets the Folder pane show its
+  /// drill-down breadcrumb, whose text spans levels this panel can't
+  /// derive from [selected] alone.
+  final String? headerText;
+
+  /// What the pinned header's ✕ does -- defaults to `onSelect({})` (clear
+  /// the selection set, the two remaining panels' behavior). The Folder
+  /// pane passes its full reset here (back to the root list), which is
+  /// deliberately NOT what its `All (N)` row does (that stays
+  /// `onSelect({})`: "all entries at the current level").
+  final VoidCallback? onClearHeader;
 
   /// Renders [values] entries (and the pinned selected value) for display --
   /// defaults to the value itself. Selection/comparison (`selected`,
@@ -44,6 +73,9 @@ class FilterPanel extends StatelessWidget {
     required this.selected,
     required this.onSelect,
     this.displayName,
+    this.onDrill,
+    this.headerText,
+    this.onClearHeader,
   });
 
   String _label(String value) => displayName == null ? value : displayName!(value);
@@ -61,6 +93,10 @@ class FilterPanel extends StatelessWidget {
       onSelect(next);
       return;
     }
+    if (onDrill != null) {
+      onDrill!(v); // drill-down mode: plain click always navigates in
+      return;
+    }
     if (selected.length == 1 && selected.contains(v)) {
       onSelect(const {});
     } else {
@@ -70,7 +106,7 @@ class FilterPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasSelection = selected.isNotEmpty;
+    final hasSelection = headerText != null || selected.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -88,9 +124,10 @@ class FilterPanel extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    selected.length == 1
-                        ? _label(selected.first)
-                        : '${selected.length} selected',
+                    headerText ??
+                        (selected.length == 1
+                            ? _label(selected.first)
+                            : '${selected.length} selected'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context)
@@ -102,7 +139,7 @@ class FilterPanel extends StatelessWidget {
                 InkWell(
                   key: const Key('filter-clear'),
                   borderRadius: BorderRadius.circular(10),
-                  onTap: () => onSelect(const {}),
+                  onTap: onClearHeader ?? () => onSelect(const {}),
                   child: const Padding(
                     padding: EdgeInsets.all(4),
                     child: Icon(Icons.close, size: 15, color: AppColors.inkSecondary),

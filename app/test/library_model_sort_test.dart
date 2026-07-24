@@ -199,12 +199,12 @@ void main() {
   });
 
   group('folder/artist navigation reverts stale trackNumber sort', () {
-    test('setAlbums then setFolders reverts trackNumber sort to dateAdded descending', () {
+    test('setAlbums then drillIntoFolder reverts trackNumber sort to dateAdded descending', () {
       lib.setAlbums({'Zeta'});
       expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
       expect(lib.albumFilters, {'Zeta'});
-      lib.setFolders({r'L:\Music\SomeRoot'});
-      expect(lib.albumFilters, isEmpty); // setFolders clears album filter
+      lib.drillIntoFolder(r'L:\Music\SomeRoot');
+      expect(lib.albumFilters, isEmpty); // folder navigation clears album filter
       expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
       expect(lib.sortAscending, isFalse); // back to descending
     });
@@ -219,12 +219,12 @@ void main() {
       expect(lib.sortAscending, isFalse); // back to descending
     });
 
-    test('setFolders/setArtists does NOT revert if user explicitly chose a different sort', () {
+    test('drillIntoFolder/setArtists does NOT revert if user explicitly chose a different sort', () {
       lib.setAlbums({'Zeta'});
       lib.setSort(SortColumn.title); // user explicitly switches away from trackNumber
       expect(lib.sortColumn, SortColumn.title);
       expect(lib.sortAscending, isTrue); // title sort starts ascending
-      lib.setFolders({r'L:\Music\SomeRoot'}); // now change filter
+      lib.drillIntoFolder(r'L:\Music\SomeRoot'); // now change filter
       expect(lib.sortColumn, SortColumn.title); // title sort should NOT be reverted
       expect(lib.sortAscending, isTrue);
     });
@@ -242,9 +242,9 @@ void main() {
       expect(ids(), ['b']);
     });
 
-    test('setFolders clears downstream artist/album sets (cascade), even with multiple folders', () {
+    test('setFolderSiblings clears downstream artist/album sets (cascade), even with multiple folders', () {
       lib.setArtists({'muse'});
-      lib.setFolders({r'L:\Music\A', r'L:\Music\B'});
+      lib.setFolderSiblings({r'L:\Music\A', r'L:\Music\B'}); // Ctrl-selected roots
       expect(lib.artistFilters, isEmpty);
       expect(lib.albumFilters, isEmpty);
     });
