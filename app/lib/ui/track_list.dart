@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../model/library_model.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
@@ -32,10 +34,56 @@ const int _kArtistFlex = 2;
 const int _kTitleArtistFlex = _kTitleFlex + _kArtistFlex;
 const int _kAlbumFlex = 2;
 
+/// Builds the absolute Windows path (backslash-separated) `explorer.exe`
+/// needs from [track]'s root + relative path -- [Track.relPath] is always
+/// forward-slash (see its doc), so a plain `p.join` alone would leave those
+/// un-converted.
+String _windowsPathOf(Track track) =>
+    p.join(track.rootPath, track.relPath).replaceAll('/', r'\');
+
+/// Default [TrackListView.launchExplorer]: opens File Explorer with
+/// [track]'s file pre-selected, matching Explorer's own right-click ->
+/// "Open file location" behavior. Fire-and-forget (mirrors how playback
+/// launch errors are handled elsewhere in this file) -- a missing/renamed
+/// file just means Explorer opens with nothing selected rather than
+/// crashing the app.
+void _launchInExplorer(Track track) {
+  Process.run('explorer.exe', ['/select,${_windowsPathOf(track)}']);
+}
+
 class TrackListView extends StatelessWidget {
   final LibraryModel library;
   final PlayerService player;
-  const TrackListView({super.key, required this.library, required this.player});
+
+  /// Starts playback of [tracks] from [index] -- defaults to the real
+  /// [PlayerService.playFrom]. Injectable so widget tests can spy on
+  /// double-click-to-play without it constructing a real (native-backed)
+  /// `media_kit` Player: [PlayerService.playFrom] -> `_openCurrent` ->
+  /// `_ensurePlayer` -> `Player()`, which widget tests must never trigger.
+  final void Function(List<Track> tracks, int index)? onPlayTrack;
+
+  /// Launches File Explorer with a track's file pre-selected, invoked by
+  /// the row context menu's "View in folder" item -- defaults to
+  /// [_launchInExplorer]. Injectable so widget tests can spy on it instead
+  /// of actually shelling out.
+  final void Function(Track track) launchExplorer;
+
+  const TrackListView({
+    super.key,
+    required this.library,
+    required this.player,
+    this.onPlayTrack,
+    this.launchExplorer = _launchInExplorer,
+  });
+
+  void _play(List<Track> tracks, int index) {
+    final play = onPlayTrack;
+    if (play != null) {
+      play(tracks, index);
+    } else {
+      player.playFrom(tracks, index);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -59,10 +107,20 @@ class TrackListView extends StatelessWidget {
                 itemBuilder: (context, i) {
                   final t = tracks[i];
                   final isCurrent = player.current?.contentId == t.contentId;
+                  final isSelected = library.selectedTrackId == t.contentId;
                   return _TrackRow(
                     track: t,
                     isCurrent: isCurrent,
-                    onTap: () => player.playFrom(tracks, i),
+                    isSelected: isSelected,
+                    // Single click selects only -- no playback.
+                    onSelect: () => library.selectTrack(t.contentId),
+                    // Double click plays *and* selects (mirrors clicking a
+                    // now-playing track elsewhere in the app).
+                    onPlay: () {
+                      library.selectTrack(t.contentId);
+                      _play(tracks, i);
+                    },
+                    launchExplorer: launchExplorer,
                     showTrackNumber: showTrackNumber,
                     // Playlist order is curator-defined, not tag-derived, so
                     // '#' shows where the track sits in that order (1-based)
@@ -218,12 +276,22 @@ class _HeaderCell extends StatelessWidget {
 /// A single track-list row, columns aligned with [_TrackListHeader]: Title
 /// and Artist are separate columns sharing the Title+Artist flex block (same
 /// internal split as the header), then Album, then fixed-width right-aligned
-/// Time and Date. Tap-to-play and the current-track highlight are unchanged
-/// from before Task 6.
+/// Time and Date.
+///
+/// Click/selection model: single click selects only ([onSelect]); double
+/// click plays (and selects) via [onPlay]; right click opens a context menu
+/// (see [_showTrackContextMenu]) with a "View in folder" item that invokes
+/// [launchExplorer]. [isCurrent] (playing) and [isSelected] are independent
+/// -- a row can be both, either, or neither, each with its own highlight:
+/// playing keeps the accent title treatment, selected gets the
+/// [AppColors.selectionFill] row background.
 class _TrackRow extends StatelessWidget {
   final Track track;
   final bool isCurrent;
-  final VoidCallback onTap;
+  final bool isSelected;
+  final VoidCallback onSelect;
+  final VoidCallback onPlay;
+  final void Function(Track track) launchExplorer;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -232,7 +300,10 @@ class _TrackRow extends StatelessWidget {
   const _TrackRow({
     required this.track,
     required this.isCurrent,
-    required this.onTap,
+    required this.isSelected,
+    required this.onSelect,
+    required this.onPlay,
+    required this.launchExplorer,
     required this.showTrackNumber,
     this.trackNumberText,
   });
@@ -241,9 +312,16 @@ class _TrackRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final secondaryStyle = Theme.of(context).textTheme.bodySmall;
     return Material(
-      color: isCurrent ? AppColors.selectionFill : Colors.transparent,
+      color: isSelected ? AppColors.selectionFill : Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: onSelect,
+        onDoubleTap: onPlay,
+        onSecondaryTapDown: (details) => _showTrackContextMenu(
+          context: context,
+          globalPosition: details.globalPosition,
+          track: track,
+          launchExplorer: launchExplorer,
+        ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
@@ -326,5 +404,38 @@ class _TrackRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Row context-menu items (currently just the one). A private enum rather
+/// than a bare string keeps [showMenu]'s selected value type-checked.
+enum _TrackMenuAction { viewInFolder }
+
+/// Shows the row's right-click context menu at [globalPosition] (from
+/// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]) and, if
+/// its one item is chosen, invokes [launchExplorer] with [track].
+Future<void> _showTrackContextMenu({
+  required BuildContext context,
+  required Offset globalPosition,
+  required Track track,
+  required void Function(Track track) launchExplorer,
+}) async {
+  final overlayBox =
+      Overlay.of(context).context.findRenderObject() as RenderBox;
+  final selection = await showMenu<_TrackMenuAction>(
+    context: context,
+    position: RelativeRect.fromRect(
+      globalPosition & const Size(1, 1),
+      Offset.zero & overlayBox.size,
+    ),
+    items: const [
+      PopupMenuItem(
+        value: _TrackMenuAction.viewInFolder,
+        child: Text('View in folder'),
+      ),
+    ],
+  );
+  if (selection == _TrackMenuAction.viewInFolder) {
+    launchExplorer(track);
   }
 }

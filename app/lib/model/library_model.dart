@@ -89,6 +89,14 @@ class LibraryModel extends ChangeNotifier {
   String? activePlaylist;
   String status = 'idle';
 
+  /// The single track currently selected in the track list (single-click;
+  /// see `ui/track_list.dart`'s `_TrackRow`) -- visual-only for now (a
+  /// `selectionFill` background), and the basis for a future multi-select.
+  /// Distinct from the currently *playing* track ([PlayerService.current]):
+  /// a row can be selected, playing, both, or neither, and each gets its
+  /// own independent highlight treatment.
+  String? selectedTrackId;
+
   /// The track-list column [visibleTracks] is currently sorted by, and its
   /// direction. Defaults to date-added, newest first -- matching the feed's
   /// pre-Task-6 behavior exactly. Playlist mode ignores both (playlist
@@ -607,6 +615,14 @@ class LibraryModel extends ChangeNotifier {
 
   void setSearch(String s) {
     search = s;
+    notifyListeners();
+  }
+
+  /// Selects [id] as the single selected track (or clears the selection,
+  /// when `null`). Selection is purely a UI highlight -- it never starts or
+  /// affects playback (see [PlayerService.playFrom] for that).
+  void selectTrack(String? id) {
+    selectedTrackId = id;
     notifyListeners();
   }
 
