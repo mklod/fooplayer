@@ -27,9 +27,11 @@ class MetaCache {
   }
 }
 
+/// Resolves each track's file via its own [Track.rootPath] (multi-root
+/// libraries can mix tracks from different roots in a single list), rather
+/// than a single library-wide root directory.
 Future<List<Track>> fillMetadata(
   List<Track> tracks,
-  Directory libraryRoot,
   MetaCache cache, {
   void Function(int done, int total)? onProgress,
 }) async {
@@ -38,7 +40,7 @@ Future<List<Track>> fillMetadata(
   for (final t in tracks) {
     TrackTags? tags = cache.entries[t.contentId];
     if (tags == null) {
-      final file = File(p.join(libraryRoot.path, t.relPath));
+      final file = File(p.join(t.rootPath, t.relPath));
       tags = file.existsSync()
           ? await readTags(file, relPath: t.relPath)
           : parseFromFilename(t.relPath);

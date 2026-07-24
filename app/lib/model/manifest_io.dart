@@ -15,7 +15,11 @@ class ManifestData {
   const ManifestData({required this.tracks, required this.playlists});
 }
 
-ManifestData loadManifestFile(File f) {
+/// Parses a `.library.json` manifest, stamping every [Track] it produces
+/// with [rootPath] -- the library root this particular manifest lives in --
+/// so downstream path resolution (`p.join(track.rootPath, track.relPath)`)
+/// works without a separately-threaded "which root was this from" value.
+ManifestData loadManifestFile(File f, {required String rootPath}) {
   final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
   final schema = j['schema'] as int;
   if (schema != 1) throw FormatException('unsupported manifest schema: $schema');
@@ -26,6 +30,7 @@ ManifestData loadManifestFile(File f) {
     tracks.add(Track(
       contentId: id,
       relPath: paths.first,
+      rootPath: rootPath,
       dateAdded: DateTime.parse(entry['date_added'] as String).toUtc(),
       title: p.basenameWithoutExtension(paths.first),
     ));

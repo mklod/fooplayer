@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
@@ -7,7 +6,6 @@ import '../model/track.dart';
 import 'queue_controller.dart';
 
 class PlayerService extends ChangeNotifier {
-  final Directory libraryRoot;
   final QueueController queueController = QueueController();
   final _rng = Random();
 
@@ -17,7 +15,7 @@ class PlayerService extends ChangeNotifier {
   Duration? duration;
   double volume = 1.0;
 
-  PlayerService({required this.libraryRoot});
+  PlayerService();
 
   Track? get current => queueController.current;
   bool get shuffle => queueController.shuffle;
@@ -50,7 +48,7 @@ class PlayerService extends ChangeNotifier {
       await _player?.stop();
       return;
     }
-    final path = p.join(libraryRoot.path, t.relPath);
+    final path = p.join(t.rootPath, t.relPath);
     await _ensurePlayer().open(Media(path), play: true);
     notifyListeners();
   }

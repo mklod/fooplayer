@@ -20,10 +20,11 @@ void main() {
       },
       'playlists': [{'name': 'mix', 'track_ids': ['id2', 'id1']}],
     });
-    final data = loadManifestFile(f);
+    final data = loadManifestFile(f, rootPath: tmp.path);
     expect(data.tracks, hasLength(2));
     final t1 = data.tracks.singleWhere((t) => t.contentId == 'id1');
     expect(t1.relPath, 'albums/X/Artist - Song.mp3'); // first path wins
+    expect(t1.rootPath, tmp.path);
     expect(t1.dateAdded, DateTime.utc(2023, 4, 4, 1, 48, 38, 356, 840));
     expect(t1.title, 'Artist - Song'); // filename sans extension until metadata fills it
     expect(t1.artist, '');
@@ -33,7 +34,8 @@ void main() {
 
   test('rejects unknown schema', () {
     final f = write({'schema': 99, 'tracks': {}, 'playlists': []});
-    expect(() => loadManifestFile(f), throwsA(isA<FormatException>()));
+    expect(() => loadManifestFile(f, rootPath: tmp.path),
+        throwsA(isA<FormatException>()));
   });
 
   test('copyWith fills metadata without touching identity', () {
@@ -42,10 +44,11 @@ void main() {
       'tracks': {'id1': {'date_added': '2024-01-01T00:00:00.000Z', 'paths': ['a.mp3']}},
       'playlists': [],
     });
-    final t = loadManifestFile(f).tracks.single;
+    final t = loadManifestFile(f, rootPath: tmp.path).tracks.single;
     final filled = t.copyWith(artist: 'Muse', title: 'New Born', album: 'Origin', genre: 'Rock');
     expect(filled.contentId, t.contentId);
     expect(filled.relPath, t.relPath);
+    expect(filled.rootPath, t.rootPath);
     expect(filled.artist, 'Muse');
     expect(filled.genre, 'Rock');
   });

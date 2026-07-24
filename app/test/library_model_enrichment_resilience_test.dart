@@ -145,7 +145,7 @@ void main() {
     // real file I/O or network latency.
     await model
         .load(
-          libraryRoot: libRoot,
+          libraryRoots: [libRoot],
           cacheFile: cacheFile,
           batchTimeout: const Duration(microseconds: 1),
           fileTimeout: const Duration(microseconds: 1),
@@ -199,7 +199,7 @@ void main() {
 
     await model
         .load(
-          libraryRoot: libRoot,
+          libraryRoots: [libRoot],
           cacheFile: cacheFile,
           onProgress: (done, total) {
             // Fires once per completed batch. By the time the 6th (final)

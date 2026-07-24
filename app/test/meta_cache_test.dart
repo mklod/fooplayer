@@ -4,8 +4,12 @@ import 'package:fooplayer_app/metadata/meta_cache.dart';
 import 'package:fooplayer_app/metadata/tags.dart';
 import 'package:fooplayer_app/model/track.dart';
 
-Track tr(String id, String relPath) => Track(
-    contentId: id, relPath: relPath, dateAdded: DateTime.utc(2024), title: 'x');
+Track tr(String id, String relPath, {String rootPath = ''}) => Track(
+    contentId: id,
+    relPath: relPath,
+    rootPath: rootPath,
+    dateAdded: DateTime.utc(2024),
+    title: 'x');
 
 void main() {
   late Directory tmp;
@@ -31,10 +35,10 @@ void main() {
     cache.entries['hit'] = const TrackTags(title: 'Cached', artist: 'CacheArtist');
 
     final tracks = [
-      tr('hit', 'does/not/exist.mp3'), // cache hit: file never touched
-      tr('miss', 'Muse - New Born.mp3'),
+      tr('hit', 'does/not/exist.mp3', rootPath: root.path), // cache hit: file never touched
+      tr('miss', 'Muse - New Born.mp3', rootPath: root.path),
     ];
-    final filled = await fillMetadata(tracks, root, cache);
+    final filled = await fillMetadata(tracks, cache);
     expect(filled[0].artist, 'CacheArtist');
     expect(filled[1].artist, 'Muse');
     expect(filled[1].title, 'New Born');
@@ -44,7 +48,8 @@ void main() {
   test('missing file on cache miss keeps filename-derived fields', () async {
     final root = await Directory('${tmp.path}/lib2').create();
     final cache = MetaCache.load(File('${tmp.path}/mc2.json'));
-    final filled = await fillMetadata([tr('gone', 'Artist X - Gone.mp3')], root, cache);
+    final filled = await fillMetadata(
+        [tr('gone', 'Artist X - Gone.mp3', rootPath: root.path)], cache);
     expect(filled.single.artist, 'Artist X');
     expect(filled.single.title, 'Gone');
   });
@@ -55,7 +60,8 @@ void main() {
     await File('${root.path}/RootSong.mp3').writeAsBytes(List.filled(32, 0));
     final cache = MetaCache.load(File('${tmp.path}/mc3.json'));
 
-    final filled = await fillMetadata([tr('root', 'RootSong.mp3')], root, cache);
+    final filled = await fillMetadata(
+        [tr('root', 'RootSong.mp3', rootPath: root.path)], cache);
     expect(filled.single.title, 'RootSong');
     expect(filled.single.album, ''); // Should be empty, not the library folder name
   });

@@ -4,7 +4,9 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
+import 'model/app_config.dart';
 import 'model/library_model.dart';
+import 'model/library_roots_prefs.dart';
 import 'player/player_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
@@ -17,31 +19,16 @@ Directory _appDataDir() =>
 
 File _configFile() => File(p.join(_appDataDir().path, 'config.json'));
 
-/// Reads the whole config.json as a map (empty map if missing/unreadable).
-/// Task 3 only cares about the top-level `"ui"` key -- everything else
-/// (e.g. `libraryRoot`, and whatever Task 4's `libraryRoots` migration
-/// adds later) is read here and written straight back untouched so this
-/// stays forward-compatible with the config-schema work in Task 4.
-Map<String, dynamic> _loadConfig() {
-  final cfg = _configFile();
-  try {
-    if (cfg.existsSync()) {
-      return jsonDecode(cfg.readAsStringSync()) as Map<String, dynamic>;
-    }
-  } catch (_) {}
-  return {};
-}
+/// Reads the whole config.json as a map (empty map if missing; see
+/// [readConfigFile] for the corrupt-file handling). Every key this app
+/// doesn't otherwise interpret is preserved so it round-trips through
+/// [_writeConfig] untouched.
+Map<String, dynamic> _loadConfig() => readConfigFile(_configFile());
 
 void _writeConfig(Map<String, dynamic> config) {
   final cfg = _configFile();
   cfg.parent.createSync(recursive: true);
   cfg.writeAsStringSync(jsonEncode(config));
-}
-
-String _libraryRootFrom(Map<String, dynamic> config) {
-  final root = config['libraryRoot'] as String?;
-  if (root != null && root.isNotEmpty) return root;
-  return _defaultLibraryRoot;
 }
 
 /// Flushes any debounced [LayoutPrefs] write on app shutdown so a
@@ -86,17 +73,19 @@ class _LifecycleFlusher with WidgetsBindingObserver {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  final config = _loadConfig();
-  final libraryRootPath = _libraryRootFrom(config);
-  if (!config.containsKey('libraryRoot')) {
-    // First run (or a config.json missing just this key): seed it, same as
-    // the original single-key behavior, without disturbing other keys.
-    config['libraryRoot'] = libraryRootPath;
+  final rawConfig = _loadConfig();
+  final appConfig = migrateConfig(rawConfig, defaultRoot: _defaultLibraryRoot);
+  // `config` (appConfig.raw) is the single mutable map every writer below
+  // reads from and persists via _writeConfig -- it already carries the
+  // migrated `libraryRoots` plus every other preserved key (e.g. `"ui"`).
+  final config = appConfig.raw;
+  if (needsMigrationWrite(rawConfig)) {
     _writeConfig(config);
   }
-  final root = Directory(libraryRootPath);
+
   final library = LibraryModel();
-  final player = PlayerService(libraryRoot: root);
+  final player = PlayerService();
+
   final layoutPrefs = LayoutPrefs.fromConfig(
     config['ui'] as Map<String, dynamic>?,
     writer: (ui) {
@@ -104,25 +93,47 @@ void main() {
       _writeConfig(config);
     },
   );
-  _LifecycleFlusher(layoutPrefs);
-  WidgetsBinding.instance.addPostFrameCallback((_) {
+
+  final cacheFile = File(p.join(_appDataDir().path, 'meta_cache.json'));
+  final libraryRootsPrefs = LibraryRootsPrefs(
+    roots: appConfig.libraryRoots,
+    writer: (roots) {
+      config['libraryRoots'] = roots;
+      _writeConfig(config);
+    },
+  );
+  void reloadLibrary() {
     library.load(
-      libraryRoot: root,
-      cacheFile: File(p.join(_appDataDir().path, 'meta_cache.json')),
+      libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
+      cacheFile: cacheFile,
     );
-  });
-  runApp(FooPlayerApp(library: library, player: player, layoutPrefs: layoutPrefs));
+  }
+
+  // Settings-dialog add/remove calls writer() above then notifies -- react
+  // by reloading so the merged feed/playlists reflect the new root set.
+  libraryRootsPrefs.addListener(reloadLibrary);
+
+  _LifecycleFlusher(layoutPrefs);
+  WidgetsBinding.instance.addPostFrameCallback((_) => reloadLibrary());
+  runApp(FooPlayerApp(
+    library: library,
+    player: player,
+    layoutPrefs: layoutPrefs,
+    libraryRootsPrefs: libraryRootsPrefs,
+  ));
 }
 
 class FooPlayerApp extends StatelessWidget {
   final LibraryModel library;
   final PlayerService player;
   final LayoutPrefs layoutPrefs;
+  final LibraryRootsPrefs libraryRootsPrefs;
   const FooPlayerApp({
     super.key,
     required this.library,
     required this.player,
     required this.layoutPrefs,
+    required this.libraryRootsPrefs,
   });
 
   @override
@@ -130,7 +141,12 @@ class FooPlayerApp extends StatelessWidget {
     return MaterialApp(
       title: 'fooplayer',
       theme: buildAppTheme(),
-      home: HomeScreen(library: library, player: player, layoutPrefs: layoutPrefs),
+      home: HomeScreen(
+        library: library,
+        player: player,
+        layoutPrefs: layoutPrefs,
+        libraryRootsPrefs: libraryRootsPrefs,
+      ),
     );
   }
 }

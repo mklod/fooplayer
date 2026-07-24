@@ -256,11 +256,9 @@ class _LcdCluster extends StatelessWidget {
 
 class NowPlayingBar extends StatelessWidget {
   final PlayerService player;
-  final Directory libraryRoot;
   const NowPlayingBar({
     super.key,
     required this.player,
-    required this.libraryRoot,
   });
 
   @override
@@ -299,7 +297,7 @@ class NowPlayingBar extends StatelessWidget {
                         child: _LcdCluster(
                           key: const Key('lcd'),
                           track: t,
-                          file: File(p.join(libraryRoot.path, t.relPath)),
+                          file: File(p.join(t.rootPath, t.relPath)),
                           pos: pos,
                           total: total,
                           onSeek: (v) => player.seek(

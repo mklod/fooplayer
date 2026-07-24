@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/library_roots_prefs.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
@@ -24,11 +25,14 @@ LibraryModel fixtureLibrary() {
 void main() {
   testWidgets('shows feed newest-first with sidebar playlists', (tester) async {
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     expect(find.text('Newest Song'), findsOneWidget);
     expect(find.text('Oldest Song'), findsOneWidget);
     expect(find.text('mix'), findsOneWidget); // playlist in sidebar
@@ -40,11 +44,14 @@ void main() {
 
   testWidgets('selecting a playlist shows its tracks only', (tester) async {
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     await tester.tap(find.text('mix'));
     await tester.pumpAndSettle();
     expect(find.text('Oldest Song'), findsOneWidget);
@@ -54,11 +61,14 @@ void main() {
   testWidgets('genre selection cascades into artist panel and track list',
       (tester) async {
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     // Both artists visible initially in the Artist panel.
     expect(find.text('Muse'), findsWidgets);
     expect(find.text('Feed Me'), findsWidgets);
@@ -80,11 +90,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1000, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     expect(find.byIcon(Icons.play_arrow), findsNothing); // no current track
     // Simulate a queue without touching media_kit natives; setVolume triggers
     // notifyListeners without creating the Player.
@@ -144,11 +157,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(500, 400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     player.queueController.setQueue(lib.allTracks, 0);
     await player.setVolume(1.0);
     await tester.pumpAndSettle();
@@ -161,11 +177,14 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(1400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: LayoutPrefs())));
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
     player.queueController.setQueue(lib.allTracks, 0);
     await player.setVolume(1.0);
     await tester.pumpAndSettle();
@@ -192,12 +211,15 @@ void main() {
       'dragging the sidebar divider resizes the sidebar SizedBox by the drag delta',
       (tester) async {
     final lib = fixtureLibrary();
-    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    final player = PlayerService();
     final layoutPrefs = LayoutPrefs();
     await tester.pumpWidget(MaterialApp(
         theme: buildAppTheme(),
         home: HomeScreen(
-            library: lib, player: player, layoutPrefs: layoutPrefs)));
+            library: lib,
+            player: player,
+            layoutPrefs: layoutPrefs,
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
 
     SizedBox sidebarBox() =>
         tester.widget<SizedBox>(find.byKey(const Key('sidebar-panel')));

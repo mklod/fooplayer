@@ -1,22 +1,26 @@
 import 'package:flutter/material.dart';
 import '../model/library_model.dart';
+import '../model/library_roots_prefs.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'drag_divider.dart';
 import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
+import 'settings_dialog.dart';
 import 'track_list.dart';
 
 class HomeScreen extends StatelessWidget {
   final LibraryModel library;
   final PlayerService player;
   final LayoutPrefs layoutPrefs;
+  final LibraryRootsPrefs libraryRootsPrefs;
   const HomeScreen({
     super.key,
     required this.library,
     required this.player,
     required this.layoutPrefs,
+    required this.libraryRootsPrefs,
   });
 
   @override
@@ -39,7 +43,8 @@ class HomeScreen extends StatelessWidget {
                     // hidden behind an opaque background layer.
                     child: Material(
                       color: AppColors.panelBg,
-                      child: _Sidebar(library: library),
+                      child: _Sidebar(
+                          library: library, libraryRootsPrefs: libraryRootsPrefs),
                     ),
                   ),
                   VerticalDragDivider(
@@ -114,7 +119,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          NowPlayingBar(player: player, libraryRoot: player.libraryRoot),
+          NowPlayingBar(player: player),
         ],
       ),
     );
@@ -123,26 +128,58 @@ class HomeScreen extends StatelessWidget {
 
 class _Sidebar extends StatelessWidget {
   final LibraryModel library;
-  const _Sidebar({required this.library});
+  final LibraryRootsPrefs libraryRootsPrefs;
+  const _Sidebar({required this.library, required this.libraryRootsPrefs});
+
+  void _openSettings(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ListenableBuilder(
+        listenable: Listenable.merge([libraryRootsPrefs, library]),
+        builder: (context, _) => SettingsDialog(
+          roots: libraryRootsPrefs.roots,
+          rootsMissingManifest: library.rootsMissingManifest,
+          onAddRoot: libraryRootsPrefs.addRoot,
+          onRemoveRoot: libraryRootsPrefs.removeRoot,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: library,
-      builder: (context, _) => ListView(
+      builder: (context, _) => Column(
         children: [
-          ListTile(
-            title: const Text('Library'),
-            selected: library.activePlaylist == null,
-            onTap: () => library.setPlaylist(null),
-          ),
-          const Divider(),
-          for (final pl in library.playlists)
-            ListTile(
-              title: Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-              selected: library.activePlaylist == pl.name,
-              onTap: () => library.setPlaylist(pl.name),
+          Expanded(
+            child: ListView(
+              children: [
+                ListTile(
+                  title: const Text('Library'),
+                  selected: library.activePlaylist == null,
+                  onTap: () => library.setPlaylist(null),
+                ),
+                const Divider(),
+                for (final pl in library.playlists)
+                  ListTile(
+                    title:
+                        Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    selected: library.activePlaylist == pl.name,
+                    onTap: () => library.setPlaylist(pl.name),
+                  ),
+              ],
             ),
+          ),
+          const Divider(height: 1),
+          // Pinned at the sidebar bottom (outside the scrolling ListView
+          // above) so it's always reachable regardless of playlist count.
+          ListTile(
+            key: const Key('settings-gear'),
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('Settings'),
+            onTap: () => _openSettings(context),
+          ),
         ],
       ),
     );

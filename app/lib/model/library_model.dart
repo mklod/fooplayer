@@ -44,6 +44,10 @@ const _saveEveryNBatches = 5;
 class LibraryModel extends ChangeNotifier {
   List<Track> allTracks = [];
   List<ManifestPlaylist> playlists = [];
+  /// Configured roots that have no `.library.json` yet, as of the last
+  /// [load] -- skipped (not fatal) so the rest of the library still loads.
+  /// The settings dialog surfaces these with a "seed with foolib" note.
+  List<String> rootsMissingManifest = [];
   String? genreFilter;
   String? artistFilter;
   String? albumFilter;
@@ -52,7 +56,7 @@ class LibraryModel extends ChangeNotifier {
   String status = 'idle';
 
   Future<void> load({
-    required Directory libraryRoot,
+    required List<Directory> libraryRoots,
     required File cacheFile,
     void Function(int done, int total)? onProgress,
     Duration batchTimeout = _defaultBatchTimeout,
@@ -61,21 +65,54 @@ class LibraryModel extends ChangeNotifier {
     try {
       status = 'loading manifest';
       notifyListeners();
-      final manifest = File('${libraryRoot.path}/.library.json');
-      if (!manifest.existsSync()) {
-        status = 'no .library.json in ${libraryRoot.path}';
+
+      // Merge every root's manifest: tracks dedupe by contentId, first root
+      // wins (so re-ordering roots in settings doesn't shuffle which copy
+      // "owns" a track already known from an earlier root); playlists are
+      // concatenated, with a same-name collision from a different root
+      // suffixed " (2)", " (3)", ... so neither is silently shadowed.
+      final mergedTracks = <String, Track>{};
+      final mergedPlaylists = <ManifestPlaylist>[];
+      final usedPlaylistNames = <String>{};
+      final missingManifest = <String>[];
+
+      for (final root in libraryRoots) {
+        final manifest = File(p.join(root.path, '.library.json'));
+        if (!manifest.existsSync()) {
+          missingManifest.add(root.path);
+          continue;
+        }
+        final data = loadManifestFile(manifest, rootPath: root.path);
+        for (final t in data.tracks) {
+          mergedTracks.putIfAbsent(t.contentId, () => t);
+        }
+        for (final pl in data.playlists) {
+          mergedPlaylists.add(ManifestPlaylist(
+            name: _uniquePlaylistName(pl.name, usedPlaylistNames),
+            trackIds: pl.trackIds,
+          ));
+        }
+      }
+
+      rootsMissingManifest = missingManifest;
+      playlists = mergedPlaylists;
+
+      if (mergedTracks.isEmpty) {
+        allTracks = [];
+        status = libraryRoots.isEmpty
+            ? 'no library roots configured'
+            : 'no .library.json found in any configured root';
         notifyListeners();
         return;
       }
-      final data = loadManifestFile(manifest);
-      playlists = data.playlists;
+
       final cache = MetaCache.load(cacheFile);
 
       // Part A -- instant feed: apply any cached tags synchronously (cheap
       // map lookups) so the date-sorted view renders within ~2s of launch.
       // Tracks with no cached tags keep the manifest's filename-derived
       // title for now and get enriched in the background below.
-      final tracks = List<Track>.of(data.tracks);
+      final tracks = mergedTracks.values.toList();
       final missing = <int>[]; // indices into `tracks` needing enrichment
       for (var i = 0; i < tracks.length; i++) {
         final t = tracks[i];
@@ -111,7 +148,7 @@ class LibraryModel extends ChangeNotifier {
             for (final i in batch)
               (
                 tracks[i].contentId,
-                p.join(libraryRoot.path, tracks[i].relPath),
+                p.join(tracks[i].rootPath, tracks[i].relPath),
                 tracks[i].relPath,
               )
           ];
@@ -215,6 +252,19 @@ class LibraryModel extends ChangeNotifier {
     search = '';
     notifyListeners();
   }
+}
+
+/// Returns [name] made unique against [used] (adding it to [used] as a side
+/// effect) by suffixing " (2)", " (3)", ... on collision -- e.g. a
+/// same-named playlist ("mix") loaded from a second, then third, library
+/// root becomes "mix (2)", then "mix (3)".
+String _uniquePlaylistName(String name, Set<String> used) {
+  if (used.add(name)) return name;
+  var n = 2;
+  while (!used.add('$name ($n)')) {
+    n++;
+  }
+  return '$name ($n)';
 }
 
 /// Resolves [records] one at a time, each bounded by [timeout], for use
