@@ -15,6 +15,19 @@ class PlayerService extends ChangeNotifier {
   Duration? duration;
   double volume = 1.0;
 
+  /// On-play duration backfill hook: invoked (when set) each time the
+  /// engine reports a real, nonzero duration for the current track *and*
+  /// that track's library metadata has no [Track.durationMs] of its own --
+  /// i.e. exactly the tracks whose Time column is blank because the tag
+  /// parser couldn't derive a duration at scan time (e.g. an MP3 whose
+  /// APEv2 tag routes it to a parser with no stream-duration logic; see
+  /// metadata/tags.dart's `_readRawTags` dispatch). main.dart wires this to
+  /// [LibraryModel.updateDuration] so any such track permanently gains its
+  /// duration the first time it's played. Tracks that already have a
+  /// durationMs never re-invoke this -- the engine's value would just
+  /// restate what the library already knows.
+  void Function(String contentId, Duration duration)? onObservedDuration;
+
   PlayerService();
 
   Track? get current => queueController.current;
@@ -27,10 +40,7 @@ class PlayerService extends ChangeNotifier {
       position = d;
       notifyListeners();
     });
-    player.stream.duration.listen((d) {
-      duration = d;
-      notifyListeners();
-    });
+    player.stream.duration.listen(handleDurationChange);
     player.stream.playing.listen((v) {
       playing = v;
       notifyListeners();
@@ -40,6 +50,22 @@ class PlayerService extends ChangeNotifier {
     });
     _player = player;
     return player;
+  }
+
+  /// The `player.stream.duration` listener body (see [_ensurePlayer]),
+  /// extracted so tests can drive duration changes directly -- constructing
+  /// a real media_kit [Player] needs natives no test environment here has.
+  /// Mirrors the engine's duration into [duration] and, when it's a real
+  /// (nonzero) value for a current track the library has no duration for,
+  /// reports it via [onObservedDuration] (see its doc for why that gate).
+  @visibleForTesting
+  void handleDurationChange(Duration d) {
+    duration = d;
+    final t = queueController.current;
+    if (d > Duration.zero && t != null && t.durationMs == null) {
+      onObservedDuration?.call(t.contentId, d);
+    }
+    notifyListeners();
   }
 
   Future<void> _openCurrent() async {
