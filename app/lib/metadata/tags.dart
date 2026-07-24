@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:audio_metadata_reader/audio_metadata_reader.dart' as amr;
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:path/path.dart' as p;
 
 class TrackTags {
@@ -39,14 +39,131 @@ TrackTags parseFromFilename(String relPath) {
 
 String? _blankAsNull(String? s) => (s == null || s.trim().isEmpty) ? null : s.trim();
 
+/// Minimal metadata pulled out of a format-specific parser: just what
+/// [TrackTags] and cover art need.
+class _RawTags {
+  final String? title;
+  final String? artist;
+  final String? album;
+  final String? genre;
+  final List<Picture> pictures;
+  const _RawTags({
+    this.title,
+    this.artist,
+    this.album,
+    this.genre,
+    this.pictures = const [],
+  });
+}
+
+/// Reads tag data for [audioFile] without ever going through
+/// `audio_metadata_reader`'s top-level `readMetadata`.
+///
+/// `readMetadata` (package v1.6.0, `lib/src/parser.dart`) does
+/// `track.openSync()` itself and never closes that `RandomAccessFile` when
+/// no container parser's `canUserParser` matches -- it falls straight
+/// through to `throw NoMetadataParserException(...)` with no `finally`
+/// anywhere in the function. On Windows that leaves the audio file locked
+/// for the rest of the process. This app scans ~10,000 files, so that is
+/// disqualifying: locked library files plus handle exhaustion.
+///
+/// We open the file ourselves and own the handle end-to-end: opened here,
+/// closed in `finally`. Dispatch mirrors `readMetadata`'s order and its
+/// per-format field mapping into `AudioMetadata` (APEv2 is checked before
+/// MP3 because APEv2 can coexist with a trailing ID3v1 tag and dedicated
+/// APE metadata shouldn't be shadowed by that older tag) but only for the
+/// formats the package exposes as exported parsers: [ApeParser],
+/// [MP3Parser], [FlacParser], [MP4Parser], [OGGParser]. Formats without an
+/// exported parser (e.g. `.wav`/RIFF -- `RiffParser` is not exported from
+/// `audio_metadata_reader.dart`) fall through to `null`, same effective
+/// outcome as `readMetadata` throwing `NoMetadataParserException`.
+///
+/// Note: several of the package's own container parsers already
+/// `closeSync()` the reader internally on their happy/known-error paths
+/// (`MP3Parser.parse` wraps everything in `try`/`finally`; `FlacParser`,
+/// `MP4Parser`, `OGGParser` close it after their main parse loop returns;
+/// `ApeParser` closes it before each of its early throws and again before
+/// returning). So our own `finally` below is a backstop, not always the
+/// first close -- it tolerates the "already closed" `FileSystemException`
+/// that a redundant `closeSync()` raises, since the invariant we actually
+/// need (closed by the time we return, however it got there) still holds.
+/// It's the sole close for the cases those parsers don't already cover:
+/// no `canUserParser` matches at all, or an uncaught exception occurs
+/// mid-parse on a malformed/truncated file in a parser that (unlike
+/// `MP3Parser`) doesn't wrap its whole body in `try`/`finally`.
+_RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
+  final reader = audioFile.openSync();
+  try {
+    if (ApeParser.canUserParser(reader)) {
+      final m = ApeParser(fetchImage: fetchImage).parse(reader);
+      return _RawTags(
+        title: m.title,
+        artist: m.artist,
+        album: m.album,
+        genre: m.genres.firstOrNull,
+        pictures: m.pictures,
+      );
+    }
+    if (MP3Parser.canUserParser(reader)) {
+      final m = MP3Parser(fetchImage: fetchImage).parse(reader);
+      return _RawTags(
+        title: m.songName,
+        artist: m.bandOrOrchestra ?? m.leadPerformer ?? m.originalArtist,
+        album: m.album,
+        genre: m.genres.firstOrNull,
+        pictures: m.pictures,
+      );
+    }
+    if (FlacParser.canUserParser(reader)) {
+      final m = FlacParser(fetchImage: fetchImage).parse(reader);
+      return _RawTags(
+        title: m.title.firstOrNull,
+        artist: m.artist.firstOrNull,
+        album: m.album.firstOrNull,
+        genre: m.genres.firstOrNull,
+        pictures: m.pictures,
+      );
+    }
+    if (MP4Parser.canUserParser(reader)) {
+      final m = MP4Parser(fetchImage: fetchImage).parse(reader);
+      return _RawTags(
+        title: m.title,
+        artist: m.artist,
+        album: m.album,
+        genre: m.genre,
+        pictures: m.picture == null ? const [] : [m.picture!],
+      );
+    }
+    if (OGGParser.canUserParser(reader)) {
+      final m = OGGParser(fetchImage: fetchImage).parse(reader);
+      return _RawTags(
+        title: m.title.firstOrNull,
+        artist: m.artist.firstOrNull,
+        album: m.album.firstOrNull,
+        genre: m.genres.firstOrNull,
+        pictures: m.pictures,
+      );
+    }
+    return null;
+  } finally {
+    try {
+      reader.closeSync();
+    } on FileSystemException {
+      // Already closed by the container parser's own parse() above; the
+      // handle is closed either way, which is the only thing we need.
+    }
+  }
+}
+
 Future<TrackTags> readTags(File audioFile) async {
   try {
-    final meta = amr.readMetadata(audioFile, getImage: false);
+    final raw = _readRawTags(audioFile, fetchImage: false);
+    if (raw == null) return parseFromFilename(audioFile.path);
     final fromTags = TrackTags(
-      title: _blankAsNull(meta.title),
-      artist: _blankAsNull(meta.artist),
-      album: _blankAsNull(meta.album),
-      genre: _blankAsNull(meta.genres.isEmpty ? null : meta.genres.first),
+      title: _blankAsNull(raw.title),
+      artist: _blankAsNull(raw.artist),
+      album: _blankAsNull(raw.album),
+      genre: _blankAsNull(raw.genre),
     );
     if (fromTags.isEmpty) return parseFromFilename(audioFile.path);
     // Fill gaps (e.g. tagged title but no artist) from the filename.
@@ -64,9 +181,9 @@ Future<TrackTags> readTags(File audioFile) async {
 
 Future<List<int>?> readArt(File audioFile) async {
   try {
-    final meta = amr.readMetadata(audioFile, getImage: true);
-    if (meta.pictures.isEmpty) return null;
-    return meta.pictures.first.bytes;
+    final raw = _readRawTags(audioFile, fetchImage: true);
+    if (raw == null || raw.pictures.isEmpty) return null;
+    return raw.pictures.first.bytes;
   } catch (_) {
     return null;
   }

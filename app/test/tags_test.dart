@@ -42,4 +42,16 @@ void main() {
     expect(await readArt(f), isNull);
     await tmp.delete(recursive: true);
   });
+
+  test('readTags does not leak the file handle: file deletes immediately after', () async {
+    final tmp = await Directory.systemTemp.createTemp('handle_leak');
+    final f = File('${tmp.path}/Muse - New Born.mp3');
+    await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
+    await readTags(f);
+    // On Windows, an open RandomAccessFile prevents deletion outright. If
+    // readTags left the reader open, this throws (regression test for the
+    // audio_metadata_reader handle leak worked around in tags.dart).
+    expect(f.deleteSync, returnsNormally);
+    await tmp.delete(recursive: true);
+  });
 }
