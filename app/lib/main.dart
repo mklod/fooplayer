@@ -91,6 +91,14 @@ void main() {
 
   final library = LibraryModel();
   final player = PlayerService();
+  // On-play duration backfill: when the engine reports a real duration for
+  // a track whose library metadata has none (its cache entry was persisted
+  // with durationMs: null because the tag parser couldn't derive one --
+  // e.g. an APEv2-tagged MP3; see PlayerService.onObservedDuration), fold
+  // it back into the library + tag cache so the track permanently gains
+  // its Time value from having been played once.
+  player.onObservedDuration = (contentId, duration) =>
+      library.updateDuration(contentId, duration.inMilliseconds);
 
   final layoutPrefs = LayoutPrefs.fromConfig(
     config['ui'] as Map<String, dynamic>?,

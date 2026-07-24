@@ -56,6 +56,14 @@ const _saveEveryNBatches = 5;
 /// last one) finishes in a couple of seconds.
 const _defaultRescanRootTimeout = Duration(seconds: 120);
 
+/// How long [LibraryModel.updateDuration] waits after the most recent
+/// backfilled duration before persisting the batch to the on-disk tag cache
+/// (see [LibraryModel.flushPendingDurationSaves]). Long enough to coalesce
+/// a burst (e.g. skipping through several duration-less tracks) into one
+/// cache write, short enough that a single played track's backfill isn't
+/// lost to anything but an immediate app kill.
+const _durationSaveDebounce = Duration(seconds: 2);
+
 /// Sortable track-list columns (see the header row in `ui/track_list.dart`
 /// and [LibraryModel.setSort]/[LibraryModel.visibleTracks]).
 ///
@@ -147,6 +155,22 @@ class LibraryModel extends ChangeNotifier {
   File? _cacheFile;
   Duration _enrichBatchTimeout = _defaultBatchTimeout;
   Duration _enrichFileTimeout = _defaultFileTimeout;
+
+  /// Durations backfilled by [updateDuration] since the last cache flush,
+  /// keyed by contentId -- what [flushPendingDurationSaves] persists. Kept
+  /// separate from the enrichment cache instance (which is local to each
+  /// [load]) so a flush can merge into whatever the on-disk cache holds *at
+  /// flush time* instead of racing enrichment's own saves with a stale
+  /// full-map snapshot.
+  final Map<String, int> _pendingDurationUpdates = {};
+  Timer? _durationSaveTimer;
+
+  /// Testing seam for [flushPendingDurationSaves]: when set, receives the
+  /// pending `contentId -> durationMs` batch instead of the default
+  /// merge-into-[_cacheFile] writer, so tests can observe exactly what
+  /// would be persisted without touching real files.
+  @visibleForTesting
+  Future<void> Function(Map<String, int> pending)? durationCacheWriter;
 
   /// Loads (or reloads) the merged library from [libraryRoots].
   ///
@@ -666,6 +690,85 @@ class LibraryModel extends ChangeNotifier {
   void selectTrack(String? id) {
     selectedTrackId = id;
     notifyListeners();
+  }
+
+  /// On-play duration backfill (see [PlayerService.onObservedDuration],
+  /// which main.dart wires to this): records that the playback engine
+  /// observed a real duration of [ms] milliseconds for the track with
+  /// [contentId], so a track whose Time column was blank -- its cache entry
+  /// persisted with `durationMs: null` because the tag parser couldn't
+  /// derive one at scan time -- permanently gains its duration once played.
+  ///
+  /// Updates the in-memory [Track] immediately (and notifies, so the Time
+  /// cell fills in while the track is still playing), then schedules a
+  /// debounced merge into the on-disk tag cache (see
+  /// [flushPendingDurationSaves] / [_durationSaveDebounce]) so the value
+  /// survives restarts. No-ops on a non-positive [ms], an unknown
+  /// [contentId], or a value the track already carries.
+  void updateDuration(String contentId, int ms) {
+    if (ms <= 0) return;
+    final i = allTracks.indexWhere((t) => t.contentId == contentId);
+    if (i < 0) return;
+    if (allTracks[i].durationMs == ms) return;
+    final tracks = List<Track>.of(allTracks);
+    tracks[i] = tracks[i].copyWith(durationMs: ms);
+    allTracks = tracks;
+    _pendingDurationUpdates[contentId] = ms;
+    _durationSaveTimer?.cancel();
+    _durationSaveTimer = Timer(_durationSaveDebounce, () {
+      flushPendingDurationSaves();
+    });
+    notifyListeners();
+  }
+
+  /// Persists every duration [updateDuration] has recorded since the last
+  /// flush. Runs automatically [_durationSaveDebounce] after the most
+  /// recent update; public so tests (and a future shutdown hook) can force
+  /// the write instead of waiting out the debounce. No-op when nothing is
+  /// pending.
+  ///
+  /// The default writer re-loads [_cacheFile] and merges the pending
+  /// durations into whatever it holds *now* -- each entry keeps its
+  /// existing tag fields (or falls back to the in-memory track's, for an
+  /// entry the cache doesn't have yet) with only durationMs replaced --
+  /// rather than saving a full cache snapshot taken earlier, so it can't
+  /// resurrect stale entries over a concurrent enrichment save's newer
+  /// ones. [durationCacheWriter], when set, replaces that default entirely
+  /// (tests).
+  Future<void> flushPendingDurationSaves() async {
+    _durationSaveTimer?.cancel();
+    _durationSaveTimer = null;
+    if (_pendingDurationUpdates.isEmpty) return;
+    final pending = Map<String, int>.of(_pendingDurationUpdates);
+    _pendingDurationUpdates.clear();
+    await (durationCacheWriter ?? _writeDurationsToCache)(pending);
+  }
+
+  Future<void> _writeDurationsToCache(Map<String, int> pending) async {
+    final cacheFile = _cacheFile;
+    if (cacheFile == null) return; // no load() yet -- nowhere to persist
+    final cache = MetaCache.load(cacheFile);
+    final byId = {for (final t in allTracks) t.contentId: t};
+    for (final entry in pending.entries) {
+      final old = cache.entries[entry.key];
+      final t = byId[entry.key];
+      if (old == null && t == null) continue; // gone from the library
+      cache.entries[entry.key] = TrackTags(
+        title: old?.title ?? t?.title,
+        artist: old?.artist ?? t?.artist,
+        album: old?.album ?? t?.album,
+        genre: old?.genre ?? t?.genre,
+        durationMs: entry.value,
+        trackNumber: old?.trackNumber ?? t?.trackNumber,
+      );
+    }
+    await cache.save(cacheFile);
+  }
+
+  @override
+  void dispose() {
+    _durationSaveTimer?.cancel();
+    super.dispose();
   }
 
   void setPlaylist(String? name) {
