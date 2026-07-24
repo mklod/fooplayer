@@ -546,7 +546,7 @@ class LibraryModel extends ChangeNotifier {
 
   /// The Folder filter panel's values -- one entry per distinct
   /// [Track.rootPath] among the (search-filtered) tracks, i.e. the same
-  /// cascade position/derivation [genres] used to occupy. Each entry *is*
+  /// cascade position/derivation the removed genre getter used to occupy. Each entry *is*
   /// the root path itself (what [setFolders] expects back, and what
   /// [folderFilters] is compared against) -- `ui/home_screen.dart` renders
   /// each one's basename via [FilterPanel.displayName] rather than this
