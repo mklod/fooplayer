@@ -20,8 +20,9 @@ String _fmtDuration(int? ms) {
 }
 
 // Column widths/flex shared between the header row and every track row so
-// the two stay pixel-aligned. Title+Artist share one flexible block (title
-// above, artist below -- see _TrackRow); Album gets its own flexible block;
+// the two stay pixel-aligned. Title and Artist are true columns sharing one
+// outer flexible block, split internally by the same _kTitleFlex/_kArtistFlex
+// ratio the header uses (see _TrackRow); Album gets its own flexible block;
 // #, Time and Date are fixed-width, right side of the row, foobar-style.
 const double _kTrackNumberColumnWidth = 36;
 const double _kDurationColumnWidth = 44;
@@ -212,10 +213,11 @@ class _HeaderCell extends StatelessWidget {
   }
 }
 
-/// A single track-list row, columns aligned with [_TrackListHeader]: title
-/// (bold) with artist below it share the Title+Artist flex block, then
-/// Album, then fixed-width right-aligned Time and Date. Tap-to-play and the
-/// current-track highlight are unchanged from before Task 6.
+/// A single track-list row, columns aligned with [_TrackListHeader]: Title
+/// and Artist are separate columns sharing the Title+Artist flex block (same
+/// internal split as the header), then Album, then fixed-width right-aligned
+/// Time and Date. Tap-to-play and the current-track highlight are unchanged
+/// from before Task 6.
 class _TrackRow extends StatelessWidget {
   final Track track;
   final bool isCurrent;
@@ -257,31 +259,33 @@ class _TrackRow extends StatelessWidget {
                 ),
               Expanded(
                 flex: _kTitleArtistFlex,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
+                child: Row(
                   children: [
-                    Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: isCurrent ? AppColors.accent : AppColors.ink,
+                    Expanded(
+                      flex: _kTitleFlex,
+                      child: Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: isCurrent ? AppColors.accent : AppColors.ink,
+                        ),
                       ),
                     ),
-                    if (track.artist.isNotEmpty)
-                      Text(
+                    Expanded(
+                      flex: _kArtistFlex,
+                      child: Text(
                         track.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 11.5,
-                          color: AppColors.inkSecondary,
+                          fontSize: 13,
+                          color: AppColors.ink,
                         ),
                       ),
+                    ),
                   ],
                 ),
               ),
