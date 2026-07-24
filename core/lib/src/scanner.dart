@@ -19,9 +19,7 @@ Future<List<ScannedTrack>> scanLibrary(
   void Function(int done, int total)? onProgress,
 }) async {
   final cacheFile = File('${root.path}/$hashCacheName');
-  final cache = cacheFile.existsSync()
-      ? (jsonDecode(cacheFile.readAsStringSync()) as Map<String, dynamic>)
-      : <String, dynamic>{};
+  final cache = _loadCache(cacheFile);
 
   final files = <File>[];
   await for (final e in root.list(recursive: true, followLinks: false)) {
@@ -38,9 +36,9 @@ Future<List<ScannedTrack>> scanLibrary(
     final rel = p.relative(f.path, from: root.path).replaceAll('\\', '/');
     final stat = f.statSync();
     final mtimeMs = stat.modified.millisecondsSinceEpoch;
-    final cached = cache[rel] as Map<String, dynamic>?;
+    final cached = cache[rel];
     final String id;
-    if (cached != null && cached['size'] == stat.size && cached['mtimeMs'] == mtimeMs) {
+    if (cached != null && _isCacheHit(cached, stat.size, mtimeMs)) {
       id = cached['id'] as String;
     } else {
       id = await contentIdForFile(f);
@@ -53,4 +51,28 @@ Future<List<ScannedTrack>> scanLibrary(
   cacheFile.writeAsStringSync(jsonEncode(newCache));
   tracks.sort((a, b) => a.relPath.compareTo(b.relPath));
   return tracks;
+}
+
+Map<String, dynamic> _loadCache(File cacheFile) {
+  if (!cacheFile.existsSync()) {
+    return <String, dynamic>{};
+  }
+  try {
+    final decoded = jsonDecode(cacheFile.readAsStringSync());
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+  } catch (e) {
+    // Corrupted or invalid JSON: treat as empty cache
+  }
+  return <String, dynamic>{};
+}
+
+bool _isCacheHit(dynamic cached, int fileSize, int mtimeMs) {
+  if (cached is! Map<String, dynamic>) return false;
+  try {
+    return cached['size'] == fileSize && cached['mtimeMs'] == mtimeMs;
+  } catch (e) {
+    return false;
+  }
 }

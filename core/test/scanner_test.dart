@@ -44,4 +44,24 @@ void main() {
     expect(t.size, 150);
     expect(t.contentId, isNot('poisoned'));
   });
+
+  test('tolerates corrupted cache file and rebuilds', () async {
+    // First scan creates cache
+    await scanLibrary(root);
+
+    // Corrupt the cache file with invalid JSON
+    File('${root.path}/.hash_cache.json').writeAsStringSync('{not json');
+
+    // Second scan should succeed despite corrupted cache
+    final tracks = await scanLibrary(root);
+    expect(tracks.map((t) => t.relPath).toList(), ['albums/A/one.mp3', 'two.flac']);
+    expect(tracks.first.size, 100);
+    expect(tracks.first.contentId, hasLength(64));
+
+    // Cache file should be rewritten as valid JSON
+    final cacheFile = File('${root.path}/.hash_cache.json');
+    final cacheContent = cacheFile.readAsStringSync();
+    final cache = jsonDecode(cacheContent) as Map<String, dynamic>;
+    expect(cache.containsKey('albums/A/one.mp3'), isTrue);
+  });
 }
