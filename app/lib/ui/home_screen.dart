@@ -2,14 +2,22 @@ import 'package:flutter/material.dart';
 import '../model/library_model.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
+import 'drag_divider.dart';
 import 'filter_panel.dart';
+import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
 import 'track_list.dart';
 
 class HomeScreen extends StatelessWidget {
   final LibraryModel library;
   final PlayerService player;
-  const HomeScreen({super.key, required this.library, required this.player});
+  final LayoutPrefs layoutPrefs;
+  const HomeScreen({
+    super.key,
+    required this.library,
+    required this.player,
+    required this.layoutPrefs,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -17,79 +25,93 @@ class HomeScreen extends StatelessWidget {
       body: Column(
         children: [
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 200,
-                  // Material (not a plain Container/ColoredBox) so the
-                  // sidebar ListTiles' selection fill and ink splashes --
-                  // which paint on the nearest Material ancestor -- aren't
-                  // hidden behind an opaque background layer.
-                  child: Material(
-                    color: AppColors.panelBg,
-                    child: _Sidebar(library: library),
+            child: ListenableBuilder(
+              listenable: layoutPrefs,
+              builder: (context, _) => Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    key: const Key('sidebar-panel'),
+                    width: layoutPrefs.sidebarWidth,
+                    // Material (not a plain Container/ColoredBox) so the
+                    // sidebar ListTiles' selection fill and ink splashes --
+                    // which paint on the nearest Material ancestor -- aren't
+                    // hidden behind an opaque background layer.
+                    child: Material(
+                      color: AppColors.panelBg,
+                      child: _Sidebar(library: library),
+                    ),
                   ),
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: _SearchField(library: library),
-                      ),
-                      SizedBox(
-                        height: 180,
-                        // Same reasoning as the sidebar: Material, not
-                        // Container, so the filter panels' ListTile
-                        // selection/ink still paints correctly.
-                        child: Material(
-                          color: AppColors.panelBg,
-                          child: ListenableBuilder(
-                            listenable: library,
-                            builder: (context, _) => Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(
-                                  child: FilterPanel(
-                                    title: 'Genre',
-                                    values: library.genres,
-                                    selected: library.genreFilter,
-                                    onSelect: library.setGenre,
+                  VerticalDragDivider(
+                    key: const Key('sidebar-divider'),
+                    onDragDelta: (dx) => layoutPrefs
+                        .setSidebarWidth(layoutPrefs.sidebarWidth + dx),
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: _SearchField(library: library),
+                        ),
+                        SizedBox(
+                          key: const Key('filter-panel'),
+                          height: layoutPrefs.filterHeight,
+                          // Same reasoning as the sidebar: Material, not
+                          // Container, so the filter panels' ListTile
+                          // selection/ink still paints correctly.
+                          child: Material(
+                            color: AppColors.panelBg,
+                            child: ListenableBuilder(
+                              listenable: library,
+                              builder: (context, _) => Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Expanded(
+                                    child: FilterPanel(
+                                      title: 'Genre',
+                                      values: library.genres,
+                                      selected: library.genreFilter,
+                                      onSelect: library.setGenre,
+                                    ),
                                   ),
-                                ),
-                                const VerticalDivider(width: 1),
-                                Expanded(
-                                  child: FilterPanel(
-                                    title: 'Artist',
-                                    values: library.artists,
-                                    selected: library.artistFilter,
-                                    onSelect: library.setArtist,
+                                  const VerticalDivider(width: 1),
+                                  Expanded(
+                                    child: FilterPanel(
+                                      title: 'Artist',
+                                      values: library.artists,
+                                      selected: library.artistFilter,
+                                      onSelect: library.setArtist,
+                                    ),
                                   ),
-                                ),
-                                const VerticalDivider(width: 1),
-                                Expanded(
-                                  child: FilterPanel(
-                                    title: 'Album',
-                                    values: library.albums,
-                                    selected: library.albumFilter,
-                                    onSelect: library.setAlbum,
+                                  const VerticalDivider(width: 1),
+                                  Expanded(
+                                    child: FilterPanel(
+                                      title: 'Album',
+                                      values: library.albums,
+                                      selected: library.albumFilter,
+                                      onSelect: library.setAlbum,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(
-                          child: TrackListView(library: library, player: player)),
-                      _StatusBar(library: library),
-                    ],
+                        HorizontalDragDivider(
+                          key: const Key('filter-divider'),
+                          onDragDelta: (dy) => layoutPrefs
+                              .setFilterHeight(layoutPrefs.filterHeight + dy),
+                        ),
+                        Expanded(
+                            child:
+                                TrackListView(library: library, player: player)),
+                        _StatusBar(library: library),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           NowPlayingBar(player: player, libraryRoot: player.libraryRoot),
