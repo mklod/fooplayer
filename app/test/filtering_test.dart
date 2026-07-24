@@ -3,10 +3,15 @@ import 'package:fooplayer_app/model/filtering.dart';
 import 'package:fooplayer_app/model/track.dart';
 
 Track tr(String id, int day,
-        {String title = 't', String artist = '', String album = '', String genre = ''}) =>
+        {String title = 't',
+        String artist = '',
+        String album = '',
+        String genre = '',
+        String rootPath = ''}) =>
     Track(
         contentId: id,
         relPath: '$id.mp3',
+        rootPath: rootPath,
         dateAdded: DateTime.utc(2024, 1, day),
         title: title,
         artist: artist,
@@ -37,6 +42,19 @@ void main() {
   test('null filter matches all; genre filter excludes empty-genre tracks', () {
     expect(applyFilters(lib).length, 4);
     expect(applyFilters(lib, genre: 'Rock').map((t) => t.contentId), isNot(contains('d')));
+  });
+
+  test('applyFilters rootPath matches Track.rootPath exactly (folder filter)', () {
+    final withRoots = [
+      tr('a', 1, title: 'Alpha', rootPath: r'L:\Music\RootA'),
+      tr('b', 2, title: 'Beta', rootPath: r'L:\Music\RootB'),
+      tr('c', 3, title: 'Gamma', rootPath: r'L:\Music\RootA'),
+    ];
+    expect(applyFilters(withRoots, rootPath: r'L:\Music\RootA').map((t) => t.contentId),
+        ['a', 'c']);
+    expect(applyFilters(withRoots, rootPath: null).length, 3);
+    // Exact match -- a differently-cased path does not match.
+    expect(applyFilters(withRoots, rootPath: r'l:\music\roota'), isEmpty);
   });
 
   test('distinctValues dedupes case-insensitively, sorted', () {

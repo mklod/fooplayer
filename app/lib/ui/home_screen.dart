@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../player/player_service.dart';
@@ -80,10 +81,11 @@ class HomeScreen extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: FilterPanel(
-                                      title: 'Genre',
-                                      values: library.genres,
-                                      selected: library.genreFilter,
-                                      onSelect: library.setGenre,
+                                      title: 'Folder',
+                                      values: library.folderNames,
+                                      selected: library.folderFilter,
+                                      onSelect: library.setFolder,
+                                      displayName: p.basename,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),

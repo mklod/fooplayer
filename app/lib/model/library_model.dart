@@ -82,7 +82,13 @@ class LibraryModel extends ChangeNotifier {
   /// still load; surfaced by the settings dialog via the same per-root note
   /// pathway, with its own "corrupt, reseed to repair" wording.
   List<String> rootsFailed = [];
-  String? genreFilter;
+
+  /// The selected library root ([Track.rootPath]), from the Folder filter
+  /// panel (`ui/home_screen.dart`) -- occupies the same top-of-cascade
+  /// position the old Genre filter used to (see [setFolder]): narrows
+  /// [artists]/[albums]/[visibleTracks] and is itself cleared by
+  /// [setPlaylist]. `null` means "every folder".
+  String? folderFilter;
   String? artistFilter;
   String? albumFilter;
   String search = '';
@@ -536,12 +542,27 @@ class LibraryModel extends ChangeNotifier {
 
   List<Track> get _searched => applyFilters(allTracks, search: search);
 
-  List<String> get genres => distinctValues(_searched, (t) => t.genre);
+  /// The Folder filter panel's values -- one entry per distinct
+  /// [Track.rootPath] among the (search-filtered) tracks, i.e. the same
+  /// cascade position/derivation [genres] used to occupy. Each entry *is*
+  /// the root path itself (what [setFolder] expects back, and what
+  /// [folderFilter] is compared against) -- `ui/home_screen.dart` renders
+  /// each one's basename via [FilterPanel.displayName] rather than this
+  /// getter doing any display-string translation itself, so a root path
+  /// round-trips through selection unchanged.
+  List<String> get folderNames {
+    final paths = distinctValues(_searched, (t) => t.rootPath);
+    paths.sort((a, b) =>
+        p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase()));
+    return paths;
+  }
+
   List<String> get artists => distinctValues(
-      applyFilters(allTracks, genre: genreFilter, search: search), (t) => t.artist);
+      applyFilters(allTracks, rootPath: folderFilter, search: search),
+      (t) => t.artist);
   List<String> get albums => distinctValues(
       applyFilters(allTracks,
-          genre: genreFilter, artist: artistFilter, search: search),
+          rootPath: folderFilter, artist: artistFilter, search: search),
       (t) => t.album);
 
   List<Track> get visibleTracks {
@@ -555,7 +576,7 @@ class LibraryModel extends ChangeNotifier {
       return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
     }
     final filtered = applyFilters(allTracks,
-        genre: genreFilter,
+        rootPath: folderFilter,
         artist: artistFilter,
         album: albumFilter,
         search: search);
@@ -576,8 +597,14 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setGenre(String? g) {
-    genreFilter = g;
+  /// Selects [rootPath] (one of [folderNames]) as the folder filter -- or
+  /// clears it, when `null`. Same cascade behavior [setArtist] has one rung
+  /// down: clears any downstream artist/album selection (a folder switch
+  /// invalidates whichever artist/album was showing under the old one) and
+  /// reverts a stale trackNumber sort exactly like [setAlbum]/[setArtist]
+  /// do -- see [_revertSortIfTrackNumber].
+  void setFolder(String? rootPath) {
+    folderFilter = rootPath;
     artistFilter = null;
     albumFilter = null;
     _revertSortIfTrackNumber();
@@ -628,7 +655,7 @@ class LibraryModel extends ChangeNotifier {
 
   void setPlaylist(String? name) {
     activePlaylist = name;
-    genreFilter = artistFilter = albumFilter = null;
+    folderFilter = artistFilter = albumFilter = null;
     search = '';
     notifyListeners();
   }
@@ -637,7 +664,7 @@ class LibraryModel extends ChangeNotifier {
   /// is cleared while [sortColumn] is [SortColumn.trackNumber].
   ///
   /// Track number sorting only makes sense in album view; when navigating away
-  /// from an album via [setGenre]/[setArtist] (which clear [albumFilter]),
+  /// from an album via [setFolder]/[setArtist] (which clear [albumFilter]),
   /// a stale trackNumber sort would leave the '#' header hidden and no sort
   /// arrow visible, confusing the user. Mirrors [setAlbum(null)]'s behavior.
   void _revertSortIfTrackNumber() {

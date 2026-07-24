@@ -14,13 +14,25 @@ List<Track> applyFilters(
   String? genre,
   String? artist,
   String? album,
+  // The track's library root ([Track.rootPath]) to restrict to (the
+  // Folder filter panel's selection -- see LibraryModel.folderFilter).
+  // Exact match, unlike [genre]/[artist]/[album]'s case-insensitive [eq]:
+  // root paths come straight from configured library roots, never
+  // free-typed or tag-derived text, so there's no casing-variance to
+  // tolerate and an exact comparison avoids any accidental collision
+  // between two differently-cased-but-distinct paths.
+  String? rootPath,
   String search = '',
 }) {
   final q = search.trim().toLowerCase();
   bool eq(String field, String? filter) =>
       filter == null || field.toLowerCase() == filter.toLowerCase();
+  bool eqExact(String field, String? filter) => filter == null || field == filter;
   return all.where((t) {
-    if (!eq(t.genre, genre) || !eq(t.artist, artist) || !eq(t.album, album)) {
+    if (!eq(t.genre, genre) ||
+        !eq(t.artist, artist) ||
+        !eq(t.album, album) ||
+        !eqExact(t.rootPath, rootPath)) {
       return false;
     }
     if (q.isEmpty) return true;

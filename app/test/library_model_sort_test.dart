@@ -188,13 +188,13 @@ void main() {
     });
   });
 
-  group('genre/artist navigation reverts stale trackNumber sort', () {
-    test('setAlbum then setGenre reverts trackNumber sort to dateAdded descending', () {
+  group('folder/artist navigation reverts stale trackNumber sort', () {
+    test('setAlbum then setFolder reverts trackNumber sort to dateAdded descending', () {
       lib.setAlbum('Zeta');
       expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
       expect(lib.albumFilter, 'Zeta');
-      lib.setGenre('Rock');
-      expect(lib.albumFilter, isNull); // setGenre clears album filter
+      lib.setFolder(r'L:\Music\SomeRoot');
+      expect(lib.albumFilter, isNull); // setFolder clears album filter
       expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
       expect(lib.sortAscending, isFalse); // back to descending
     });
@@ -209,12 +209,12 @@ void main() {
       expect(lib.sortAscending, isFalse); // back to descending
     });
 
-    test('setGenre/setArtist does NOT revert if user explicitly chose a different sort', () {
+    test('setFolder/setArtist does NOT revert if user explicitly chose a different sort', () {
       lib.setAlbum('Zeta');
       lib.setSort(SortColumn.title); // user explicitly switches away from trackNumber
       expect(lib.sortColumn, SortColumn.title);
       expect(lib.sortAscending, isTrue); // title sort starts ascending
-      lib.setGenre('Rock'); // now change filter
+      lib.setFolder(r'L:\Music\SomeRoot'); // now change filter
       expect(lib.sortColumn, SortColumn.title); // title sort should NOT be reverted
       expect(lib.sortAscending, isTrue);
     });

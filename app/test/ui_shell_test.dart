@@ -14,8 +14,24 @@ import 'package:fooplayer_app/ui/now_playing_bar.dart';
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
   m.allTracks = [
-    Track(contentId: 'a', relPath: 'a.mp3', dateAdded: DateTime.utc(2026, 7, 1), title: 'Newest Song', artist: 'Muse', album: 'X', genre: 'Rock'),
-    Track(contentId: 'b', relPath: 'b.mp3', dateAdded: DateTime.utc(2020, 1, 1), title: 'Oldest Song', artist: 'Feed Me', album: 'Y', genre: 'Electronic'),
+    Track(
+        contentId: 'a',
+        relPath: 'a.mp3',
+        rootPath: r'L:\Music\RockFolder',
+        dateAdded: DateTime.utc(2026, 7, 1),
+        title: 'Newest Song',
+        artist: 'Muse',
+        album: 'X',
+        genre: 'Rock'),
+    Track(
+        contentId: 'b',
+        relPath: 'b.mp3',
+        rootPath: r'L:\Music\ElectroFolder',
+        dateAdded: DateTime.utc(2020, 1, 1),
+        title: 'Oldest Song',
+        artist: 'Feed Me',
+        album: 'Y',
+        genre: 'Electronic'),
   ];
   m.playlists = [const ManifestPlaylist(name: 'mix', trackIds: ['b'])];
   m.status = 'ready';
@@ -58,7 +74,7 @@ void main() {
     expect(find.text('Newest Song'), findsNothing);
   });
 
-  testWidgets('genre selection cascades into artist panel and track list',
+  testWidgets('folder selection cascades into artist panel and track list',
       (tester) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
@@ -72,14 +88,16 @@ void main() {
     // Both artists visible initially in the Artist panel.
     expect(find.text('Muse'), findsWidgets);
     expect(find.text('Feed Me'), findsWidgets);
-    await tester.tap(find.text('Rock')); // select genre
+    await tester.tap(find.text('RockFolder')); // select folder (basename display)
     await tester.pumpAndSettle();
-    expect(lib.genreFilter, 'Rock');
+    expect(lib.folderFilter, r'L:\Music\RockFolder');
     expect(find.text('Feed Me'), findsNothing); // filtered out everywhere
     expect(find.text('Oldest Song'), findsNothing); // track list narrowed
-    await tester.tap(find.text('Rock')); // tap again clears
+    // Clear via the pinned selection's X (only the Folder panel has a
+    // selection at this point, so the close icon is unambiguous).
+    await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
-    expect(lib.genreFilter, isNull);
+    expect(lib.folderFilter, isNull);
     expect(find.text('Oldest Song'), findsOneWidget);
   });
 
