@@ -6,6 +6,7 @@ import 'package:fooplayer_app/model/manifest_io.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/home_screen.dart';
+import 'package:fooplayer_app/ui/now_playing_bar.dart';
 
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
@@ -84,5 +85,62 @@ void main() {
     expect(find.byIcon(Icons.skip_next), findsOneWidget);
     expect(find.byIcon(Icons.skip_previous), findsOneWidget);
     expect(find.byIcon(Icons.shuffle), findsOneWidget);
+  });
+
+  testWidgets('AlbumArt caches its future across rebuilds, only re-fetching on contentId change',
+      (tester) async {
+    var callCount = 0;
+    Future<List<int>?> countingLoader(File f) async {
+      callCount++;
+      return null;
+    }
+
+    var contentId = 'x';
+    late StateSetter setState;
+    await tester.pumpWidget(MaterialApp(
+      home: StatefulBuilder(
+        builder: (context, setter) {
+          setState = setter;
+          return AlbumArt(
+            contentId: contentId,
+            file: File('nonexistent.mp3'),
+            loader: countingLoader,
+          );
+        },
+      ),
+    ));
+    await tester.pump();
+    expect(callCount, 1);
+
+    // Rebuild 3 times with the same contentId: loader must not re-fire.
+    setState(() {});
+    await tester.pump();
+    setState(() {});
+    await tester.pump();
+    setState(() {});
+    await tester.pump();
+    expect(callCount, 1);
+
+    // Changing contentId triggers exactly one more fetch.
+    setState(() {
+      contentId = 'y';
+    });
+    await tester.pump();
+    expect(callCount, 2);
+  });
+
+  testWidgets('now-playing bar does not overflow at narrow window widths',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(500, 400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final lib = fixtureLibrary();
+    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: HomeScreen(library: lib, player: player)));
+    player.queueController.setQueue(lib.allTracks, 0);
+    await player.setVolume(1.0);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 }
