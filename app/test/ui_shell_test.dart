@@ -66,4 +66,23 @@ void main() {
     expect(lib.genreFilter, isNull);
     expect(find.text('Oldest Song'), findsOneWidget);
   });
+
+  testWidgets('now-playing bar hidden with no track, transport icons exist otherwise',
+      (tester) async {
+    final lib = fixtureLibrary();
+    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(useMaterial3: true),
+        home: HomeScreen(library: lib, player: player)));
+    expect(find.byIcon(Icons.play_arrow), findsNothing); // no current track
+    // Simulate a queue without touching media_kit natives; setVolume triggers
+    // notifyListeners without creating the Player.
+    player.queueController.setQueue(lib.allTracks, 0);
+    await player.setVolume(1.0);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    expect(find.byIcon(Icons.skip_next), findsOneWidget);
+    expect(find.byIcon(Icons.skip_previous), findsOneWidget);
+    expect(find.byIcon(Icons.shuffle), findsOneWidget);
+  });
 }

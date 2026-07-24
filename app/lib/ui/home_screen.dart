@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../model/library_model.dart';
 import '../player/player_service.dart';
 import 'filter_panel.dart';
+import 'now_playing_bar.dart';
 import 'track_list.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -74,8 +75,7 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          // NowPlayingBar inserted here in Task 8.
-          const SizedBox.shrink(),
+          NowPlayingBar(player: player, libraryRoot: player.libraryRoot),
         ],
       ),
     );
