@@ -6,7 +6,9 @@ Custom music player (Windows desktop + Android) built around portable per-folder
 
 | Doc | What it is |
 |---|---|
-| [docs/STATUS.md](docs/STATUS.md) | **Living status + changelog** — read this first |
+| [docs/STATUS.md](docs/STATUS.md) | **Current state** — read this first |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | Dated history of what shipped |
+| [docs/WORKPLAN.md](docs/WORKPLAN.md) | Forward queue, gates, backlog |
 | [docs/superpowers/specs/2026-07-23-music-player-design.md](docs/superpowers/specs/2026-07-23-music-player-design.md) | Approved design spec |
 | [docs/superpowers/plans/](docs/superpowers/plans/) | Workplans: Plan 1 (core engine), 2a (Windows app), 2a.2 (UI rework + multi-root) |
 | [docs/music-library-dates-issue.md](docs/music-library-dates-issue.md) | The file-dates problem + options (decision pending) |

@@ -1,57 +1,33 @@
-# fooplayer — Project Status & Changelog
+# fooplayer — STATUS
 
-*Living document; updated at each milestone. Last update: 2026-07-24 (late night).*
-
-## What this is
-
-A custom music player replacing foobar2000: Windows desktop app now, Android next, built around a portable `.library.json` manifest per music folder that stores **date downloaded as permanent data** (immune to tag editors). Spec: [superpowers/specs/2026-07-23-music-player-design.md](superpowers/specs/2026-07-23-music-player-design.md). Working title "fooplayer" (placeholder — rename anytime).
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-24.*
 
 ## Component status
 
-| Component | Status | Where |
-|---|---|---|
-| Core engine (`fooplayer_core`: content-ID hashing, manifest, scanner, seed, `foolib` CLI) | ✅ Done, merged to main | `core/` |
-| Library seeding (full library + scoped 5-root reseed) | ✅ Done | manifests inside each music folder |
-| Windows desktop app — v1 (dark) | ✅ Superseded by UI rework | branch `windows-app` |
-| UI rework: light iTunes theme, centered bar, draggable dividers, multi-root + settings, auto-rescan, sortable columns | ✅ Done — all tasks review-approved, verified live on the 5 roots (5,443 tracks); whole-branch review running | branch `windows-app`, built at `C:\dev\foobar-app` |
-| Android build | 🟡 Code complete, APK builds, tests green — emulator BLOCKED (Windows Hypervisor Platform disabled; needs admin enable + reboot, or test on the real Pixel 7 via USB) | branch `android-app`, `C:\dev\fooplayer-android` |
-| GitHub | ✅ github.com/mklod/fooplayer — main, windows-app, android-app pushed | remote `origin` |
-| Local repo rename to `L:\PROJECTS\fooplayer` | ⏸ Deferred — persistent SMB file lock on the old path (suspect Syncthing); retry after reboot/sync pause | — |
-| File-dates fix for foobar2000/Explorer | ⏸ ON HOLD pending Mike's decision | [music-library-dates-issue.md](music-library-dates-issue.md) |
-| LAN sync / phone library sync (Plan 3) | ⛔ Not started | — |
+| Component | State |
+|---|---|
+| Core engine (`fooplayer_core`: content-ID hashing, manifests, scanner, seed, `foolib` CLI) | ✅ Stable, merged |
+| Library manifests | ✅ Five scoped roots seeded (monthly 1,844 / alt-times 2,398 / albums 685 / loose-2020 437 / loose-old 92); dates permanent, retag-proof |
+| Windows desktop app | ✅ Daily-drivable. iTunes-style light UI, sortable columns, folder drill-down, multi-select filters, search ✕, auto-rescan, on-play duration backfill, view-in-folder, select/double-click-play. 223/223 tests, whole-branch + adversarial reviews clean, merged to `main` |
+| Android | 🟡 APK builds, manifest pipeline proven on emulator; desktop-layout-squeezed UI only (phone-native drawer UI is next Android milestone) |
+| Android emulator | ⏸ Offline until next reboot: crashing `aehd.sys` driver removed after it bluescreened the machine (2026-07-24 05:36); Microsoft WHPX hypervisor queued via `hypervisorlaunchtype auto` |
+| File-dates fix (foobar2000/Explorer sorting) | ⏸ ON HOLD by Mike's explicit instruction — see [music-library-dates-issue.md](music-library-dates-issue.md) |
+| Repo migration to `L:\PROJECTS\fooplayer` | ⏸ Deferred — empty target dir created by Mike; plan: fresh clone from GitHub + re-point worktrees (worktree metadata makes in-place copies messy) |
+| LAN sync / phone library sync (Plan 3) | ⛔ Not started |
 
-## Changelog
+## Where things run
 
-### 2026-07-24
-- **Sortable columns** (Title/Artist/Album/Time/Date) with duration captured during tag enrichment.
-- **Auto-rescan**: new files in library folders appear automatically (launch + Refresh button + 5-min timer); fix loop in flight for a launch-trigger bug caught in review.
-- **Multiple source folders** with settings UI (add/remove roots, native folder picker); config v2.
-- **Scoped 5-root reseed** per Mike's directive: monthly (1,844), alternative times (2,398 + playlist), albums (685), loose tracks 2020+ (437), loose tracks old (92) — 5,456 tracks.
-- **iTunes-style light theme** (white/grey, blue accent, no purple), **centered now-playing bar** with fully visible track info, **draggable pane dividers** with sizes persisted (incl. flush-on-close fix).
-- **Enrichment stall root-caused and fixed**: third-party MP3 parser scans unboundedly on one pathological file (>280s stall over SMB) — now isolate-kill timeouts, per-file fallback, incremental cache saves.
-- **App icon** (pink music note) embedded; **desktop shortcut** created.
-- **Seek-bar visibility** and **album-art flicker** fixed (theme-color collision; image re-decode per tick).
-- **Android toolchain installed** (JDK 17, SDK 35+36, emulator, Pixel 7 AVD — flutter doctor green); Android platform build started on parallel branch.
-- **Filesystem dates finding**: the NAS's Samba silently discards creation-time writes over SMB — options documented in [music-library-dates-issue.md](music-library-dates-issue.md), awaiting decision.
+- Repo: `L:\PROJECTS\foobar` (`main` = everything merged; GitHub: https://github.com/mklod/fooplayer)
+- Desktop build worktree: `C:\dev\foobar-app` (branch `windows-app`); exe `app\build\windows\x64\runner\Release\fooplayer_app.exe`; desktop shortcut "fooplayer"
+- Android worktree: `C:\dev\fooplayer-android` (branch `android-app` — pre-dates the last two desktop rounds; rebase onto `main` before next Android work)
+- App config/caches: `%APPDATA%\fooplayer\` (config.json v2 with the five roots; meta_cache.json)
 
-### 2026-07-23
-- **Design spec** agreed and written (serverless, manifest-first architecture).
-- **Plan 1 (core engine) built and merged**: 9 TDD tasks + reviews; `foolib` CLI (status/update/seed).
-- **Full library seeded**: 10,604 tracks, dates recovered from the Oct 2025 foobar2000 metadb backup (4,800 tracks) — the Mp3tag date-clobbering problem is permanently neutralized in the manifest.
-- **Windows app v1 built** (9 tasks + reviews): feed, filters, search, playlists, playback — verified live against the real library.
-- Flutter SDK installed; SMB-symlink blocker solved via local worktree.
+## Blocking on Mike
 
-## Key paths
+1. **Reboot confirmation** → unlocks: WHPX emulator verification, then the held TODO batch (see WORKPLAN).
+2. **File-dates decision** (mtime route / Samba fix / both / skip).
 
-- Repo: `L:\PROJECTS\foobar` (main branch = merged work; `windows-app` / `android-app` = active branches)
-- Desktop build/worktree: `C:\dev\foobar-app` → exe at `app\build\windows\x64\runner\Release\fooplayer_app.exe` (desktop shortcut exists)
-- App config/caches: `%APPDATA%\fooplayer\`
-- Music roots + manifests: inside `L:\music (original structure)\<folder>\.library.json`
-- Detailed engineering ledger (scratch): `.superpowers\sdd\progress.md`; per-task reports alongside it
+## Known machine facts
 
-## Known issues / deferred
-
-- foobar2000/Explorer still sort by clobbered filesystem dates (fix on hold — Mike to choose approach).
-- Tracks in excluded folders (iTunes, _to dl, xmas, albums [no scrape]) aren't in the current 5-root library — add as sources via Settings when wanted.
-- 26 freetext lines of the "alternative times" playlist unmatched (need fuzzy title matching — future).
-- Minor review-deferred items tracked in the ledger for the whole-branch review to triage.
+- No AEHD ever again (bluescreen); WHPX after reboot. Pagefile was temporarily off (restored on reboot); Gradle heaps trimmed in `android/gradle.properties` as safeguard.
+- L: is `\\murkyserver\drop` (SMB): no Flutter symlinks, no creation-time writes, slow byte-wise reads (drove the enrichment isolate/timeout architecture).
