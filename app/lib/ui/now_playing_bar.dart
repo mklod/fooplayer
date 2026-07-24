@@ -38,37 +38,53 @@ class AlbumArt extends StatefulWidget {
 }
 
 class _AlbumArtState extends State<AlbumArt> {
-  late Future<List<int>?> _future;
+  // The DECODED bytes are held as one stable Uint8List: building a fresh
+  // Uint8List/ImageProvider per rebuild would miss Flutter's image cache and
+  // re-decode (one blank frame) on every position tick. gaplessPlayback keeps
+  // the previous art on screen while the next track's art loads.
+  Uint8List? _bytes;
+  int _request = 0;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.loader(widget.file);
+    _load();
   }
 
   @override
   void didUpdateWidget(covariant AlbumArt oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.contentId != oldWidget.contentId) {
-      _future = widget.loader(widget.file);
+      _load();
     }
+  }
+
+  void _load() {
+    final req = ++_request;
+    widget.loader(widget.file).then((data) {
+      if (!mounted || req != _request) return; // stale result for a prior track
+      setState(() => _bytes = data == null ? null : Uint8List.fromList(data));
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<int>?>(
-      future: _future,
-      builder: (context, snap) {
-        final bytes = snap.data;
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: bytes == null
-              ? const SizedBox(
-                  width: 68, height: 68, child: Icon(Icons.album, size: 48))
-              : Image.memory(Uint8List.fromList(bytes),
-                  width: 68, height: 68, fit: BoxFit.cover),
-        );
-      },
+    final bytes = _bytes;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: bytes == null
+          ? const SizedBox(
+              width: 68,
+              height: 68,
+              child: Icon(Icons.album, size: 48),
+            )
+          : Image.memory(
+              bytes,
+              width: 68,
+              height: 68,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
     );
   }
 }
@@ -76,8 +92,11 @@ class _AlbumArtState extends State<AlbumArt> {
 class NowPlayingBar extends StatelessWidget {
   final PlayerService player;
   final Directory libraryRoot;
-  const NowPlayingBar(
-      {super.key, required this.player, required this.libraryRoot});
+  const NowPlayingBar({
+    super.key,
+    required this.player,
+    required this.libraryRoot,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -92,82 +111,113 @@ class NowPlayingBar extends StatelessWidget {
           height: 84,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 640;
-              return Row(
-                children: [
-                  AlbumArt(
-                    contentId: t.contentId,
-                    file: File(p.join(libraryRoot.path, t.relPath)),
-                  ),
-                  const SizedBox(width: 12),
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(t.title,
+          // The bar's background IS Material 3's default inactive-track color,
+          // which renders the seek bar invisible at low progress — give the
+          // sliders an explicitly visible inactive track.
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              inactiveTrackColor: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
+            ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final narrow = constraints.maxWidth < 640;
+                return Row(
+                  children: [
+                    AlbumArt(
+                      contentId: t.contentId,
+                      file: File(p.join(libraryRoot.path, t.relPath)),
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      fit: FlexFit.loose,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 220),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              t.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w600)),
-                          Text(
-                              [t.artist, t.album]
-                                  .where((s) => s.isNotEmpty)
-                                  .join(' — '),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              [
+                                t.artist,
+                                t.album,
+                              ].where((s) => s.isNotEmpty).join(' — '),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall),
-                        ],
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  IconButton(
+                    IconButton(
                       icon: const Icon(Icons.skip_previous),
-                      onPressed: player.previous),
-                  IconButton(
-                    iconSize: 36,
-                    icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
-                    onPressed: player.togglePlayPause,
-                  ),
-                  IconButton(
-                      icon: const Icon(Icons.skip_next), onPressed: player.next),
-                  IconButton(
-                    icon: const Icon(Icons.shuffle),
-                    isSelected: player.shuffle,
-                    color: player.shuffle
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                    onPressed: player.toggleShuffle,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(_fmt(pos), style: Theme.of(context).textTheme.bodySmall),
-                  Expanded(
-                    child: Slider(
-                      value: total.inMilliseconds == 0
-                          ? 0
-                          : pos.inMilliseconds / total.inMilliseconds,
-                      onChanged: (v) => player.seek(Duration(
-                          milliseconds: (v * total.inMilliseconds).round())),
+                      onPressed: player.previous,
                     ),
-                  ),
-                  Text(_fmt(total), style: Theme.of(context).textTheme.bodySmall),
-                  if (!narrow) ...[
+                    IconButton(
+                      iconSize: 36,
+                      icon: Icon(
+                        player.playing ? Icons.pause : Icons.play_arrow,
+                      ),
+                      onPressed: player.togglePlayPause,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.skip_next),
+                      onPressed: player.next,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.shuffle),
+                      isSelected: player.shuffle,
+                      color: player.shuffle
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                      onPressed: player.toggleShuffle,
+                    ),
                     const SizedBox(width: 8),
-                    const Icon(Icons.volume_up, size: 18),
-                    SizedBox(
-                      width: 120,
-                      child: Slider(
-                          value: player.volume, onChanged: player.setVolume),
+                    Text(
+                      _fmt(pos),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    Expanded(
+                      child: Slider(
+                        value: total.inMilliseconds == 0
+                            ? 0
+                            : pos.inMilliseconds / total.inMilliseconds,
+                        onChanged: (v) => player.seek(
+                          Duration(
+                            milliseconds: (v * total.inMilliseconds).round(),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      _fmt(total),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if (!narrow) ...[
+                      const SizedBox(width: 8),
+                      const Icon(Icons.volume_up, size: 18),
+                      SizedBox(
+                        width: 120,
+                        child: Slider(
+                          value: player.volume,
+                          onChanged: player.setVolume,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              );
-            },
+                );
+              },
+            ),
           ),
         );
       },
