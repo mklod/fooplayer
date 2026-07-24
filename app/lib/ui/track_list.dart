@@ -356,7 +356,6 @@ class _TrackRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w600,
                           color: isCurrent ? AppColors.accent : AppColors.ink,
                         ),
                       ),
