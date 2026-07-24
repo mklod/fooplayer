@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../metadata/tags.dart';
+import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 
@@ -26,12 +27,14 @@ class AlbumArt extends StatefulWidget {
   final String contentId;
   final File file;
   final Future<List<int>?> Function(File) loader;
+  final double size;
 
   const AlbumArt({
     super.key,
     required this.contentId,
     required this.file,
     this.loader = readArt,
+    this.size = 56,
   });
 
   @override
@@ -74,18 +77,179 @@ class _AlbumArtState extends State<AlbumArt> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: bytes == null
-          ? const SizedBox(
-              width: 68,
-              height: 68,
-              child: Icon(Icons.album, size: 48),
+          ? SizedBox(
+              width: widget.size,
+              height: widget.size,
+              child: Icon(Icons.album, size: widget.size * 0.7),
             )
           : Image.memory(
               bytes,
-              width: 68,
-              height: 68,
+              width: widget.size,
+              height: widget.size,
               fit: BoxFit.cover,
               gaplessPlayback: true,
             ),
+    );
+  }
+}
+
+/// Fixed-size prev/play/next transport controls, anchored to the bar's
+/// left edge. `mainAxisSize: min` is required here: as a non-flex child of
+/// the bar's outer [Row] (alongside the [Expanded] centering spacers), a
+/// default-max Row would receive an unbounded main-axis constraint from its
+/// parent and blow up trying to be infinitely wide.
+class _Transport extends StatelessWidget {
+  final PlayerService player;
+  const _Transport({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.skip_previous),
+          onPressed: player.previous,
+        ),
+        IconButton(
+          iconSize: 36,
+          icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
+          onPressed: player.togglePlayPause,
+        ),
+        IconButton(
+          icon: const Icon(Icons.skip_next),
+          onPressed: player.next,
+        ),
+      ],
+    );
+  }
+}
+
+/// Shuffle toggle + volume slider, anchored to the bar's right edge. Hidden
+/// entirely by [NowPlayingBar] below the 900px narrow threshold. Same
+/// `mainAxisSize: min` requirement as [_Transport].
+class _VolumeGroup extends StatelessWidget {
+  final PlayerService player;
+  const _VolumeGroup({required this.player});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: const Icon(Icons.shuffle),
+          isSelected: player.shuffle,
+          color: player.shuffle ? AppColors.accent : null,
+          onPressed: player.toggleShuffle,
+        ),
+        const SizedBox(width: 4),
+        const Icon(Icons.volume_up, size: 16, color: AppColors.inkSecondary),
+        const SizedBox(width: 6),
+        SizedBox(
+          width: 100,
+          child: Slider(
+            value: player.volume,
+            onChanged: player.setVolume,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The centered "LCD" readout: art + title/artist-album/seek. Everything
+/// but the 56px art is [Expanded] so the title/artist ellipsize only when
+/// the cluster itself is genuinely squeezed -- never at a fixed crop width.
+///
+/// The seek row's pos/total labels are wrapped in [Flexible] (not left as
+/// bare non-flex [Text] children) so that even under pathological squeeze
+/// (a very narrow window) the row degrades instead of overflowing: bare
+/// non-flex children in a [Row] demand their full intrinsic width no matter
+/// how little space is actually available, which is exactly what causes
+/// "RenderFlex overflowed" failures.
+class _LcdCluster extends StatelessWidget {
+  final Track track;
+  final File file;
+  final Duration pos;
+  final Duration total;
+  final ValueChanged<double> onSeek;
+
+  const _LcdCluster({
+    super.key,
+    required this.track,
+    required this.file,
+    required this.pos,
+    required this.total,
+    required this.onSeek,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const timeStyle = TextStyle(fontSize: 10.5, color: AppColors.inkSecondary);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        AlbumArt(contentId: track.contentId, file: file, size: 56),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                [track.artist, track.album]
+                    .where((s) => s.isNotEmpty)
+                    .join(' — '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      _fmt(pos),
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      softWrap: false,
+                      style: timeStyle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    flex: 6,
+                    child: Slider(
+                      value: total.inMilliseconds == 0
+                          ? 0
+                          : pos.inMilliseconds / total.inMilliseconds,
+                      onChanged: (v) => onSeek(v),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _fmt(total),
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
+                      softWrap: false,
+                      style: timeStyle,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -109,106 +273,46 @@ class NowPlayingBar extends StatelessWidget {
         final total = player.duration ?? Duration.zero;
         final pos = player.position > total ? total : player.position;
         return Container(
-          height: 84,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          color: AppColors.barBg,
-          // Seek/volume sliders get their visible-against-barBg inactive
-          // track from the app theme's global SliderThemeData (hairline
-          // inactive, accent active) -- no local override needed here.
+          height: 72,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: const BoxDecoration(
+            color: AppColors.barBg,
+            border: Border(top: BorderSide(color: AppColors.hairline)),
+          ),
+          // The seek/volume sliders get their visible-against-barBg
+          // inactive track and accent-colored active track/thumb from the
+          // app theme's global SliderThemeData -- no local override here,
+          // by design: accent shows up in the bar ONLY via that track, not
+          // via the LCD text (see _LcdCluster).
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 640;
+              final narrow = constraints.maxWidth < 900;
               return Row(
                 children: [
-                  AlbumArt(
-                    contentId: t.contentId,
-                    file: File(p.join(libraryRoot.path, t.relPath)),
-                  ),
-                  const SizedBox(width: 12),
+                  _Transport(player: player),
+                  const Expanded(child: SizedBox.shrink()),
                   Flexible(
-                    fit: FlexFit.loose,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 220),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            t.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
+                    flex: 3,
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 720),
+                        child: _LcdCluster(
+                          key: const Key('lcd'),
+                          track: t,
+                          file: File(p.join(libraryRoot.path, t.relPath)),
+                          pos: pos,
+                          total: total,
+                          onSeek: (v) => player.seek(
+                            Duration(
+                              milliseconds: (v * total.inMilliseconds).round(),
                             ),
                           ),
-                          Text(
-                            [
-                              t.artist,
-                              t.album,
-                            ].where((s) => s.isNotEmpty).join(' — '),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous),
-                    onPressed: player.previous,
-                  ),
-                  IconButton(
-                    iconSize: 36,
-                    icon: Icon(
-                      player.playing ? Icons.pause : Icons.play_arrow,
-                    ),
-                    onPressed: player.togglePlayPause,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.skip_next),
-                    onPressed: player.next,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.shuffle),
-                    isSelected: player.shuffle,
-                    color: player.shuffle
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                    onPressed: player.toggleShuffle,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _fmt(pos),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  Expanded(
-                    child: Slider(
-                      value: total.inMilliseconds == 0
-                          ? 0
-                          : pos.inMilliseconds / total.inMilliseconds,
-                      onChanged: (v) => player.seek(
-                        Duration(
-                          milliseconds: (v * total.inMilliseconds).round(),
                         ),
                       ),
                     ),
                   ),
-                  Text(
-                    _fmt(total),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  if (!narrow) ...[
-                    const SizedBox(width: 8),
-                    const Icon(Icons.volume_up, size: 18),
-                    SizedBox(
-                      width: 120,
-                      child: Slider(
-                        value: player.volume,
-                        onChanged: player.setVolume,
-                      ),
-                    ),
-                  ],
+                  const Expanded(child: SizedBox.shrink()),
+                  if (!narrow) _VolumeGroup(player: player),
                 ],
               );
             },

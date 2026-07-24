@@ -71,6 +71,10 @@ void main() {
 
   testWidgets('now-playing bar hidden with no track, transport icons exist otherwise',
       (tester) async {
+    // Wide enough that the shuffle/volume group (bundled together, hidden
+    // below the 900px narrow threshold) is visible.
+    await tester.binding.setSurfaceSize(const Size(1000, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
@@ -143,5 +147,37 @@ void main() {
     await player.setVolume(1.0);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'now-playing bar centers the LCD cluster on a wide surface',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final lib = fixtureLibrary();
+    final player = PlayerService(libraryRoot: Directory.systemTemp);
+    await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: HomeScreen(library: lib, player: player)));
+    player.queueController.setQueue(lib.allTracks, 0);
+    await player.setVolume(1.0);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The title text must be fully present (no fixed crop) inside the LCD
+    // cluster (found by walking from the title text to its ancestor
+    // cluster container), and the cluster itself (keyed 'lcd') must sit
+    // centered on the window, not merely somewhere left-of-center next to
+    // the transport controls. (The same title also appears in the track
+    // list behind the bar, so scope the title lookup to inside the
+    // cluster.)
+    final clusterFinder = find.byKey(const Key('lcd'));
+    expect(clusterFinder, findsOneWidget);
+    expect(
+      find.descendant(of: clusterFinder, matching: find.text('Newest Song')),
+      findsOneWidget,
+    );
+    final center = tester.getCenter(clusterFinder);
+    expect(center.dx, closeTo(700, 40));
   });
 }
