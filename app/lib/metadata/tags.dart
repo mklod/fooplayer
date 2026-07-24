@@ -155,19 +155,19 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
   }
 }
 
-Future<TrackTags> readTags(File audioFile) async {
+Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
   try {
     final raw = _readRawTags(audioFile, fetchImage: false);
-    if (raw == null) return parseFromFilename(audioFile.path);
+    if (raw == null) return parseFromFilename(relPath ?? audioFile.path);
     final fromTags = TrackTags(
       title: _blankAsNull(raw.title),
       artist: _blankAsNull(raw.artist),
       album: _blankAsNull(raw.album),
       genre: _blankAsNull(raw.genre),
     );
-    if (fromTags.isEmpty) return parseFromFilename(audioFile.path);
+    if (fromTags.isEmpty) return parseFromFilename(relPath ?? audioFile.path);
     // Fill gaps (e.g. tagged title but no artist) from the filename.
-    final fb = parseFromFilename(audioFile.path);
+    final fb = parseFromFilename(relPath ?? audioFile.path);
     return TrackTags(
       title: fromTags.title ?? fb.title,
       artist: fromTags.artist ?? fb.artist,
@@ -175,7 +175,7 @@ Future<TrackTags> readTags(File audioFile) async {
       genre: fromTags.genre,
     );
   } catch (_) {
-    return parseFromFilename(audioFile.path);
+    return parseFromFilename(relPath ?? audioFile.path);
   }
 }
 

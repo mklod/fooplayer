@@ -40,7 +40,7 @@ Future<List<Track>> fillMetadata(
     if (tags == null) {
       final file = File(p.join(libraryRoot.path, t.relPath));
       tags = file.existsSync()
-          ? await readTags(file)
+          ? await readTags(file, relPath: t.relPath)
           : parseFromFilename(t.relPath);
       cache.entries[t.contentId] = tags;
     }

@@ -48,4 +48,15 @@ void main() {
     expect(filled.single.artist, 'Artist X');
     expect(filled.single.title, 'Gone');
   });
+
+  test('root-level track with unparseable bytes gets empty album', () async {
+    final root = await Directory('${tmp.path}/lib3').create();
+    // Root-level file with junk bytes (unparseable).
+    await File('${root.path}/RootSong.mp3').writeAsBytes(List.filled(32, 0));
+    final cache = MetaCache.load(File('${tmp.path}/mc3.json'));
+
+    final filled = await fillMetadata([tr('root', 'RootSong.mp3')], root, cache);
+    expect(filled.single.title, 'RootSong');
+    expect(filled.single.album, ''); // Should be empty, not the library folder name
+  });
 }
