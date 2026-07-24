@@ -57,3 +57,19 @@ AudioRange mp3AudioRange(Uint8List b) {
   if (start > end) start = end;
   return AudioRange(start, end);
 }
+
+AudioRange flacAudioRange(Uint8List b) {
+  // "fLaC" then metadata blocks: 1 byte (isLast<<7 | type) + 3-byte BE length.
+  if (b.length < 8 || b[0] != 0x66 || b[1] != 0x4C || b[2] != 0x61 || b[3] != 0x43) {
+    return AudioRange(0, b.length);
+  }
+  var o = 4;
+  while (o + 4 <= b.length) {
+    final isLast = (b[o] & 0x80) != 0;
+    final len = (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+    o += 4 + len;
+    if (isLast) break;
+  }
+  if (o > b.length) o = b.length;
+  return AudioRange(o, b.length);
+}
