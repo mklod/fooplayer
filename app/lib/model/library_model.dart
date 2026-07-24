@@ -572,12 +572,14 @@ class LibraryModel extends ChangeNotifier {
     genreFilter = g;
     artistFilter = null;
     albumFilter = null;
+    _revertSortIfTrackNumber();
     notifyListeners();
   }
 
   void setArtist(String? a) {
     artistFilter = a;
     albumFilter = null;
+    _revertSortIfTrackNumber();
     notifyListeners();
   }
 
@@ -613,6 +615,20 @@ class LibraryModel extends ChangeNotifier {
     genreFilter = artistFilter = albumFilter = null;
     search = '';
     notifyListeners();
+  }
+
+  /// Reverts sort to the default (dateAdded descending) when the album filter
+  /// is cleared while [sortColumn] is [SortColumn.trackNumber].
+  ///
+  /// Track number sorting only makes sense in album view; when navigating away
+  /// from an album via [setGenre]/[setArtist] (which clear [albumFilter]),
+  /// a stale trackNumber sort would leave the '#' header hidden and no sort
+  /// arrow visible, confusing the user. Mirrors [setAlbum(null)]'s behavior.
+  void _revertSortIfTrackNumber() {
+    if (sortColumn == SortColumn.trackNumber) {
+      sortColumn = SortColumn.dateAdded;
+      sortAscending = false;
+    }
   }
 }
 
