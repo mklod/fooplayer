@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -36,6 +37,13 @@ String _fmtDuration(int? ms) {
 // version rendered Time/Date in a smaller, greyed-out `bodySmall` style,
 // which read as visually inconsistent with the other three text columns.
 const _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
+
+/// How long a row's selection highlight takes to fade in/out. Kept very
+/// short (~80ms) so single-click selection reads as immediate -- the stock
+/// Material ink splash + highlight (hundreds of ms) made selection feel
+/// sluggish, so [_TrackRow] disables those and animates the
+/// [AppColors.selectionFill] tile color itself over this duration instead.
+const Duration _kSelectionAnimationDuration = Duration(milliseconds: 80);
 const double _kTrackNumberColumnWidth = 36;
 const double _kDurationColumnWidth = 44;
 const double _kDateColumnWidth = 82;
@@ -51,14 +59,30 @@ const int _kAlbumFlex = 2;
 String _windowsPathOf(Track track) =>
     p.join(track.rootPath, track.relPath).replaceAll('/', r'\');
 
+/// Builds the exact argv for launching `explorer.exe` with [track]'s file
+/// pre-selected. MUST stay two separate elements -- `/select,` and the
+/// absolute backslashed path. Packing them into a single
+/// `/select,C:\...path...` element breaks for any path containing spaces
+/// (explorer silently ignores the argument and opens Documents instead);
+/// the two-element form was live-verified to select the file correctly.
+List<String> explorerArgsFor(Track track) => [
+  '/select,',
+  _windowsPathOf(track),
+];
+
 /// Default [TrackListView.launchExplorer]: opens File Explorer with
 /// [track]'s file pre-selected, matching Explorer's own right-click ->
 /// "Open file location" behavior. Fire-and-forget (mirrors how playback
 /// launch errors are handled elsewhere in this file) -- a missing/renamed
 /// file just means Explorer opens with nothing selected rather than
-/// crashing the app.
+/// crashing the app, and a failed spawn is swallowed outright.
 void _launchInExplorer(Track track) {
-  Process.run('explorer.exe', ['/select,${_windowsPathOf(track)}']);
+  unawaited(
+    Process.run(
+      'explorer.exe',
+      explorerArgsFor(track),
+    ).catchError((Object _) => ProcessResult(0, -1, '', '')),
+  );
 }
 
 class TrackListView extends StatelessWidget {
@@ -111,7 +135,10 @@ class TrackListView extends StatelessWidget {
         final showTrackNumber = isPlaylist || library.albumFilters.length == 1;
         return Column(
           children: [
-            _TrackListHeader(library: library, showTrackNumber: showTrackNumber),
+            _TrackListHeader(
+              library: library,
+              showTrackNumber: showTrackNumber,
+            ),
             Expanded(
               child: ListView.builder(
                 itemCount: tracks.length,
@@ -139,8 +166,8 @@ class TrackListView extends StatelessWidget {
                     // unrelated) tag track number.
                     trackNumberText: showTrackNumber
                         ? (isPlaylist
-                            ? '${i + 1}'
-                            : t.trackNumber?.toString() ?? '')
+                              ? '${i + 1}'
+                              : t.trackNumber?.toString() ?? '')
                         : null,
                   );
                 },
@@ -161,7 +188,10 @@ class TrackListView extends StatelessWidget {
 class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
   final bool showTrackNumber;
-  const _TrackListHeader({required this.library, required this.showTrackNumber});
+  const _TrackListHeader({
+    required this.library,
+    required this.showTrackNumber,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -269,11 +299,13 @@ class _HeaderCell extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Text.rich(
-          TextSpan(children: alignEnd && active
-              ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
-              : active
-                  ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
-                  : [labelSpan]),
+          TextSpan(
+            children: alignEnd && active
+                ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
+                : active
+                ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
+                : [labelSpan],
+          ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: alignEnd ? TextAlign.right : TextAlign.left,
@@ -321,7 +353,7 @@ class _TrackRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: isSelected ? AppColors.selectionFill : Colors.transparent,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onSelect,
         onDoubleTap: onPlay,
@@ -331,80 +363,92 @@ class _TrackRow extends StatelessWidget {
           track: track,
           launchExplorer: launchExplorer,
         ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Row(
-            children: [
-              if (showTrackNumber)
-                SizedBox(
-                  width: _kTrackNumberColumnWidth,
+        // The default ink splash + pressed highlight take hundreds of ms to
+        // play out, which made single-click selection feel sluggish. Both
+        // are suppressed; the snappy [_kSelectionAnimationDuration] tile
+        // color fade below is the selection feedback instead (hover
+        // feedback is untouched).
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
+        child: AnimatedContainer(
+          duration: _kSelectionAnimationDuration,
+          curve: Curves.easeOut,
+          color: isSelected ? AppColors.selectionFill : Colors.transparent,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Row(
+              children: [
+                if (showTrackNumber)
+                  SizedBox(
+                    width: _kTrackNumberColumnWidth,
+                    child: Text(
+                      trackNumberText ?? '',
+                      textAlign: TextAlign.left,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _kRowTextStyle,
+                    ),
+                  ),
+                Expanded(
+                  flex: _kTitleArtistFlex,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: _kTitleFlex,
+                        child: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isCurrent ? AppColors.accent : AppColors.ink,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        flex: _kArtistFlex,
+                        child: Text(
+                          track.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: _kRowTextStyle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: _kAlbumFlex,
                   child: Text(
-                    trackNumberText ?? '',
-                    textAlign: TextAlign.left,
+                    track.album,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _kRowTextStyle,
                   ),
                 ),
-              Expanded(
-                flex: _kTitleArtistFlex,
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: _kTitleFlex,
-                      child: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isCurrent ? AppColors.accent : AppColors.ink,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      flex: _kArtistFlex,
-                      child: Text(
-                        track.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: _kRowTextStyle,
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: _kDurationColumnWidth,
+                  child: Text(
+                    _fmtDuration(track.durationMs),
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _kRowTextStyle,
+                  ),
                 ),
-              ),
-              Expanded(
-                flex: _kAlbumFlex,
-                child: Text(
-                  track.album,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _kRowTextStyle,
+                const SizedBox(width: 16),
+                SizedBox(
+                  width: _kDateColumnWidth,
+                  child: Text(
+                    _fmtDate(track.dateAdded),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _kRowTextStyle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: _kDurationColumnWidth,
-                child: Text(
-                  _fmtDuration(track.durationMs),
-                  textAlign: TextAlign.right,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _kRowTextStyle,
-                ),
-              ),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: _kDateColumnWidth,
-                child: Text(
-                  _fmtDate(track.dateAdded),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _kRowTextStyle,
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

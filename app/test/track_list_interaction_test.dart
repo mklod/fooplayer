@@ -45,18 +45,19 @@ Future<void> pumpTrackList(
   PlayerService player, {
   void Function(List<Track>, int)? onPlayTrack,
   void Function(Track)? launchExplorer,
-}) =>
-    tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: Scaffold(
-        body: TrackListView(
-          library: lib,
-          player: player,
-          onPlayTrack: onPlayTrack,
-          launchExplorer: launchExplorer ?? (_) {},
-        ),
+}) => tester.pumpWidget(
+  MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(
+      body: TrackListView(
+        library: lib,
+        player: player,
+        onPlayTrack: onPlayTrack,
+        launchExplorer: launchExplorer ?? (_) {},
       ),
-    ));
+    ),
+  ),
+);
 
 /// Simulates a real double-click: two taps close enough together (but not
 /// so close as to violate [kDoubleTapMinTime]) that Flutter's gesture arena
@@ -72,13 +73,18 @@ Future<void> doubleTap(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  testWidgets('single click selects the row and does not start playback',
-      (tester) async {
+  testWidgets('single click selects the row and does not start playback', (
+    tester,
+  ) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
     var playCalls = 0;
-    await pumpTrackList(tester, lib, player,
-        onPlayTrack: (_, _) => playCalls++);
+    await pumpTrackList(
+      tester,
+      lib,
+      player,
+      onPlayTrack: (_, _) => playCalls++,
+    );
 
     expect(lib.selectedTrackId, isNull);
 
@@ -93,8 +99,7 @@ void main() {
     expect(player.current, isNull);
   });
 
-  testWidgets('clicking a different row moves the selection',
-      (tester) async {
+  testWidgets('clicking a different row moves the selection', (tester) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
     await pumpTrackList(tester, lib, player, onPlayTrack: (_, _) {});
@@ -108,32 +113,40 @@ void main() {
     expect(lib.selectedTrackId, 'b');
   });
 
-  testWidgets('double click plays the track (via the injected spy) and selects it',
-      (tester) async {
-    final lib = fixtureLibrary();
-    final player = PlayerService();
-    final playedTracks = <Track>[];
-    var playedIndex = -1;
-    await pumpTrackList(tester, lib, player, onPlayTrack: (tracks, index) {
-      playedTracks.addAll(tracks);
-      playedIndex = index;
-    });
+  testWidgets(
+    'double click plays the track (via the injected spy) and selects it',
+    (tester) async {
+      final lib = fixtureLibrary();
+      final player = PlayerService();
+      final playedTracks = <Track>[];
+      var playedIndex = -1;
+      await pumpTrackList(
+        tester,
+        lib,
+        player,
+        onPlayTrack: (tracks, index) {
+          playedTracks.addAll(tracks);
+          playedIndex = index;
+        },
+      );
 
-    await doubleTap(tester, find.text('Apple'));
+      await doubleTap(tester, find.text('Apple'));
 
-    // Default sort is dateAdded descending (newest first): 'Apple' (added
-    // 2024-01-02) sorts ahead of 'Banana' (2024-01-01), so it's index 0 in
-    // the visible list handed to onPlayTrack.
-    expect(playedIndex, 0);
-    expect(playedTracks.length, 2);
-    expect(playedTracks[playedIndex].contentId, 'b');
-    expect(lib.selectedTrackId, 'b');
-    // The real player must never be touched by this spy-based flow.
-    expect(player.current, isNull);
-  });
+      // Default sort is dateAdded descending (newest first): 'Apple' (added
+      // 2024-01-02) sorts ahead of 'Banana' (2024-01-01), so it's index 0 in
+      // the visible list handed to onPlayTrack.
+      expect(playedIndex, 0);
+      expect(playedTracks.length, 2);
+      expect(playedTracks[playedIndex].contentId, 'b');
+      expect(lib.selectedTrackId, 'b');
+      // The real player must never be touched by this spy-based flow.
+      expect(player.current, isNull);
+    },
+  );
 
-  testWidgets('right click shows a context menu with "View in folder"',
-      (tester) async {
+  testWidgets('right click shows a context menu with "View in folder"', (
+    tester,
+  ) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
     await pumpTrackList(tester, lib, player);
@@ -147,28 +160,33 @@ void main() {
   });
 
   testWidgets(
-      'tapping "View in folder" invokes the launcher with the right track and closes the menu',
-      (tester) async {
-    final lib = fixtureLibrary();
-    final player = PlayerService();
-    final launched = <Track>[];
-    await pumpTrackList(tester, lib, player,
-        launchExplorer: (t) => launched.add(t));
+    'tapping "View in folder" invokes the launcher with the right track and closes the menu',
+    (tester) async {
+      final lib = fixtureLibrary();
+      final player = PlayerService();
+      final launched = <Track>[];
+      await pumpTrackList(
+        tester,
+        lib,
+        player,
+        launchExplorer: (t) => launched.add(t),
+      );
 
-    await tester.tap(find.text('Banana'), buttons: kSecondaryButton);
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Banana'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('View in folder'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('View in folder'));
+      await tester.pumpAndSettle();
 
-    expect(launched, hasLength(1));
-    expect(launched.single.contentId, 'a');
-    expect(find.text('View in folder'), findsNothing); // menu closed
-  });
+      expect(launched, hasLength(1));
+      expect(launched.single.contentId, 'a');
+      expect(find.text('View in folder'), findsNothing); // menu closed
+    },
+  );
 
-  testWidgets(
-      'right-click also opens the menu on the row currently playing',
-      (tester) async {
+  testWidgets('right-click also opens the menu on the row currently playing', (
+    tester,
+  ) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
     await pumpTrackList(tester, lib, player);
@@ -187,28 +205,74 @@ void main() {
   });
 
   testWidgets(
-      'playing and selected highlights are independent: playing keeps the accent title, selected gets the fill',
-      (tester) async {
-    final lib = fixtureLibrary();
-    final player = PlayerService();
-    await pumpTrackList(tester, lib, player, onPlayTrack: (_, _) {});
+    'playing and selected highlights are independent: playing keeps the accent title, selected gets the fill',
+    (tester) async {
+      final lib = fixtureLibrary();
+      final player = PlayerService();
+      await pumpTrackList(tester, lib, player, onPlayTrack: (_, _) {});
 
-    player.queueController.setQueue(lib.allTracks, 0); // 'Banana' playing
-    await player.setVolume(1.0);
-    lib.selectTrack('b'); // 'Apple' selected -- different row than playing
-    await tester.pump();
+      player.queueController.setQueue(lib.allTracks, 0); // 'Banana' playing
+      await player.setVolume(1.0);
+      lib.selectTrack('b'); // 'Apple' selected -- different row than playing
+      await tester.pump();
 
-    final bananaTitle = tester.widget<Text>(find.text('Banana'));
-    expect(bananaTitle.style?.color, AppColors.accent); // playing
+      final bananaTitle = tester.widget<Text>(find.text('Banana'));
+      expect(bananaTitle.style?.color, AppColors.accent); // playing
 
-    final selectedMaterial = tester.widget<Material>(
-      find.ancestor(of: find.text('Apple'), matching: find.byType(Material)).first,
-    );
-    expect(selectedMaterial.color, AppColors.selectionFill); // selected
+      // The selection fill lives on the row's AnimatedContainer (not the
+      // Material, which stays transparent so the snappy fill fade below it
+      // is the only selection animation).
+      expect(_rowFillColor(tester, 'Apple'), AppColors.selectionFill);
+      expect(_rowFillColor(tester, 'Banana'), isNot(AppColors.selectionFill));
+    },
+  );
 
-    final playingMaterial = tester.widget<Material>(
-      find.ancestor(of: find.text('Banana'), matching: find.byType(Material)).first,
-    );
-    expect(playingMaterial.color, isNot(AppColors.selectionFill)); // not selected
-  });
+  testWidgets(
+    'selection highlight is snappy: ~80ms fill fade, no slow ink splash/highlight',
+    (tester) async {
+      final lib = fixtureLibrary();
+      final player = PlayerService();
+      await pumpTrackList(tester, lib, player, onPlayTrack: (_, _) {});
+
+      final container = tester.widget<AnimatedContainer>(
+        find
+            .ancestor(
+              of: find.text('Banana'),
+              matching: find.byType(AnimatedContainer),
+            )
+            .first,
+      );
+      // Perceived selection response must stay ~80ms -- anything much longer
+      // reads as sluggish on single click.
+      expect(container.duration.inMilliseconds, lessThanOrEqualTo(100));
+      expect(
+        container.duration.inMilliseconds,
+        greaterThan(0),
+      ); // still animated
+
+      final inkWell = tester.widget<InkWell>(
+        find
+            .ancestor(of: find.text('Banana'), matching: find.byType(InkWell))
+            .first,
+      );
+      // The stock splash + pressed highlight take hundreds of ms; both must
+      // stay suppressed so the fill fade alone carries the feedback.
+      expect(inkWell.splashFactory, NoSplash.splashFactory);
+      expect(inkWell.highlightColor, Colors.transparent);
+    },
+  );
+}
+
+/// The effective selection-fill color of the row containing [title]: the
+/// row's AnimatedContainer decoration color.
+Color? _rowFillColor(WidgetTester tester, String title) {
+  final container = tester.widget<AnimatedContainer>(
+    find
+        .ancestor(
+          of: find.text(title),
+          matching: find.byType(AnimatedContainer),
+        )
+        .first,
+  );
+  return (container.decoration as BoxDecoration?)?.color;
 }
