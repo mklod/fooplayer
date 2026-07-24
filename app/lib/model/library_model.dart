@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart';
+import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
 import '../metadata/meta_cache.dart';
 import '../metadata/tags.dart';
@@ -41,6 +42,19 @@ const _defaultFileTimeout = Duration(seconds: 20);
 /// of only being saved after every last file has been read.
 const _saveEveryNBatches = 5;
 
+/// How long a single root's scan -> diff -> stamp -> save cycle (see
+/// [LibraryModel.rescan] and [_rescanRootIsolateEntry]) is allowed to run
+/// before it's abandoned and the next root is tried instead.
+///
+/// `scanLibrary` walks the whole root and stats every audio file, which --
+/// like the tag-reading batches above -- is synchronous-heavy over the
+/// SMB-mounted library share. A root with a lot of new/changed files (or
+/// one that hits a slow-transport pathology of its own) could otherwise
+/// stall the entire rescan indefinitely. 120s is generous: a normal
+/// incremental rescan (the common case -- a handful of new files since the
+/// last one) finishes in a couple of seconds.
+const _defaultRescanRootTimeout = Duration(seconds: 120);
+
 class LibraryModel extends ChangeNotifier {
   List<Track> allTracks = [];
   List<ManifestPlaylist> playlists = [];
@@ -55,12 +69,65 @@ class LibraryModel extends ChangeNotifier {
   String? activePlaylist;
   String status = 'idle';
 
+  /// True while [load] or [rescan] is actively running. Surfaced so the UI
+  /// (the Refresh button in the search row) can disable itself, and so
+  /// [rescan] itself refuses to start a second overlapping run -- see the
+  /// guard at the top of [rescan]. Enrichment (this file's Part B, and
+  /// rescan's own post-merge enrichment) only ever runs while this is
+  /// already `true`, so it and a fresh [rescan]/[load] call never race on
+  /// the shared tag cache or a root's manifest file.
+  bool get busy => _busy;
+  bool _busy = false;
+
+  // Remembered from the most recent [load] call so [rescan] -- which takes
+  // no arguments of its own -- knows what to rescan. Empty/null until the
+  // first [load] completes, at which point [rescan] is still a safe no-op
+  // (nothing to do yet).
+  List<Directory> _libraryRoots = [];
+  File? _cacheFile;
+  Duration _enrichBatchTimeout = _defaultBatchTimeout;
+  Duration _enrichFileTimeout = _defaultFileTimeout;
+
   Future<void> load({
     required List<Directory> libraryRoots,
     required File cacheFile,
     void Function(int done, int total)? onProgress,
+    // Called right after the first feed is renderable -- either the
+    // instant-feed notify below (Part A) or the "nothing to show yet"
+    // early-return notify -- and BEFORE background tag enrichment (Part B)
+    // starts. This is what lets main.dart fire the launch-time rescan
+    // without making it wait for the (potentially slow, thousands-of-files)
+    // enrichment pass to finish first.
+    void Function()? onFirstFeedReady,
     Duration batchTimeout = _defaultBatchTimeout,
     Duration fileTimeout = _defaultFileTimeout,
+  }) async {
+    _libraryRoots = libraryRoots;
+    _cacheFile = cacheFile;
+    _enrichBatchTimeout = batchTimeout;
+    _enrichFileTimeout = fileTimeout;
+    _busy = true;
+    try {
+      await _loadBody(
+        libraryRoots: libraryRoots,
+        cacheFile: cacheFile,
+        onProgress: onProgress,
+        onFirstFeedReady: onFirstFeedReady,
+        batchTimeout: batchTimeout,
+        fileTimeout: fileTimeout,
+      );
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<void> _loadBody({
+    required List<Directory> libraryRoots,
+    required File cacheFile,
+    void Function(int done, int total)? onProgress,
+    void Function()? onFirstFeedReady,
+    required Duration batchTimeout,
+    required Duration fileTimeout,
   }) async {
     try {
       status = 'loading manifest';
@@ -103,6 +170,7 @@ class LibraryModel extends ChangeNotifier {
             ? 'no library roots configured'
             : 'no .library.json found in any configured root';
         notifyListeners();
+        onFirstFeedReady?.call();
         return;
       }
 
@@ -131,6 +199,7 @@ class LibraryModel extends ChangeNotifier {
       allTracks = tracks;
       status = missing.isEmpty ? 'ready' : 'ready (reading tags in background)';
       notifyListeners();
+      onFirstFeedReady?.call();
 
       if (missing.isNotEmpty) {
         // Part B -- off-thread enrichment: read tags for cache misses in
@@ -196,6 +265,158 @@ class LibraryModel extends ChangeNotifier {
       status = 'error: $e';
     }
     notifyListeners();
+  }
+
+  /// Rescans every configured root for new files (added since the last
+  /// [load] or [rescan]) and merges them into [allTracks], so files dropped
+  /// into a watched folder while the app is running show up without a
+  /// restart. See the class-level doc above [load]'s call sites in
+  /// main.dart for the three triggers this feeds: launch (post-first-feed),
+  /// the Refresh button, and a 5-minute periodic timer.
+  ///
+  /// No-ops (returns immediately) if [load] hasn't completed at least once
+  /// yet (nothing to rescan against), or if a [load]/[rescan] is already in
+  /// flight (see [busy]) -- this guard fires synchronously, before any
+  /// `await`, so two back-to-back calls can never both proceed.
+  ///
+  /// Per root (skipping any with no `.library.json` yet -- same as [load],
+  /// those need `foolib seed` first): the actual scan/diff/stamp/save cycle
+  /// runs inside [Isolate.run] (bounded by [rootTimeout]; a root that blows
+  /// its budget is skipped, not left to stall the rest of the rescan) since
+  /// `scanLibrary` is synchronous-I/O-heavy over the SMB-mounted share --
+  /// only plain sendable records cross back to this isolate. Newly found
+  /// tracks are merged in immediately with filename-derived metadata (so
+  /// they're visible right away), then upgraded via the same batched,
+  /// timeout-guarded tag-reading machinery [load]'s Part B uses (see
+  /// [_enrichNewTracks]).
+  Future<void> rescan({Duration rootTimeout = _defaultRescanRootTimeout}) async {
+    if (_busy) return;
+    final roots = _libraryRoots;
+    final cacheFile = _cacheFile;
+    if (roots.isEmpty || cacheFile == null) return;
+
+    _busy = true;
+    try {
+      final knownIds = {for (final t in allTracks) t.contentId};
+      var tracks = List<Track>.of(allTracks);
+      final newIndices = <int>[];
+      var totalNew = 0;
+
+      for (final root in roots) {
+        final manifestFile = File(p.join(root.path, '.library.json'));
+        if (!manifestFile.existsSync()) {
+          continue; // no manifest yet -- settings dialog covers seeding it
+        }
+
+        final rootName = p.basename(root.path);
+        status = 'scanning $rootName…';
+        notifyListeners();
+
+        List<(String, String, String)> newRecords;
+        try {
+          newRecords = await Isolate.run(() => _rescanRootIsolateEntry(root.path))
+              .timeout(rootTimeout);
+        } on TimeoutException {
+          status = 'rescan of $rootName timed out';
+          notifyListeners();
+          continue;
+        } catch (e) {
+          status = 'rescan of $rootName failed: $e';
+          notifyListeners();
+          continue;
+        }
+
+        if (newRecords.isEmpty) continue;
+
+        for (final (contentId, relPath, dateAddedIso) in newRecords) {
+          // Defends against a track already known via another root (e.g.
+          // the exact same file duplicated across two roots and newly added
+          // to both since the last scan) -- first root in the list still
+          // wins, same dedupe policy as load()'s merge.
+          if (!knownIds.add(contentId)) continue;
+          final fallback = parseFromFilename(relPath);
+          tracks.add(Track(
+            contentId: contentId,
+            relPath: relPath,
+            rootPath: root.path,
+            dateAdded: DateTime.parse(dateAddedIso).toUtc(),
+            title: fallback.title ?? p.basenameWithoutExtension(relPath),
+            artist: fallback.artist ?? '',
+            album: fallback.album ?? '',
+            genre: fallback.genre ?? '',
+          ));
+          newIndices.add(tracks.length - 1);
+          totalNew++;
+        }
+        allTracks = List<Track>.of(tracks);
+        notifyListeners();
+      }
+
+      if (newIndices.isNotEmpty) {
+        tracks = await _enrichNewTracks(tracks, newIndices, cacheFile);
+        allTracks = tracks;
+      }
+
+      status = totalNew == 0 ? 'ready' : 'added $totalNew new tracks';
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Upgrades the freshly-merged tracks at [indices] within [tracks] from
+  /// their filename-derived fallback tags to real ones, reusing exactly the
+  /// batched-isolate-plus-timeout machinery [load]'s Part B enrichment uses
+  /// ([_readBatchIsolate] / [_readBatchResilient]) -- so a rescan that
+  /// happens to pick up a pathologically slow file is just as resilient as
+  /// a full library load is. Reads/writes the same on-disk tag cache
+  /// enrichment owns; safe because [rescan] only reaches here while [_busy]
+  /// is held, so it can never interleave with [load]'s own cache writes.
+  Future<List<Track>> _enrichNewTracks(
+    List<Track> tracks,
+    List<int> indices,
+    File cacheFile,
+  ) async {
+    final cache = MetaCache.load(cacheFile);
+    final out = List<Track>.of(tracks);
+    for (var start = 0; start < indices.length; start += _enrichBatchSize) {
+      final end = (start + _enrichBatchSize < indices.length)
+          ? start + _enrichBatchSize
+          : indices.length;
+      final batch = indices.sublist(start, end);
+      final records = [
+        for (final i in batch)
+          (
+            out[i].contentId,
+            p.join(out[i].rootPath, out[i].relPath),
+            out[i].relPath,
+          )
+      ];
+
+      Map<String, TrackTags> results;
+      try {
+        results = await _readBatchIsolate(records, timeout: _enrichBatchTimeout);
+      } on TimeoutException {
+        results = await _readBatchResilient(records, timeout: _enrichFileTimeout);
+      }
+
+      for (final i in batch) {
+        final t = out[i];
+        final tags = results[t.contentId];
+        if (tags == null) continue;
+        cache.entries[t.contentId] = tags;
+        out[i] = t.copyWith(
+          title: tags.title,
+          artist: tags.artist,
+          album: tags.album,
+          genre: tags.genre,
+        );
+      }
+      allTracks = List<Track>.of(out);
+      notifyListeners();
+    }
+    await cache.save(cacheFile);
+    return out;
   }
 
   List<Track> get _searched => applyFilters(allTracks, search: search);
@@ -265,6 +486,40 @@ String _uniquePlaylistName(String name, Set<String> used) {
     n++;
   }
   return '$name ($n)';
+}
+
+/// Runs one library root's whole rescan cycle -- `fooplayer_core`'s
+/// `scanLibrary` (walk + stat + hash), `loadManifest`, `diffAgainstManifest`,
+/// `applyDiff` (stamping any new tracks with `DateTime.now()`), then
+/// `saveManifest` -- inside its own isolate (see [LibraryModel.rescan],
+/// which runs this via `Isolate.run`).
+///
+/// [scanLibrary]'s directory walk and per-file `statSync` calls are
+/// synchronous-heavy over the SMB-mounted library share, exactly like the
+/// tag-reading batches below -- running this off the calling isolate keeps
+/// it from blocking the UI/platform thread.
+///
+/// Takes and returns only plain, isolate-sendable values: the root's path
+/// as a `String` in, and for every genuinely new track a `(contentId,
+/// relPath, date_added ISO-8601 string)` record out -- never a `Manifest`
+/// or `ScannedTrack` object graph. The caller (running on the main isolate)
+/// reconstructs whatever [Track]s it needs from these records.
+Future<List<(String, String, String)>> _rescanRootIsolateEntry(
+    String rootPath) async {
+  final root = Directory(rootPath);
+  final scanned = await core.scanLibrary(root);
+  final manifest = core.loadManifest(root);
+  final diff = core.diffAgainstManifest(manifest, scanned);
+  core.applyDiff(manifest, diff, scanned, DateTime.now);
+  await core.saveManifest(manifest, root);
+  return [
+    for (final t in diff.newTracks)
+      (
+        t.contentId,
+        manifest.tracks[t.contentId]!.paths.first,
+        manifest.tracks[t.contentId]!.dateAdded,
+      ),
+  ];
 }
 
 /// Resolves [records] one at a time, each bounded by [timeout], for use

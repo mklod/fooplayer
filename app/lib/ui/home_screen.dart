@@ -57,7 +57,13 @@ class HomeScreen extends StatelessWidget {
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(8),
-                          child: _SearchField(library: library),
+                          child: Row(
+                            children: [
+                              Expanded(child: _SearchField(library: library)),
+                              const SizedBox(width: 4),
+                              _RefreshButton(library: library),
+                            ],
+                          ),
                         ),
                         SizedBox(
                           key: const Key('filter-panel'),
@@ -198,6 +204,31 @@ class _SearchField extends StatelessWidget {
         hintText: 'Search title, artist, album',
       ),
       onChanged: library.setSearch,
+    );
+  }
+}
+
+/// Manual trigger for [LibraryModel.rescan] (the other two triggers --
+/// launch and the 5-minute periodic timer -- are wired in main.dart).
+/// Disabled (and grayed out, standard [IconButton] behavior for a `null`
+/// `onPressed`) while [LibraryModel.busy] so a tap can't queue up a second
+/// overlapping rescan; [LibraryModel.rescan] itself would just no-op it
+/// anyway, but disabling communicates that visually instead of silently
+/// swallowing the tap.
+class _RefreshButton extends StatelessWidget {
+  final LibraryModel library;
+  const _RefreshButton({required this.library});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: library,
+      builder: (context, _) => IconButton(
+        key: const Key('refresh-library'),
+        icon: const Icon(Icons.refresh),
+        tooltip: 'Rescan library folders',
+        onPressed: library.busy ? null : () => library.rescan(),
+      ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -13,6 +14,10 @@ import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
 
 const _defaultLibraryRoot = r'L:\music (original structure)';
+
+/// How often [LibraryModel.rescan] runs on its own, in addition to the
+/// launch-time and Refresh-button triggers -- see main() below.
+const _rescanInterval = Duration(minutes: 5);
 
 Directory _appDataDir() =>
     Directory(p.join(Platform.environment['APPDATA']!, 'fooplayer'));
@@ -31,8 +36,10 @@ void _writeConfig(Map<String, dynamic> config) {
   cfg.writeAsStringSync(jsonEncode(config));
 }
 
-/// Flushes any debounced [LayoutPrefs] write on app shutdown so a
-/// drag-a-divider-then-close-the-window sequence isn't silently lost.
+/// Flushes any debounced [LayoutPrefs] write and cancels the periodic
+/// library-rescan [Timer] on app shutdown, so a drag-a-divider-then-close
+/// sequence isn't silently lost and the app doesn't keep a dangling timer
+/// (and the isolates/IO it would eventually trigger) alive past exit.
 ///
 /// Two hooks are wired for reliability, since desktop shutdown paths vary
 /// by platform/embedder version:
@@ -51,12 +58,14 @@ void _writeConfig(Map<String, dynamic> config) {
 ///   without the WM_CLOSE-interception plumbing).
 class _LifecycleFlusher with WidgetsBindingObserver {
   final LayoutPrefs layoutPrefs;
+  final Timer? rescanTimer;
 
-  _LifecycleFlusher(this.layoutPrefs) {
+  _LifecycleFlusher(this.layoutPrefs, {this.rescanTimer}) {
     WidgetsBinding.instance.addObserver(this);
     AppLifecycleListener(
       onExitRequested: () async {
         layoutPrefs.flush();
+        rescanTimer?.cancel();
         return AppExitResponse.exit;
       },
     );
@@ -66,6 +75,7 @@ class _LifecycleFlusher with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.detached) {
       layoutPrefs.flush();
+      rescanTimer?.cancel();
     }
   }
 }
@@ -102,10 +112,18 @@ void main() {
       _writeConfig(config);
     },
   );
-  void reloadLibrary() {
+  // [triggerLaunchRescan] is true only for the very first load (app
+  // launch): that's the one load() call main.dart wires an automatic
+  // rescan onto, firing as soon as the instant feed is renderable rather
+  // than waiting for tag enrichment to finish (see load()'s
+  // onFirstFeedReady). Reloads triggered by a settings-dialog root
+  // add/remove don't also kick off a rescan here -- the periodic timer and
+  // Refresh button already cover ongoing discovery of new files.
+  void reloadLibrary({bool triggerLaunchRescan = false}) {
     library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,
+      onFirstFeedReady: triggerLaunchRescan ? library.rescan : null,
     );
   }
 
@@ -113,8 +131,16 @@ void main() {
   // by reloading so the merged feed/playlists reflect the new root set.
   libraryRootsPrefs.addListener(reloadLibrary);
 
-  _LifecycleFlusher(layoutPrefs);
-  WidgetsBinding.instance.addPostFrameCallback((_) => reloadLibrary());
+  // Periodic background rescan (Task 5's third trigger, alongside launch
+  // and the Refresh button): LibraryModel.rescan() is itself a no-op
+  // whenever a load()/rescan() is already in flight, so an overlap here --
+  // e.g. a slow SMB rescan still running when the next 5-minute tick fires
+  // -- just skips that tick rather than piling up concurrent scans.
+  final rescanTimer = Timer.periodic(_rescanInterval, (_) => library.rescan());
+
+  _LifecycleFlusher(layoutPrefs, rescanTimer: rescanTimer);
+  WidgetsBinding.instance
+      .addPostFrameCallback((_) => reloadLibrary(triggerLaunchRescan: true));
   runApp(FooPlayerApp(
     library: library,
     player: player,
