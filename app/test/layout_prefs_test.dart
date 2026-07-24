@@ -116,4 +116,63 @@ void main() {
       });
     });
   });
+
+  group('LayoutPrefs.flush', () {
+    test('a pending write is delivered immediately by flush(), with the '
+        'latest values, and the debounce timer no longer fires afterward',
+        () {
+      fakeAsync((async) {
+        final writes = <Map<String, dynamic>>[];
+        final prefs = LayoutPrefs(writer: writes.add);
+
+        prefs.setSidebarWidth(220);
+        async.elapse(const Duration(milliseconds: 100));
+        prefs.setFilterHeight(260); // still within the debounce window
+
+        prefs.flush();
+        expect(writes, hasLength(1));
+        expect(writes.single, {'sidebarWidth': 220, 'filterHeight': 260});
+
+        // The original timer must be cancelled -- letting the rest of the
+        // original 500ms window (and then some) elapse must not produce a
+        // second write.
+        async.elapse(const Duration(seconds: 2));
+        expect(writes, hasLength(1));
+      });
+    });
+
+    test('flush() with nothing pending is a no-op', () {
+      fakeAsync((async) {
+        final writes = <Map<String, dynamic>>[];
+        final prefs = LayoutPrefs(writer: writes.add);
+
+        prefs.flush(); // never changed anything -- nothing scheduled
+        expect(writes, isEmpty);
+
+        prefs.setSidebarWidth(220);
+        async.elapse(const Duration(milliseconds: 500));
+        expect(writes, hasLength(1));
+
+        prefs.flush(); // already delivered by the timer -- no re-write
+        expect(writes, hasLength(1));
+      });
+    });
+
+    test('dispose() flushes a pending write instead of dropping it', () {
+      fakeAsync((async) {
+        final writes = <Map<String, dynamic>>[];
+        final prefs = LayoutPrefs(writer: writes.add);
+
+        prefs.setSidebarWidth(300);
+        prefs.dispose();
+
+        expect(writes, hasLength(1));
+        expect(writes.single, {'sidebarWidth': 300, 'filterHeight': 180});
+
+        // No lingering timer either.
+        async.elapse(const Duration(seconds: 2));
+        expect(writes, hasLength(1));
+      });
+    });
+  });
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
@@ -43,6 +44,45 @@ String _libraryRootFrom(Map<String, dynamic> config) {
   return _defaultLibraryRoot;
 }
 
+/// Flushes any debounced [LayoutPrefs] write on app shutdown so a
+/// drag-a-divider-then-close-the-window sequence isn't silently lost.
+///
+/// Two hooks are wired for reliability, since desktop shutdown paths vary
+/// by platform/embedder version:
+///
+/// - [AppLifecycleListener.onExitRequested] is the modern, awaitable
+///   exit-request flow -- on Windows the engine's WindowsLifecycleManager
+///   intercepts WM_CLOSE on the last window, asks the framework via this
+///   callback whether it's OK to exit, and only re-dispatches the real
+///   close (and lets the process actually terminate) after the returned
+///   future completes. This reliably runs our flush *before* the process
+///   goes away, which is exactly the guarantee needed here.
+/// - [WidgetsBindingObserver.didChangeAppLifecycleState]'s
+///   [AppLifecycleState.detached] transition is wired too, as a
+///   defense-in-depth fallback for any shutdown path that bypasses the
+///   exit-request flow (e.g. a future/alternate embedder, or a runner
+///   without the WM_CLOSE-interception plumbing).
+class _LifecycleFlusher with WidgetsBindingObserver {
+  final LayoutPrefs layoutPrefs;
+
+  _LifecycleFlusher(this.layoutPrefs) {
+    WidgetsBinding.instance.addObserver(this);
+    AppLifecycleListener(
+      onExitRequested: () async {
+        layoutPrefs.flush();
+        return AppExitResponse.exit;
+      },
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      layoutPrefs.flush();
+    }
+  }
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -64,6 +104,7 @@ void main() {
       _writeConfig(config);
     },
   );
+  _LifecycleFlusher(layoutPrefs);
   WidgetsBinding.instance.addPostFrameCallback((_) {
     library.load(
       libraryRoot: root,

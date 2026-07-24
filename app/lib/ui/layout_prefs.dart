@@ -94,12 +94,32 @@ class LayoutPrefs extends ChangeNotifier {
     final writer = _writer;
     if (writer == null) return;
     _saveTimer?.cancel();
-    _saveTimer = Timer(_debounce, () => writer(toJson()));
+    _saveTimer = Timer(_debounce, () {
+      _saveTimer = null;
+      writer(toJson());
+    });
+  }
+
+  /// If a debounced save is currently pending, cancels the timer and calls
+  /// [writer] synchronously with the latest values right now instead of
+  /// waiting out the rest of the debounce window.
+  ///
+  /// This is what makes a drag-then-immediately-close-the-app sequence
+  /// durable: without an explicit flush, a pending write is only ever
+  /// delivered by the [Timer] firing on its own schedule, which a process
+  /// exit can cut off entirely. No-op if nothing is pending (nothing
+  /// changed since the last save, or no [writer] was supplied).
+  void flush() {
+    final timer = _saveTimer;
+    if (timer == null) return;
+    timer.cancel();
+    _saveTimer = null;
+    _writer?.call(toJson());
   }
 
   @override
   void dispose() {
-    _saveTimer?.cancel();
+    flush();
     super.dispose();
   }
 }
