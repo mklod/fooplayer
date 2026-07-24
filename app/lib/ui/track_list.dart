@@ -341,7 +341,7 @@ class _TrackRow extends StatelessWidget {
                     textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: _kRowTextStyle,
                   ),
                 ),
               Expanded(
