@@ -1,0 +1,1 @@
+library fooplayer_core;
