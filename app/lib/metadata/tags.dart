@@ -7,20 +7,31 @@ class TrackTags {
   final String? artist;
   final String? album;
   final String? genre;
-  const TrackTags({this.title, this.artist, this.album, this.genre});
+  // Playback duration in whole milliseconds, when the format's parser
+  // metadata exposed one (see the per-format dispatch in `_readRawTags`
+  // below); null when the file's tags/stream headers didn't carry it.
+  final int? durationMs;
+  const TrackTags(
+      {this.title, this.artist, this.album, this.genre, this.durationMs});
 
   bool get isEmpty =>
       (title == null || title!.isEmpty) &&
       (artist == null || artist!.isEmpty) &&
       (album == null || album!.isEmpty);
 
-  Map<String, dynamic> toJson() =>
-      {'title': title, 'artist': artist, 'album': album, 'genre': genre};
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'genre': genre,
+        'durationMs': durationMs,
+      };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
         title: j['title'] as String?,
         artist: j['artist'] as String?,
         album: j['album'] as String?,
         genre: j['genre'] as String?,
+        durationMs: j['durationMs'] as int?,
       );
 }
 
@@ -46,12 +57,14 @@ class _RawTags {
   final String? artist;
   final String? album;
   final String? genre;
+  final int? durationMs;
   final List<Picture> pictures;
   const _RawTags({
     this.title,
     this.artist,
     this.album,
     this.genre,
+    this.durationMs,
     this.pictures = const [],
   });
 }
@@ -101,6 +114,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         artist: m.artist,
         album: m.album,
         genre: m.genres.firstOrNull,
+        durationMs: m.duration?.inMilliseconds,
         pictures: m.pictures,
       );
     }
@@ -111,6 +125,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         artist: m.bandOrOrchestra ?? m.leadPerformer ?? m.originalArtist,
         album: m.album,
         genre: m.genres.firstOrNull,
+        durationMs: m.duration?.inMilliseconds,
         pictures: m.pictures,
       );
     }
@@ -121,6 +136,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         artist: m.artist.firstOrNull,
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
+        durationMs: m.duration?.inMilliseconds,
         pictures: m.pictures,
       );
     }
@@ -131,6 +147,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         artist: m.artist,
         album: m.album,
         genre: m.genre,
+        durationMs: m.duration?.inMilliseconds,
         pictures: m.picture == null ? const [] : [m.picture!],
       );
     }
@@ -141,6 +158,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         artist: m.artist.firstOrNull,
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
+        durationMs: m.duration?.inMilliseconds,
         pictures: m.pictures,
       );
     }
@@ -164,8 +182,21 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       artist: _blankAsNull(raw.artist),
       album: _blankAsNull(raw.album),
       genre: _blankAsNull(raw.genre),
+      durationMs: raw.durationMs,
     );
-    if (fromTags.isEmpty) return parseFromFilename(relPath ?? audioFile.path);
+    if (fromTags.isEmpty) {
+      // No usable title/artist/album tags, but the duration came from the
+      // parsed stream headers, not the tag block -- still worth keeping
+      // even though everything else falls back to the filename.
+      final fb = parseFromFilename(relPath ?? audioFile.path);
+      return TrackTags(
+        title: fb.title,
+        artist: fb.artist,
+        album: fb.album,
+        genre: fb.genre,
+        durationMs: raw.durationMs,
+      );
+    }
     // Fill gaps (e.g. tagged title but no artist) from the filename.
     final fb = parseFromFilename(relPath ?? audioFile.path);
     return TrackTags(
@@ -173,6 +204,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       artist: fromTags.artist ?? fb.artist,
       album: fromTags.album ?? fb.album,
       genre: fromTags.genre,
+      durationMs: fromTags.durationMs,
     );
   } catch (_) {
     return parseFromFilename(relPath ?? audioFile.path);

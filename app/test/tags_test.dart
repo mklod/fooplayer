@@ -54,4 +54,31 @@ void main() {
     expect(f.deleteSync, returnsNormally);
     await tmp.delete(recursive: true);
   });
+
+  test('readTags on an unreadable/unparseable file yields durationMs null', () async {
+    final tmp = await Directory.systemTemp.createTemp('tags_dur');
+    final f = File('${tmp.path}/Muse - New Born.mp3');
+    await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
+    final t = await readTags(f);
+    expect(t.durationMs, isNull);
+    await tmp.delete(recursive: true);
+  });
+
+  group('TrackTags json round-trip', () {
+    test('durationMs round-trips through toJson/fromJson', () {
+      const t = TrackTags(
+          title: 'T', artist: 'A', album: 'B', genre: 'G', durationMs: 245000);
+      final j = t.toJson();
+      expect(j['durationMs'], 245000);
+      expect(TrackTags.fromJson(j).durationMs, 245000);
+    });
+
+    test('a null durationMs still serializes the key, with a null value', () {
+      const t = TrackTags(title: 'T');
+      final j = t.toJson();
+      expect(j.containsKey('durationMs'), isTrue);
+      expect(j['durationMs'], isNull);
+      expect(TrackTags.fromJson(j).durationMs, isNull);
+    });
+  });
 }

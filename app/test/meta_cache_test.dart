@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/metadata/meta_cache.dart';
@@ -64,6 +65,49 @@ void main() {
         [tr('root', 'RootSong.mp3', rootPath: root.path)], cache);
     expect(filled.single.title, 'RootSong');
     expect(filled.single.album, ''); // Should be empty, not the library folder name
+  });
+
+  test('cache entries written before durationMs existed (key entirely absent) are treated as a miss', () async {
+    final f = File('${tmp.path}/legacy_cache.json');
+    // A pre-Task-6 cache file: no durationMs key at all on the entry.
+    await f.writeAsString(jsonEncode({
+      'legacy-id': {
+        'title': 'Old Title',
+        'artist': 'Old Artist',
+        'album': 'Old Album',
+        'genre': 'Old Genre',
+      }
+    }));
+    final cache = MetaCache.load(f);
+    // Excluded from the loaded map entirely, so every caller's ordinary
+    // `cache.entries[id] == null` miss check re-reads the file (and this
+    // time backfills durationMs).
+    expect(cache.entries.containsKey('legacy-id'), isFalse);
+  });
+
+  test('a cached entry with durationMs explicitly null (duration genuinely unknown) is still a hit', () async {
+    final f = File('${tmp.path}/known_null_cache.json');
+    await f.writeAsString(jsonEncode({
+      'id': {
+        'title': 'T',
+        'artist': 'A',
+        'album': 'B',
+        'genre': 'G',
+        'durationMs': null,
+      }
+    }));
+    final cache = MetaCache.load(f);
+    expect(cache.entries.containsKey('id'), isTrue);
+    expect(cache.entries['id']!.durationMs, isNull);
+  });
+
+  test('fillMetadata carries a cached durationMs into the returned Track', () async {
+    final root = await Directory('${tmp.path}/lib5').create();
+    final cache = MetaCache.load(File('${tmp.path}/mc5.json'));
+    cache.entries['hasdur'] = const TrackTags(title: 'T', durationMs: 123456);
+    final filled =
+        await fillMetadata([tr('hasdur', 'x.mp3', rootPath: root.path)], cache);
+    expect(filled.single.durationMs, 123456);
   });
 
   test('readTagsBatch resolves each record independently: junk bytes and missing file both fall back to filename', () async {

@@ -14,6 +14,10 @@ class Track {
   final String artist;
   final String album;
   final String genre;
+  // Playback duration in whole milliseconds, from TrackTags.durationMs (see
+  // metadata/tags.dart); null when the file's tags/stream headers didn't
+  // carry a duration, or before enrichment has read the file yet.
+  final int? durationMs;
 
   const Track({
     required this.contentId,
@@ -24,9 +28,15 @@ class Track {
     this.artist = '',
     this.album = '',
     this.genre = '',
+    this.durationMs,
   });
 
-  Track copyWith({String? title, String? artist, String? album, String? genre}) =>
+  Track copyWith(
+          {String? title,
+          String? artist,
+          String? album,
+          String? genre,
+          int? durationMs}) =>
       Track(
         contentId: contentId,
         relPath: relPath,
@@ -36,5 +46,6 @@ class Track {
         artist: artist ?? this.artist,
         album: album ?? this.album,
         genre: genre ?? this.genre,
+        durationMs: durationMs ?? this.durationMs,
       );
 }

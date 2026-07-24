@@ -1,10 +1,34 @@
 import 'package:flutter/material.dart';
 import '../model/library_model.dart';
+import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 
 String _fmtDate(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+/// Formats a duration in milliseconds as foobar-style `m:ss` (minutes not
+/// zero-padded, seconds always two digits) -- blank when [ms] is null (no
+/// known duration yet, e.g. a format whose parser couldn't determine one, or
+/// a track not yet tag-enriched).
+String _fmtDuration(int? ms) {
+  if (ms == null) return '';
+  final totalSeconds = ms ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
+// Column widths/flex shared between the header row and every track row so
+// the two stay pixel-aligned. Title+Artist share one flexible block (title
+// above, artist below -- see _TrackRow); Album gets its own flexible block;
+// Time and Date are fixed-width, right side of the row, foobar-style.
+const double _kDurationColumnWidth = 44;
+const double _kDateColumnWidth = 82;
+const int _kTitleFlex = 3;
+const int _kArtistFlex = 2;
+const int _kTitleArtistFlex = _kTitleFlex + _kArtistFlex;
+const int _kAlbumFlex = 2;
 
 class TrackListView extends StatelessWidget {
   final LibraryModel library;
@@ -17,35 +41,235 @@ class TrackListView extends StatelessWidget {
       listenable: Listenable.merge([library, player]),
       builder: (context, _) {
         final tracks = library.visibleTracks;
-        return ListView.builder(
-          itemCount: tracks.length,
-          itemBuilder: (context, i) {
-            final t = tracks[i];
-            final isCurrent = player.current?.contentId == t.contentId;
-            return ListTile(
-              dense: true,
-              selected: isCurrent,
-              // Selected rows use the theme's selectionFill/ink pairing; the
-              // currently-playing track additionally gets its title in the
-              // sparingly-used accent color.
-              title: Text(t.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isCurrent ? AppColors.accent : null,
-                  )),
-              subtitle: Text(
-                  [t.artist, t.album].where((s) => s.isNotEmpty).join(' — '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
-              trailing: Text(_fmtDate(t.dateAdded),
-                  style: Theme.of(context).textTheme.bodySmall),
-              onTap: () => player.playFrom(tracks, i),
-            );
-          },
+        return Column(
+          children: [
+            _TrackListHeader(library: library),
+            Expanded(
+              child: ListView.builder(
+                itemCount: tracks.length,
+                itemBuilder: (context, i) {
+                  final t = tracks[i];
+                  final isCurrent = player.current?.contentId == t.contentId;
+                  return _TrackRow(
+                    track: t,
+                    isCurrent: isCurrent,
+                    onTap: () => player.playFrom(tracks, i),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+}
+
+/// The clickable Title / Artist / Album / Time / Date header row. Clicking a
+/// label sorts [LibraryModel.visibleTracks] by that column (toggling
+/// direction on a repeat click of the already-active column -- see
+/// [LibraryModel.setSort]); the active column's label carries a ▲/▼ arrow in
+/// [AppColors.accent] showing the current direction.
+class _TrackListHeader extends StatelessWidget {
+  final LibraryModel library;
+  const _TrackListHeader({required this.library});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.hairline)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(
+          children: [
+            Expanded(
+              flex: _kTitleArtistFlex,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: _kTitleFlex,
+                    child: _HeaderCell(
+                      label: 'Title',
+                      column: SortColumn.title,
+                      library: library,
+                    ),
+                  ),
+                  Expanded(
+                    flex: _kArtistFlex,
+                    child: _HeaderCell(
+                      label: 'Artist',
+                      column: SortColumn.artist,
+                      library: library,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: _kAlbumFlex,
+              child: _HeaderCell(
+                label: 'Album',
+                column: SortColumn.album,
+                library: library,
+              ),
+            ),
+            SizedBox(
+              width: _kDurationColumnWidth,
+              child: _HeaderCell(
+                label: 'Time',
+                column: SortColumn.duration,
+                library: library,
+                alignEnd: true,
+              ),
+            ),
+            SizedBox(
+              width: _kDateColumnWidth,
+              child: _HeaderCell(
+                label: 'Date',
+                column: SortColumn.dateAdded,
+                library: library,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderCell extends StatelessWidget {
+  final String label;
+  final SortColumn column;
+  final LibraryModel library;
+  final bool alignEnd;
+  const _HeaderCell({
+    required this.label,
+    required this.column,
+    required this.library,
+    this.alignEnd = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = library.sortColumn == column;
+    final style = Theme.of(context).textTheme.labelLarge;
+    final arrowSpan = TextSpan(
+      text: library.sortAscending ? '▲' : '▼',
+      style: style?.copyWith(color: AppColors.accent),
+    );
+    final labelSpan = TextSpan(text: label.toUpperCase(), style: style);
+    // A single Text.rich (rather than a Row of separate Text widgets) so a
+    // too-narrow fixed column (Time/Date) clips with an ellipsis instead of
+    // throwing a hard RenderFlex overflow -- the label carries [style]'s
+    // normal color throughout; only the arrow span is accent-colored.
+    return InkWell(
+      onTap: () => library.setSort(column),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Text.rich(
+          TextSpan(children: alignEnd && active
+              ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
+              : active
+                  ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
+                  : [labelSpan]),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+        ),
+      ),
+    );
+  }
+}
+
+/// A single track-list row, columns aligned with [_TrackListHeader]: title
+/// (bold) with artist below it share the Title+Artist flex block, then
+/// Album, then fixed-width right-aligned Time and Date. Tap-to-play and the
+/// current-track highlight are unchanged from before Task 6.
+class _TrackRow extends StatelessWidget {
+  final Track track;
+  final bool isCurrent;
+  final VoidCallback onTap;
+  const _TrackRow({
+    required this.track,
+    required this.isCurrent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final secondaryStyle = Theme.of(context).textTheme.bodySmall;
+    return Material(
+      color: isCurrent ? AppColors.selectionFill : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                flex: _kTitleArtistFlex,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: isCurrent ? AppColors.accent : AppColors.ink,
+                      ),
+                    ),
+                    if (track.artist.isNotEmpty)
+                      Text(
+                        track.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppColors.inkSecondary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: _kAlbumFlex,
+                child: Text(
+                  track.album,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: AppColors.ink),
+                ),
+              ),
+              SizedBox(
+                width: _kDurationColumnWidth,
+                child: Text(
+                  _fmtDuration(track.durationMs),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: secondaryStyle,
+                ),
+              ),
+              SizedBox(
+                width: _kDateColumnWidth,
+                child: Text(
+                  _fmtDate(track.dateAdded),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: secondaryStyle,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

@@ -55,6 +55,10 @@ const _saveEveryNBatches = 5;
 /// last one) finishes in a couple of seconds.
 const _defaultRescanRootTimeout = Duration(seconds: 120);
 
+/// Sortable track-list columns (see the header row in `ui/track_list.dart`
+/// and [LibraryModel.setSort]/[LibraryModel.visibleTracks]).
+enum SortColumn { title, artist, album, duration, dateAdded }
+
 class LibraryModel extends ChangeNotifier {
   List<Track> allTracks = [];
   List<ManifestPlaylist> playlists = [];
@@ -68,6 +72,13 @@ class LibraryModel extends ChangeNotifier {
   String search = '';
   String? activePlaylist;
   String status = 'idle';
+
+  /// The track-list column [visibleTracks] is currently sorted by, and its
+  /// direction. Defaults to date-added, newest first -- matching the feed's
+  /// pre-Task-6 behavior exactly. Playlist mode ignores both (playlist
+  /// order is always preserved; see [visibleTracks]).
+  SortColumn sortColumn = SortColumn.dateAdded;
+  bool sortAscending = false;
 
   /// True while [load] or [rescan] is actively running. Surfaced so the UI
   /// (the Refresh button in the search row) can disable itself, and so
@@ -194,6 +205,7 @@ class LibraryModel extends ChangeNotifier {
           artist: tags.artist,
           album: tags.album,
           genre: tags.genre,
+          durationMs: tags.durationMs,
         );
       }
       allTracks = tracks;
@@ -245,6 +257,7 @@ class LibraryModel extends ChangeNotifier {
               artist: tags.artist,
               album: tags.album,
               genre: tags.genre,
+              durationMs: tags.durationMs,
             );
           }
           done += batch.length;
@@ -410,6 +423,7 @@ class LibraryModel extends ChangeNotifier {
           artist: tags.artist,
           album: tags.album,
           genre: tags.genre,
+          durationMs: tags.durationMs,
         );
       }
       allTracks = List<Track>.of(out);
@@ -431,17 +445,34 @@ class LibraryModel extends ChangeNotifier {
 
   List<Track> get visibleTracks {
     if (activePlaylist != null) {
+      // Playlist order is curator-defined, not date/name-derived -- never
+      // resorted by column, regardless of [sortColumn]/[sortAscending].
       final matches = playlists.where((p) => p.name == activePlaylist);
       if (matches.isEmpty) return [];
       final pl = matches.first;
       final byId = {for (final t in allTracks) t.contentId: t};
       return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
     }
-    return sortByDateAddedDesc(applyFilters(allTracks,
+    final filtered = applyFilters(allTracks,
         genre: genreFilter,
         artist: artistFilter,
         album: albumFilter,
-        search: search));
+        search: search);
+    return sortTracks(filtered, sortColumn, sortAscending);
+  }
+
+  /// Selects [column] as the track-list sort column: clicking the header of
+  /// the already-active column toggles direction, clicking a different
+  /// header switches to it ascending -- except date-added, which (matching
+  /// the "newest first" default) starts descending on first click too.
+  void setSort(SortColumn column) {
+    if (column == sortColumn) {
+      sortAscending = !sortAscending;
+    } else {
+      sortColumn = column;
+      sortAscending = column != SortColumn.dateAdded;
+    }
+    notifyListeners();
   }
 
   void setGenre(String? g) {
@@ -473,6 +504,52 @@ class LibraryModel extends ChangeNotifier {
     search = '';
     notifyListeners();
   }
+}
+
+/// Sorts [tracks] by [column] in [ascending] order (stable on ties, keeping
+/// the input's relative order -- same technique as [sortByDateAddedDesc]).
+///
+/// Text columns (title/artist/album) compare case-insensitively. The
+/// duration column sorts tracks with no known duration ([Track.durationMs]
+/// null, e.g. not yet tag-enriched) after every track with a known one,
+/// regardless of [ascending] -- "last" always means the end of the list, not
+/// "first when descending".
+List<Track> sortTracks(List<Track> tracks, SortColumn column, bool ascending) {
+  int compareText(String a, String b) {
+    final c = a.toLowerCase().compareTo(b.toLowerCase());
+    return ascending ? c : -c;
+  }
+
+  int compareDuration(int? a, int? b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1; // null always sorts last
+    if (b == null) return -1;
+    return ascending ? a.compareTo(b) : b.compareTo(a);
+  }
+
+  int compare(Track a, Track b) {
+    switch (column) {
+      case SortColumn.title:
+        return compareText(a.title, b.title);
+      case SortColumn.artist:
+        return compareText(a.artist, b.artist);
+      case SortColumn.album:
+        return compareText(a.album, b.album);
+      case SortColumn.duration:
+        return compareDuration(a.durationMs, b.durationMs);
+      case SortColumn.dateAdded:
+        return ascending
+            ? a.dateAdded.compareTo(b.dateAdded)
+            : b.dateAdded.compareTo(a.dateAdded);
+    }
+  }
+
+  final indexed = tracks.asMap().entries.toList();
+  indexed.sort((x, y) {
+    final byColumn = compare(x.value, y.value);
+    return byColumn != 0 ? byColumn : x.key.compareTo(y.key); // stable
+  });
+  return indexed.map((e) => e.value).toList();
 }
 
 /// Returns [name] made unique against [used] (adding it to [used] as a side

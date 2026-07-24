@@ -13,8 +13,21 @@ class MetaCache {
     try {
       final j = jsonDecode(f.readAsStringSync());
       if (j is! Map<String, dynamic>) return MetaCache._({});
-      return MetaCache._(j.map(
-          (k, v) => MapEntry(k, TrackTags.fromJson(v as Map<String, dynamic>))));
+      final entries = <String, TrackTags>{};
+      for (final entry in j.entries) {
+        final v = entry.value;
+        if (v is! Map<String, dynamic>) continue;
+        // Entries written before durationMs existed lack the key entirely
+        // (as opposed to carrying it with a null value, which means a
+        // format whose parser genuinely found no duration). Those pre-
+        // existing entries are deliberately left out of the loaded cache so
+        // every caller's normal cache-miss path (`cache.entries[id] ==
+        // null`) re-reads the file and backfills duration -- instead of
+        // needing its own separate staleness check.
+        if (!v.containsKey('durationMs')) continue;
+        entries[entry.key] = TrackTags.fromJson(v);
+      }
+      return MetaCache._(entries);
     } catch (_) {
       return MetaCache._({});
     }
@@ -51,6 +64,7 @@ Future<List<Track>> fillMetadata(
       artist: tags.artist,
       album: tags.album,
       genre: tags.genre,
+      durationMs: tags.durationMs,
     ));
     onProgress?.call(++done, tracks.length);
   }
