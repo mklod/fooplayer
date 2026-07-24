@@ -8,30 +8,28 @@ import 'package:path/path.dart' as p;
 import 'model/app_config.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
+import 'platform_paths.dart';
 import 'player/player_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
 
-const _defaultLibraryRoot = r'L:\music (original structure)';
-
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
 /// launch-time and Refresh-button triggers -- see main() below.
 const _rescanInterval = Duration(minutes: 5);
 
-Directory _appDataDir() =>
-    Directory(p.join(Platform.environment['APPDATA']!, 'fooplayer'));
-
-File _configFile() => File(p.join(_appDataDir().path, 'config.json'));
+File _configFile(Directory dataDir) =>
+    File(p.join(dataDir.path, 'config.json'));
 
 /// Reads the whole config.json as a map (empty map if missing; see
 /// [readConfigFile] for the corrupt-file handling). Every key this app
 /// doesn't otherwise interpret is preserved so it round-trips through
 /// [_writeConfig] untouched.
-Map<String, dynamic> _loadConfig() => readConfigFile(_configFile());
+Map<String, dynamic> _loadConfig(Directory dataDir) =>
+    readConfigFile(_configFile(dataDir));
 
-void _writeConfig(Map<String, dynamic> config) {
-  final cfg = _configFile();
+void _writeConfig(Map<String, dynamic> config, Directory dataDir) {
+  final cfg = _configFile(dataDir);
   cfg.parent.createSync(recursive: true);
   cfg.writeAsStringSync(jsonEncode(config));
 }
@@ -80,17 +78,19 @@ class _LifecycleFlusher with WidgetsBindingObserver {
   }
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  final rawConfig = _loadConfig();
-  final appConfig = migrateConfig(rawConfig, defaultRoot: _defaultLibraryRoot);
+  final dataDir = await appDataDir();
+  final defaultRoot = (await defaultLibraryRoots()).first;
+  final rawConfig = _loadConfig(dataDir);
+  final appConfig = migrateConfig(rawConfig, defaultRoot: defaultRoot);
   // `config` (appConfig.raw) is the single mutable map every writer below
   // reads from and persists via _writeConfig -- it already carries the
   // migrated `libraryRoots` plus every other preserved key (e.g. `"ui"`).
   final config = appConfig.raw;
   if (needsMigrationWrite(rawConfig)) {
-    _writeConfig(config);
+    _writeConfig(config, dataDir);
   }
 
   final library = LibraryModel();
@@ -100,16 +100,16 @@ void main() {
     config['ui'] as Map<String, dynamic>?,
     writer: (ui) {
       config['ui'] = ui;
-      _writeConfig(config);
+      _writeConfig(config, dataDir);
     },
   );
 
-  final cacheFile = File(p.join(_appDataDir().path, 'meta_cache.json'));
+  final cacheFile = File(p.join(dataDir.path, 'meta_cache.json'));
   final libraryRootsPrefs = LibraryRootsPrefs(
     roots: appConfig.libraryRoots,
     writer: (roots) {
       config['libraryRoots'] = roots;
-      _writeConfig(config);
+      _writeConfig(config, dataDir);
     },
   );
   // [triggerLaunchRescan] is true only for the very first load (app
