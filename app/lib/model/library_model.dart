@@ -56,15 +56,23 @@ const _saveEveryNBatches = 5;
 /// last one) finishes in a couple of seconds.
 const _defaultRescanRootTimeout = Duration(seconds: 120);
 
+/// How long [LibraryModel.updateDuration] waits after the most recent
+/// backfilled duration before persisting the batch to the on-disk tag cache
+/// (see [LibraryModel.flushPendingDurationSaves]). Long enough to coalesce
+/// a burst (e.g. skipping through several duration-less tracks) into one
+/// cache write, short enough that a single played track's backfill isn't
+/// lost to anything but an immediate app kill.
+const _durationSaveDebounce = Duration(seconds: 2);
+
 /// Sortable track-list columns (see the header row in `ui/track_list.dart`
 /// and [LibraryModel.setSort]/[LibraryModel.visibleTracks]).
 ///
 /// [trackNumber] backs the '#' column, which is only ever visible (see
-/// `ui/track_list.dart`) when a single album is selected or a playlist is
-/// active -- but it is still a selectable [setSort] target like any other
-/// column, both because [setAlbum] switches to it automatically (see its
-/// doc) and because that's what makes its header cell clickable the same
-/// way every other visible header is.
+/// `ui/track_list.dart`) when exactly one album is selected or a playlist
+/// is active -- but it is still a selectable [setSort] target like any
+/// other column, both because [setAlbums] switches to it automatically
+/// (see its doc) and because that's what makes its header cell clickable
+/// the same way every other visible header is.
 enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
 
 class LibraryModel extends ChangeNotifier {
@@ -82,12 +90,41 @@ class LibraryModel extends ChangeNotifier {
   /// still load; surfaced by the settings dialog via the same per-root note
   /// pathway, with its own "corrupt, reseed to repair" wording.
   List<String> rootsFailed = [];
-  String? genreFilter;
-  String? artistFilter;
-  String? albumFilter;
+
+  /// The Folder pane's drill-down position: the folder currently "drilled
+  /// into" whose immediate children [folderEntries] lists. Empty means the
+  /// pane is at the top level (listing library roots, [folderNames]);
+  /// otherwise element 0 is a [Track.rootPath] and any further elements are
+  /// successive subdirectory names below it (relPath segments -- forward
+  /// slashes, see [Track.relPath]).
+  ///
+  /// Occupies the same top-of-cascade position the old Genre filter used to
+  /// (see [drillIntoFolder]): together with [folderSiblings] it narrows
+  /// [artists]/[albums]/[visibleTracks], and it is cleared by [setPlaylist]
+  /// and [clearFolderSelection].
+  List<String> folderPath = [];
+
+  /// Ctrl+click-selected sibling entries at the Folder pane's *current
+  /// level* -- i.e. names from [folderEntries] (children of [folderPath];
+  /// full root paths while [folderPath] is empty). Non-empty narrows the
+  /// track filter to the union of these siblings INSTEAD of all of
+  /// [folderPath]'s contents; empty means "everything under [folderPath]"
+  /// (or no folder restriction at all when [folderPath] is empty too). See
+  /// [setFolderSiblings].
+  Set<String> folderSiblings = {};
+  Set<String> artistFilters = {};
+  Set<String> albumFilters = {};
   String search = '';
   String? activePlaylist;
   String status = 'idle';
+
+  /// The single track currently selected in the track list (single-click;
+  /// see `ui/track_list.dart`'s `_TrackRow`) -- visual-only for now (a
+  /// `selectionFill` background), and the basis for a future multi-select.
+  /// Distinct from the currently *playing* track ([PlayerService.current]):
+  /// a row can be selected, playing, both, or neither, and each gets its
+  /// own independent highlight treatment.
+  String? selectedTrackId;
 
   /// The track-list column [visibleTracks] is currently sorted by, and its
   /// direction. Defaults to date-added, newest first -- matching the feed's
@@ -131,6 +168,22 @@ class LibraryModel extends ChangeNotifier {
   File? _cacheFile;
   Duration _enrichBatchTimeout = _defaultBatchTimeout;
   Duration _enrichFileTimeout = _defaultFileTimeout;
+
+  /// Durations backfilled by [updateDuration] since the last cache flush,
+  /// keyed by contentId -- what [flushPendingDurationSaves] persists. Kept
+  /// separate from the enrichment cache instance (which is local to each
+  /// [load]) so a flush can merge into whatever the on-disk cache holds *at
+  /// flush time* instead of racing enrichment's own saves with a stale
+  /// full-map snapshot.
+  final Map<String, int> _pendingDurationUpdates = {};
+  Timer? _durationSaveTimer;
+
+  /// Testing seam for [flushPendingDurationSaves]: when set, receives the
+  /// pending `contentId -> durationMs` batch instead of the default
+  /// merge-into-[_cacheFile] writer, so tests can observe exactly what
+  /// would be persisted without touching real files.
+  @visibleForTesting
+  Future<void> Function(Map<String, int> pending)? durationCacheWriter;
 
   /// Loads (or reloads) the merged library from [libraryRoots].
   ///
@@ -354,10 +407,12 @@ class LibraryModel extends ChangeNotifier {
           notifyListeners();
 
           if (++batchesSinceSave >= _saveEveryNBatches) {
+            _mergeKnownDurationsInto(cache);
             await cache.save(cacheFile);
             batchesSinceSave = 0;
           }
         }
+        _mergeKnownDurationsInto(cache);
         await cache.save(cacheFile);
       }
       status = 'ready';
@@ -522,18 +577,117 @@ class LibraryModel extends ChangeNotifier {
       allTracks = List<Track>.of(out);
       notifyListeners();
     }
+    _mergeKnownDurationsInto(cache);
     await cache.save(cacheFile);
     return out;
   }
 
+  /// Folds any duration already known in [allTracks] into [cache]'s
+  /// in-memory entries wherever the entry itself still shows `durationMs`
+  /// as null, so an enrichment [cache.save] mid-run can't clobber an
+  /// on-play duration backfill (see [updateDuration]) with the stale
+  /// null-duration snapshot [cache] was loaded with.
+  ///
+  /// [cache] is loaded once at the start of [_loadBody]/[_enrichNewTracks]
+  /// and only has its cache-*miss* entries touched by the enrichment loop
+  /// that owns it; a cache-*hit* track with a null-duration entry is never
+  /// revisited there even if [flushPendingDurationSaves] concurrently wrote
+  /// its backfilled duration to disk (or it's merely still pending, not
+  /// yet flushed) -- so periodically overwriting the whole file from this
+  /// map, unmerged, would silently erase that backfill. [allTracks] is
+  /// updated synchronously by [updateDuration] regardless of flush state,
+  /// so re-reading from it here covers both cases in one pass.
+  void _mergeKnownDurationsInto(MetaCache cache) {
+    final byId = {for (final t in allTracks) t.contentId: t};
+    for (final id in cache.entries.keys.toList(growable: false)) {
+      final entry = cache.entries[id]!;
+      if (entry.durationMs != null) continue;
+      final known = byId[id]?.durationMs;
+      if (known == null) continue;
+      cache.entries[id] = TrackTags(
+        title: entry.title,
+        artist: entry.artist,
+        album: entry.album,
+        genre: entry.genre,
+        durationMs: known,
+        trackNumber: entry.trackNumber,
+      );
+    }
+  }
+
   List<Track> get _searched => applyFilters(allTracks, search: search);
 
-  List<String> get genres => distinctValues(_searched, (t) => t.genre);
+  /// The Folder pane's top-level values -- one entry per distinct
+  /// [Track.rootPath] among the (search-filtered) tracks, i.e. the same
+  /// cascade position/derivation the removed genre getter used to occupy.
+  /// Each entry *is* the root path itself (what [drillIntoFolder]/
+  /// [setFolderSiblings] expect back at this level) -- `ui/home_screen.dart`
+  /// renders each one's basename via [FilterPanel.displayName] rather than
+  /// this getter doing any display-string translation itself, so a root
+  /// path round-trips through selection unchanged.
+  List<String> get folderNames {
+    final paths = distinctValues(_searched, (t) => t.rootPath);
+    paths.sort((a, b) =>
+        p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase()));
+    return paths;
+  }
+
+  /// What the Folder pane currently lists: the library roots
+  /// ([folderNames]) while at the top level, otherwise the immediate
+  /// subdirectory names one level below [folderPath], derived from the
+  /// (search-filtered) tracks' relPaths (see [subfolderNames] -- tracks
+  /// sitting directly at [folderPath]'s level contribute no entries, so a
+  /// leaf folder yields an empty list and only filters the track list).
+  List<String> get folderEntries {
+    if (folderPath.isEmpty) return folderNames;
+    return subfolderNames(_searched,
+        rootPath: folderPath.first, prefix: folderPath.skip(1).join('/'));
+  }
+
+  /// The Folder pane's pinned-header text, or `null` when nothing is
+  /// selected (pane at the top level with no Ctrl-selected roots): a
+  /// `'monthly / 2007-08'`-style breadcrumb for a single selected folder
+  /// (the drilled [folderPath], extended by the sole [folderSiblings] entry
+  /// if there is exactly one), or `'N selected'` when several siblings are
+  /// Ctrl-selected at once.
+  String? get folderHeaderText {
+    if (folderPath.isEmpty && folderSiblings.isEmpty) return null;
+    if (folderSiblings.length > 1) return '${folderSiblings.length} selected';
+    final parts = <String>[
+      if (folderPath.isNotEmpty) p.basename(folderPath.first),
+      ...folderPath.skip(1),
+      if (folderSiblings.length == 1)
+        folderPath.isEmpty
+            ? p.basename(folderSiblings.first)
+            : folderSiblings.first,
+    ];
+    return parts.join(' / ');
+  }
+
+  /// The [FolderScope]s the current Folder-pane selection filters tracks
+  /// down to (see [applyFilters]' `folders` parameter): one per
+  /// Ctrl-selected sibling (their tracks OR together), just [folderPath]
+  /// itself when no siblings are toggled, or empty (no restriction) when
+  /// there is no folder selection at all.
+  List<FolderScope> get folderScopes {
+    if (folderPath.isEmpty) {
+      // Top level: siblings are whole root paths.
+      return [for (final r in folderSiblings) (root: r, sub: '')];
+    }
+    final root = folderPath.first;
+    final base = folderPath.skip(1).toList();
+    if (folderSiblings.isEmpty) return [(root: root, sub: base.join('/'))];
+    return [
+      for (final n in folderSiblings) (root: root, sub: [...base, n].join('/'))
+    ];
+  }
+
   List<String> get artists => distinctValues(
-      applyFilters(allTracks, genre: genreFilter, search: search), (t) => t.artist);
+      applyFilters(allTracks, folders: folderScopes, search: search),
+      (t) => t.artist);
   List<String> get albums => distinctValues(
       applyFilters(allTracks,
-          genre: genreFilter, artist: artistFilter, search: search),
+          folders: folderScopes, artist: artistFilters, search: search),
       (t) => t.album);
 
   List<Track> get visibleTracks {
@@ -547,9 +701,9 @@ class LibraryModel extends ChangeNotifier {
       return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
     }
     final filtered = applyFilters(allTracks,
-        genre: genreFilter,
-        artist: artistFilter,
-        album: albumFilter,
+        folders: folderScopes,
+        artist: artistFilters,
+        album: albumFilters,
         search: search);
     return sortTracks(filtered, sortColumn, sortAscending);
   }
@@ -568,34 +722,104 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setGenre(String? g) {
-    genreFilter = g;
-    artistFilter = null;
-    albumFilter = null;
+  /// Plain click in the Folder pane: selects [entry] (one of
+  /// [folderEntries] -- a root path at the top level, a subdirectory name
+  /// below that) AND drills into it, so the pane now lists ITS immediate
+  /// subdirectories instead of the level [entry] was clicked at. Any
+  /// Ctrl-selected siblings from the previous level are dropped ([entry] is
+  /// the whole selection now).
+  ///
+  /// Same cascade behavior [setArtists] has one rung down: clears any
+  /// downstream artist/album selection (a folder switch invalidates
+  /// whichever artist/album was showing under the old one) and reverts a
+  /// stale trackNumber sort exactly like [setAlbums]/[setArtists] do --
+  /// see [_revertSortIfTrackNumber].
+  void drillIntoFolder(String entry) {
+    folderPath = [...folderPath, entry];
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
+  /// Ctrl+click in the Folder pane: replaces the Ctrl-selected sibling set
+  /// at the pane's current level with exactly [values] (each one of
+  /// [folderEntries]) WITHOUT drilling -- the pane keeps listing the same
+  /// level, and the selected siblings' tracks OR together (see
+  /// [folderScopes]). Empty reverts the filter to all of [folderPath].
+  ///
+  /// [values] is the panel's *whole new selection*, not a single toggle --
+  /// `ui/filter_panel.dart` computes the resulting set itself (Ctrl+click
+  /// toggles a value in/out of the existing set) and calls this with the
+  /// result, so the cascade/sort side effects only ever run once per user
+  /// action. Shares [drillIntoFolder]'s cascade/sort-revert side effects.
+  ///
+  /// No-ops (skips the cascade entirely) when [values] is exactly the
+  /// current [folderSiblings] -- e.g. Ctrl-toggling a sibling off and back
+  /// on, or a redundant call with the set unchanged -- so it doesn't wipe
+  /// the user's artist/album picks for a folder scope that never actually
+  /// changed.
+  void setFolderSiblings(Set<String> values) {
+    if (_setEquals(folderSiblings, values)) return;
+    folderSiblings = values;
+    _onFolderSelectionChanged();
+  }
+
+  /// The Folder pane's pinned ✕: fully clears the folder selection -- back
+  /// to the top-level root list ([folderNames]) with no folder restriction
+  /// on the track list. Shares [drillIntoFolder]'s cascade/sort-revert side
+  /// effects (the artist/album lists rescope back to the whole library).
+  ///
+  /// No-ops when there is nothing to clear (both [folderPath] and
+  /// [folderSiblings] already empty) -- see [setFolderSiblings]'s doc for
+  /// why a no-op selection change must not still wipe artist/album filters.
+  void clearFolderSelection() {
+    if (folderPath.isEmpty && folderSiblings.isEmpty) return;
+    folderPath = [];
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
+  /// Shared tail of every folder-selection mutation ([drillIntoFolder]/
+  /// [setFolderSiblings]/[clearFolderSelection]): clears the downstream
+  /// artist/album filter sets, reverts a stale trackNumber sort (see
+  /// [_revertSortIfTrackNumber]), and notifies.
+  void _onFolderSelectionChanged() {
+    artistFilters = {};
+    albumFilters = {};
     _revertSortIfTrackNumber();
     notifyListeners();
   }
 
-  void setArtist(String? a) {
-    artistFilter = a;
-    albumFilter = null;
+  /// Replaces the Artist filter selection with exactly [values] -- the
+  /// panel's *whole new selection*, not a single toggle (see
+  /// [setFolderSiblings]'s doc for the contract this and [setAlbums]
+  /// share): `ui/filter_panel.dart` computes the resulting set itself
+  /// (plain click replaces it with one value, Ctrl+click toggles a value
+  /// in/out of the existing set) and calls this with the result, so the
+  /// cascade/sort side effects below only ever need to run once per user
+  /// action.
+  void setArtists(Set<String> values) {
+    artistFilters = values;
+    albumFilters = {};
     _revertSortIfTrackNumber();
     notifyListeners();
   }
 
-  /// Selects [a] as the album filter (or clears it, when `null`).
+  /// Replaces the Album filter selection with exactly [values] -- see
+  /// [setArtists]'s doc for the "whole new selection, not a toggle"
+  /// contract this shares.
   ///
   /// Also drives the track-list's default sort for the single-album view:
-  /// selecting an album switches to track-number order (ascending -- LP
-  /// side one, track one, first), matching how a real album is listened to
-  /// and making the now-visible '#' column (see `ui/track_list.dart`)
-  /// meaningful; clearing the album filter reverts to the library's normal
-  /// newest-first order. This only sets the *default* -- [setSort] (a
-  /// user's own header click) still always wins afterward, same as any
-  /// other sort change.
-  void setAlbum(String? a) {
-    albumFilter = a;
-    if (a != null) {
+  /// selecting exactly one album switches to track-number order (ascending
+  /// -- LP side one, track one, first), matching how a real album is
+  /// listened to and making the now-visible '#' column (see
+  /// `ui/track_list.dart`) meaningful; any other count -- none selected, or
+  /// several at once (multiple albums' track numbers don't share one
+  /// order) -- reverts to the library's normal newest-first order. This
+  /// only sets the *default* -- [setSort] (a user's own header click) still
+  /// always wins afterward, same as any other sort change.
+  void setAlbums(Set<String> values) {
+    albumFilters = values;
+    if (values.length == 1) {
       sortColumn = SortColumn.trackNumber;
       sortAscending = true;
     } else {
@@ -610,9 +834,114 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Selects [id] as the single selected track (or clears the selection,
+  /// when `null`). Selection is purely a UI highlight -- it never starts or
+  /// affects playback (see [PlayerService.playFrom] for that).
+  void selectTrack(String? id) {
+    selectedTrackId = id;
+    notifyListeners();
+  }
+
+  /// On-play duration backfill (see [PlayerService.onObservedDuration],
+  /// which main.dart wires to this): records that the playback engine
+  /// observed a real duration of [ms] milliseconds for the track with
+  /// [contentId], so a track whose Time column was blank -- its cache entry
+  /// persisted with `durationMs: null` because the tag parser couldn't
+  /// derive one at scan time -- permanently gains its duration once played.
+  ///
+  /// Updates the in-memory [Track] immediately (and notifies, so the Time
+  /// cell fills in while the track is still playing), then schedules a
+  /// debounced merge into the on-disk tag cache (see
+  /// [flushPendingDurationSaves] / [_durationSaveDebounce]) so the value
+  /// survives restarts. No-ops on a non-positive [ms], an unknown
+  /// [contentId], or a value the track already carries.
+  void updateDuration(String contentId, int ms) {
+    if (ms <= 0) return;
+    final i = allTracks.indexWhere((t) => t.contentId == contentId);
+    if (i < 0) return;
+    if (allTracks[i].durationMs == ms) return;
+    final tracks = List<Track>.of(allTracks);
+    tracks[i] = tracks[i].copyWith(durationMs: ms);
+    allTracks = tracks;
+    _pendingDurationUpdates[contentId] = ms;
+    _durationSaveTimer?.cancel();
+    _durationSaveTimer = Timer(_durationSaveDebounce, () {
+      flushPendingDurationSaves();
+    });
+    notifyListeners();
+  }
+
+  /// Persists every duration [updateDuration] has recorded since the last
+  /// flush. Runs automatically [_durationSaveDebounce] after the most
+  /// recent update; public so tests (and a future shutdown hook) can force
+  /// the write instead of waiting out the debounce. No-op when nothing is
+  /// pending.
+  ///
+  /// The default writer ([_writeDurationsToCache]) re-loads [_cacheFile] and
+  /// merges the pending durations into whatever it holds *now* -- each
+  /// entry keeps its existing tag fields with only durationMs replaced --
+  /// rather than saving a full cache snapshot taken earlier, so it can't
+  /// resurrect stale entries over a concurrent enrichment save's newer
+  /// ones. A contentId with no existing cache entry yet (not yet enriched)
+  /// is deliberately left pending rather than given a fabricated entry --
+  /// see [_writeDurationsToCache]'s doc. [durationCacheWriter], when set,
+  /// replaces that default entirely (tests).
+  Future<void> flushPendingDurationSaves() async {
+    _durationSaveTimer?.cancel();
+    _durationSaveTimer = null;
+    if (_pendingDurationUpdates.isEmpty) return;
+    final pending = Map<String, int>.of(_pendingDurationUpdates);
+    _pendingDurationUpdates.clear();
+    await (durationCacheWriter ?? _writeDurationsToCache)(pending);
+  }
+
+  Future<void> _writeDurationsToCache(Map<String, int> pending) async {
+    final cacheFile = _cacheFile;
+    if (cacheFile == null) return; // no load() yet -- nowhere to persist
+    final cache = MetaCache.load(cacheFile);
+    final byId = {for (final t in allTracks) t.contentId: t};
+    for (final entry in pending.entries) {
+      final old = cache.entries[entry.key];
+      if (old == null) {
+        // No enriched cache entry yet for this track (a first-scan cache
+        // miss played before enrichment reached it). Fabricating one from
+        // in-memory, filename-derived fields would carry both durationMs
+        // and trackNumber keys and so pass MetaCache.load's staleness
+        // filter -- permanently masquerading as a real, already-enriched
+        // entry and excluding the track from ever getting its actual tags
+        // (see the finding this guards against). Keep a still-known track
+        // pending instead, so a later flush merges the duration into
+        // whatever real entry enrichment eventually writes; a track no
+        // longer in the library at all is simply dropped, as before.
+        if (byId.containsKey(entry.key)) {
+          _pendingDurationUpdates[entry.key] = entry.value;
+        }
+        continue;
+      }
+      cache.entries[entry.key] = TrackTags(
+        title: old.title,
+        artist: old.artist,
+        album: old.album,
+        genre: old.genre,
+        durationMs: entry.value,
+        trackNumber: old.trackNumber,
+      );
+    }
+    await cache.save(cacheFile);
+  }
+
+  @override
+  void dispose() {
+    _durationSaveTimer?.cancel();
+    super.dispose();
+  }
+
   void setPlaylist(String? name) {
     activePlaylist = name;
-    genreFilter = artistFilter = albumFilter = null;
+    folderPath = [];
+    folderSiblings = {};
+    artistFilters = {};
+    albumFilters = {};
     search = '';
     notifyListeners();
   }
@@ -621,9 +950,11 @@ class LibraryModel extends ChangeNotifier {
   /// is cleared while [sortColumn] is [SortColumn.trackNumber].
   ///
   /// Track number sorting only makes sense in album view; when navigating away
-  /// from an album via [setGenre]/[setArtist] (which clear [albumFilter]),
+  /// from an album via a folder-selection change/[setArtists] (which clear
+  /// [albumFilters]),
   /// a stale trackNumber sort would leave the '#' header hidden and no sort
-  /// arrow visible, confusing the user. Mirrors [setAlbum(null)]'s behavior.
+  /// arrow visible, confusing the user. Mirrors [setAlbums]' not-exactly-one
+  /// branch.
   void _revertSortIfTrackNumber() {
     if (sortColumn == SortColumn.trackNumber) {
       sortColumn = SortColumn.dateAdded;
@@ -691,6 +1022,15 @@ String _uniquePlaylistName(String name, Set<String> used) {
     n++;
   }
   return '$name ($n)';
+}
+
+/// Whether [a] and [b] contain exactly the same elements, order irrelevant
+/// -- used by [LibraryModel.setFolderSiblings] to detect a no-op selection
+/// change (see its doc) without pulling in package:collection's SetEquality
+/// for one call site.
+bool _setEquals(Set<String> a, Set<String> b) {
+  if (a.length != b.length) return false;
+  return a.containsAll(b);
 }
 
 /// Runs one library root's whole rescan cycle -- `fooplayer_core`'s

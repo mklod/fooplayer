@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../player/player_service.dart';
@@ -80,28 +81,47 @@ class HomeScreen extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: FilterPanel(
-                                      title: 'Genre',
-                                      values: library.genres,
-                                      selected: library.genreFilter,
-                                      onSelect: library.setGenre,
+                                      key: const Key('folder-filter-panel'),
+                                      title: 'Folder',
+                                      // Drill-down navigator (see
+                                      // LibraryModel.folderEntries): plain
+                                      // click selects AND descends into a
+                                      // folder, Ctrl+click toggles siblings
+                                      // at the current level, the pinned ✕
+                                      // resets to the root list. Entries
+                                      // are full root paths only at the top
+                                      // level (shown by basename); below
+                                      // that they're already bare names.
+                                      values: library.folderEntries,
+                                      selected: library.folderSiblings,
+                                      onSelect: library.setFolderSiblings,
+                                      onDrill: library.drillIntoFolder,
+                                      headerText: library.folderHeaderText,
+                                      onClearHeader:
+                                          library.clearFolderSelection,
+                                      displayName: library.folderPath.isEmpty
+                                          ? p.basename
+                                          : null,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),
                                   Expanded(
                                     child: FilterPanel(
+                                      key: const Key('artist-filter-panel'),
                                       title: 'Artist',
                                       values: library.artists,
-                                      selected: library.artistFilter,
-                                      onSelect: library.setArtist,
+                                      selected: library.artistFilters,
+                                      onSelect: library.setArtists,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),
                                   Expanded(
                                     child: FilterPanel(
+                                      key: const Key('album-filter-panel'),
                                       title: 'Album',
                                       values: library.albums,
-                                      selected: library.albumFilter,
-                                      onSelect: library.setAlbum,
+                                      selected: library.albumFilters,
+                                      onSelect: library.setAlbums,
                                     ),
                                   ),
                                 ],
@@ -193,18 +213,54 @@ class _Sidebar extends StatelessWidget {
   }
 }
 
-class _SearchField extends StatelessWidget {
+/// Stateful so it owns a [TextEditingController]: the clear (X) affordance
+/// only appears while the field has text, and pressing it must both empty
+/// the visible field and reset the library's search filter in one tap.
+class _SearchField extends StatefulWidget {
   final LibraryModel library;
   const _SearchField({required this.library});
 
   @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _clear() {
+    _controller.clear();
+    widget.library.setSearch('');
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return TextField(
-      decoration: const InputDecoration(
-        prefixIcon: Icon(Icons.search),
-        hintText: 'Search title, artist, album',
+    // ValueListenableBuilder (rather than setState in onChanged) so the
+    // suffix icon also tracks programmatic controller changes like _clear.
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (context, value, _) => TextField(
+        controller: _controller,
+        decoration: InputDecoration(
+          prefixIcon: const Icon(Icons.search),
+          hintText: 'Search title, artist, album',
+          suffixIcon: value.text.isEmpty
+              ? null
+              : IconButton(
+                  key: const Key('search-clear'),
+                  icon: const Icon(Icons.close,
+                      size: 16, color: AppColors.inkSecondary),
+                  tooltip: 'Clear search',
+                  onPressed: _clear,
+                ),
+        ),
+        onChanged: widget.library.setSearch,
       ),
-      onChanged: library.setSearch,
     );
   }
 }

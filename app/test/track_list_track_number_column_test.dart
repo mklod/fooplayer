@@ -58,20 +58,34 @@ void main() {
     expect(find.text('4'), findsNothing);
   });
 
-  testWidgets('album filter active: # header appears, rows show the tag track number',
+  testWidgets(
+      'exactly one album selected: # header appears, rows show the tag track number',
       (tester) async {
     final lib = fixtureLibrary();
-    lib.setAlbum('AlbumX'); // also switches sort to trackNumber ascending
+    lib.setAlbums({'AlbumX'}); // also switches sort to trackNumber ascending
 
     await pumpTrackList(tester, lib, PlayerService());
 
-    // setAlbum makes trackNumber the active sort column, so (like every
+    // setAlbums makes trackNumber the active sort column, so (like every
     // other active header -- see track_list_header_test.dart's "DATE ▼"
-    // assertions) the '#' header carries its direction arrow too.
-    expect(find.text('▲ #'), findsOneWidget);
+    // assertions) the '#' header carries its direction arrow too -- left
+    // aligned like every other non-right-aligned header (label then arrow).
+    expect(find.text('# ▲'), findsOneWidget);
     // Ascending trackNumber: 'b' (4) before 'a' (9).
     expect(find.text('4'), findsOneWidget);
     expect(find.text('9'), findsOneWidget);
+  });
+
+  testWidgets(
+      'two albums selected at once: no # column (numbers from different '
+      'albums would collide meaninglessly)', (tester) async {
+    final lib = fixtureLibrary();
+    lib.setAlbums({'AlbumX', 'AlbumY'});
+
+    await pumpTrackList(tester, lib, PlayerService());
+
+    expect(find.text('#'), findsNothing);
+    expect(find.text('# ▲'), findsNothing);
   });
 
   testWidgets(
