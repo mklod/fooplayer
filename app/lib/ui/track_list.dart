@@ -25,7 +25,9 @@ String _fmtDuration(int? ms) {
 // the two stay pixel-aligned. Title and Artist are true columns sharing one
 // outer flexible block, split internally by the same _kTitleFlex/_kArtistFlex
 // ratio the header uses (see _TrackRow); Album gets its own flexible block;
-// #, Time and Date are fixed-width, right side of the row, foobar-style.
+// #, Time and Date are fixed-width -- # left-aligned (foobar shows track
+// numbers flush with Title, not right-ranged like Time/Date), Time and Date
+// right-aligned, foobar-style.
 //
 // Every row cell (Title/Artist/Album/Time/Date) renders at the same 13px
 // size and [AppColors.ink] color -- Title alone adds w600 weight to carry
@@ -100,12 +102,13 @@ class TrackListView extends StatelessWidget {
       builder: (context, _) {
         final tracks = library.visibleTracks;
         // The '#' column only earns its place when it means something
-        // unambiguous: a single album's own track order, or a playlist's
-        // curated position. Anywhere else (the full library, a genre/artist
-        // filter spanning many albums) track numbers from different albums
-        // would collide meaninglessly, so the column stays hidden.
+        // unambiguous: exactly one album's own track order, or a
+        // playlist's curated position. Anywhere else (the full library, a
+        // genre/artist filter spanning many albums, or several albums
+        // selected at once) track numbers from different albums would
+        // collide meaninglessly, so the column stays hidden.
         final isPlaylist = library.activePlaylist != null;
-        final showTrackNumber = isPlaylist || library.albumFilter != null;
+        final showTrackNumber = isPlaylist || library.albumFilters.length == 1;
         return Column(
           children: [
             _TrackListHeader(library: library, showTrackNumber: showTrackNumber),
@@ -177,7 +180,6 @@ class _TrackListHeader extends StatelessWidget {
                   label: '#',
                   column: SortColumn.trackNumber,
                   library: library,
-                  alignEnd: true,
                 ),
               ),
             Expanded(
@@ -338,7 +340,7 @@ class _TrackRow extends StatelessWidget {
                   width: _kTrackNumberColumnWidth,
                   child: Text(
                     trackNumberText ?? '',
-                    textAlign: TextAlign.right,
+                    textAlign: TextAlign.left,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _kRowTextStyle,

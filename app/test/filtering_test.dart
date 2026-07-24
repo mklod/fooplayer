@@ -34,12 +34,12 @@ void main() {
 
   test('applyFilters ANDs genre/artist and search', () {
     expect(applyFilters(lib, genre: 'Rock').length, 2);
-    expect(applyFilters(lib, genre: 'Rock', artist: 'Muse').length, 2);
+    expect(applyFilters(lib, genre: 'Rock', artist: {'Muse'}).length, 2);
     expect(applyFilters(lib, search: 'mus').length, 3); // case-insensitive artist match
     expect(applyFilters(lib, genre: 'Rock', search: 'beta').single.contentId, 'b');
   });
 
-  test('null filter matches all; genre filter excludes empty-genre tracks', () {
+  test('null/empty filter matches all; genre filter excludes empty-genre tracks', () {
     expect(applyFilters(lib).length, 4);
     expect(applyFilters(lib, genre: 'Rock').map((t) => t.contentId), isNot(contains('d')));
   });
@@ -50,11 +50,30 @@ void main() {
       tr('b', 2, title: 'Beta', rootPath: r'L:\Music\RootB'),
       tr('c', 3, title: 'Gamma', rootPath: r'L:\Music\RootA'),
     ];
-    expect(applyFilters(withRoots, rootPath: r'L:\Music\RootA').map((t) => t.contentId),
+    expect(
+        applyFilters(withRoots, rootPath: {r'L:\Music\RootA'}).map((t) => t.contentId),
         ['a', 'c']);
-    expect(applyFilters(withRoots, rootPath: null).length, 3);
+    expect(applyFilters(withRoots, rootPath: const {}).length, 3);
     // Exact match -- a differently-cased path does not match.
-    expect(applyFilters(withRoots, rootPath: r'l:\music\roota'), isEmpty);
+    expect(applyFilters(withRoots, rootPath: {r'l:\music\roota'}), isEmpty);
+  });
+
+  test('applyFilters artist/album sets OR within the panel, case-insensitively', () {
+    // Two artists selected: tracks from either match (union), not just one.
+    expect(
+        applyFilters(lib, artist: {'Muse', 'Feed Me'}).map((t) => t.contentId).toSet(),
+        {'a', 'b', 'c', 'd'}); // Muse/muse (a,b,d) + Feed Me (c)
+    // A single selected value still narrows as before.
+    expect(applyFilters(lib, artist: {'Feed Me'}).single.contentId, 'c');
+    // Case-insensitive membership, same as the old single-value [eq].
+    expect(applyFilters(lib, artist: {'MUSE'}).map((t) => t.contentId).toSet(),
+        {'a', 'b', 'd'});
+    // Album set ORs the same way, and ANDs with a simultaneous artist set.
+    expect(
+        applyFilters(lib, artist: {'Muse'}, album: {'Origin', 'Absolution'})
+            .map((t) => t.contentId)
+            .toSet(),
+        {'a', 'b', 'd'});
   });
 
   test('distinctValues dedupes case-insensitively, sorted', () {

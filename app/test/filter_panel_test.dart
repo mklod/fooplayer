@@ -1,19 +1,31 @@
-// FilterPanel's pinned selection header (see ui/filter_panel.dart): whenever
-// a value is selected, that value plus a clear ("X") button must stay
-// visible in a non-scrolling region above the value list -- regardless of
-// how far the list itself has been scrolled -- and tapping the X clears the
-// selection (onSelect(null)).
+// FilterPanel's multi-select behavior (see ui/filter_panel.dart): a plain
+// click replaces the whole selection with just the clicked value (clicking
+// the only-selected value clears it); Ctrl+click toggles a value in/out of
+// the existing selection so several can be selected at once; the pinned
+// header above the scrolling list shows the single selected value, or "N
+// selected" when more than one is picked, either way with a clear ("X")
+// button that always empties the selection outright.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/filter_panel.dart';
+
+/// Holds Ctrl down for the duration of [action] (e.g. a [WidgetTester.tap])
+/// so [FilterPanel]'s `HardwareKeyboard.instance.isControlPressed` check
+/// sees it held, then releases it -- mirrors a real Ctrl+click.
+Future<void> ctrlClick(WidgetTester tester, Future<void> Function() action) async {
+  await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+  await action();
+  await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+}
 
 void main() {
   testWidgets(
       'selected value + clear button stay pinned and visible while the '
       'list scrolls, and tapping the clear button clears the selection',
       (tester) async {
-    String? selected = 'Value 05';
+    Set<String> selected = {'Value 05'};
     final values = List.generate(40, (i) => 'Value ${i.toString().padLeft(2, '0')}');
 
     await tester.pumpWidget(MaterialApp(
@@ -51,7 +63,7 @@ void main() {
     await tester.tap(find.byKey(const Key('filter-clear')));
     await tester.pump();
 
-    expect(selected, isNull);
+    expect(selected, isEmpty);
   });
 
   testWidgets('no pinned header/clear button when nothing is selected',
@@ -64,7 +76,7 @@ void main() {
           child: FilterPanel(
             title: 'Artist',
             values: const ['Muse', 'Feed Me'],
-            selected: null,
+            selected: const {},
             onSelect: (_) {},
           ),
         ),
@@ -84,7 +96,7 @@ void main() {
           child: FilterPanel(
             title: 'Folder',
             values: const [r'L:\Music\RockFolder'],
-            selected: r'L:\Music\RockFolder',
+            selected: const {r'L:\Music\RockFolder'},
             onSelect: (_) {},
             displayName: (v) => v.split(r'\').last,
           ),
@@ -94,5 +106,193 @@ void main() {
 
     expect(find.text('RockFolder'), findsWidgets);
     expect(find.text(r'L:\Music\RockFolder'), findsNothing);
+  });
+
+  testWidgets('plain click replaces the selection with just the clicked value',
+      (tester) async {
+    Set<String> selected = {'Muse'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Feed Me'));
+    await tester.pump();
+
+    expect(selected, {'Feed Me'}); // replaced, not accumulated
+  });
+
+  testWidgets('plain click on the only-selected value clears the selection',
+      (tester) async {
+    Set<String> selected = {'Muse'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    // 'Muse' is currently both the sole pinned-header value and a list row
+    // -- an unscoped text finder would be ambiguous, so target the list row
+    // specifically via its ListTile.
+    await tester.tap(find.widgetWithText(ListTile, 'Muse'));
+    await tester.pump();
+
+    expect(selected, isEmpty);
+  });
+
+  testWidgets(
+      'Ctrl+click accumulates a second value instead of replacing the first',
+      (tester) async {
+    Set<String> selected = {'Muse'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await ctrlClick(tester, () => tester.tap(find.text('Feed Me')));
+    await tester.pump();
+
+    expect(selected, {'Muse', 'Feed Me'}); // both selected, union
+  });
+
+  testWidgets('Ctrl+click on an already-selected value removes just that one',
+      (tester) async {
+    Set<String> selected = {'Muse', 'Feed Me'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await ctrlClick(tester, () => tester.tap(find.text('Muse')));
+    await tester.pump();
+
+    expect(selected, {'Feed Me'});
+  });
+
+  testWidgets('pinned header shows "N selected" with multiple selections, '
+      'and its clear button empties the whole selection', (tester) async {
+    Set<String> selected = {'Muse', 'Feed Me'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('2 selected'), findsOneWidget);
+    expect(find.byKey(const Key('filter-clear')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('filter-clear')));
+    await tester.pump();
+
+    expect(selected, isEmpty);
+  });
+
+  testWidgets('clicking "All (N)" always clears the selection outright, '
+      'even with multiple values selected and even under Ctrl', (tester) async {
+    Set<String> selected = {'Muse', 'Feed Me'};
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: StatefulBuilder(
+            builder: (context, setState) => FilterPanel(
+              title: 'Artist',
+              values: const ['Muse', 'Feed Me'],
+              selected: selected,
+              onSelect: (v) => setState(() => selected = v),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await ctrlClick(tester, () => tester.tap(find.text('All (2)')));
+    await tester.pump();
+
+    expect(selected, isEmpty);
+  });
+
+  testWidgets('multiple selected values are all highlighted in the list',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          height: 260,
+          child: FilterPanel(
+            title: 'Artist',
+            values: const ['Muse', 'Feed Me', 'ZZ Top'],
+            selected: const {'Muse', 'ZZ Top'},
+            onSelect: (_) {},
+          ),
+        ),
+      ),
+    ));
+
+    ListTile tileFor(String label) =>
+        tester.widget<ListTile>(find.widgetWithText(ListTile, label));
+
+    expect(tileFor('Muse').selected, isTrue);
+    expect(tileFor('ZZ Top').selected, isTrue);
+    expect(tileFor('Feed Me').selected, isFalse);
   });
 }

@@ -154,10 +154,10 @@ void main() {
     });
   });
 
-  group('setAlbum default sort', () {
-    test('selecting an album switches the sort to trackNumber ascending', () {
+  group('setAlbums default sort', () {
+    test('selecting exactly one album switches the sort to trackNumber ascending', () {
       expect(lib.sortColumn, SortColumn.dateAdded); // sanity: starts on default
-      lib.setAlbum('Zeta');
+      lib.setAlbums({'Zeta'});
       expect(lib.sortColumn, SortColumn.trackNumber);
       expect(lib.sortAscending, isTrue);
     });
@@ -168,20 +168,30 @@ void main() {
         tr('t1', title: 'First', album: 'Live Album', trackNumber: 1, dateAdded: DateTime.utc(2024, 1, 4)),
         tr('t2', title: 'Second', album: 'Live Album', trackNumber: 2, dateAdded: DateTime.utc(2024, 1, 2)),
       ];
-      lib.setAlbum('Live Album');
+      lib.setAlbums({'Live Album'});
       expect(ids(), ['t1', 't2', 't3']);
     });
 
     test('clearing the album filter reverts to dateAdded descending', () {
-      lib.setAlbum('Zeta');
-      lib.setAlbum(null);
+      lib.setAlbums({'Zeta'});
+      lib.setAlbums(const {});
       expect(lib.sortColumn, SortColumn.dateAdded);
       expect(lib.sortAscending, isFalse);
       expect(ids(), ['b', 'd', 'a', 'c']); // back to the default-sort order
     });
 
+    test('selecting a SECOND album (now two selected) also reverts to dateAdded descending -- '
+        'the trackNumber default only applies to exactly one album', () {
+      lib.setAlbums({'Zeta'});
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      lib.setAlbums({'Zeta', 'alpha'}); // two albums now selected
+      expect(lib.albumFilters, {'Zeta', 'alpha'});
+      expect(lib.sortColumn, SortColumn.dateAdded);
+      expect(lib.sortAscending, isFalse);
+    });
+
     test('a header click after selecting an album overrides the trackNumber default', () {
-      lib.setAlbum('Zeta');
+      lib.setAlbums({'Zeta'});
       lib.setSort(SortColumn.artist);
       expect(lib.sortColumn, SortColumn.artist);
       expect(lib.sortAscending, isTrue); // new non-date column starts ascending
@@ -189,34 +199,60 @@ void main() {
   });
 
   group('folder/artist navigation reverts stale trackNumber sort', () {
-    test('setAlbum then setFolder reverts trackNumber sort to dateAdded descending', () {
-      lib.setAlbum('Zeta');
+    test('setAlbums then setFolders reverts trackNumber sort to dateAdded descending', () {
+      lib.setAlbums({'Zeta'});
       expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
-      expect(lib.albumFilter, 'Zeta');
-      lib.setFolder(r'L:\Music\SomeRoot');
-      expect(lib.albumFilter, isNull); // setFolder clears album filter
+      expect(lib.albumFilters, {'Zeta'});
+      lib.setFolders({r'L:\Music\SomeRoot'});
+      expect(lib.albumFilters, isEmpty); // setFolders clears album filter
       expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
       expect(lib.sortAscending, isFalse); // back to descending
     });
 
-    test('setAlbum then setArtist reverts trackNumber sort to dateAdded descending', () {
-      lib.setAlbum('Zeta');
+    test('setAlbums then setArtists reverts trackNumber sort to dateAdded descending', () {
+      lib.setAlbums({'Zeta'});
       expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
-      expect(lib.albumFilter, 'Zeta');
-      lib.setArtist('muse');
-      expect(lib.albumFilter, isNull); // setArtist clears album filter
+      expect(lib.albumFilters, {'Zeta'});
+      lib.setArtists({'muse'});
+      expect(lib.albumFilters, isEmpty); // setArtists clears album filter
       expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
       expect(lib.sortAscending, isFalse); // back to descending
     });
 
-    test('setFolder/setArtist does NOT revert if user explicitly chose a different sort', () {
-      lib.setAlbum('Zeta');
+    test('setFolders/setArtists does NOT revert if user explicitly chose a different sort', () {
+      lib.setAlbums({'Zeta'});
       lib.setSort(SortColumn.title); // user explicitly switches away from trackNumber
       expect(lib.sortColumn, SortColumn.title);
       expect(lib.sortAscending, isTrue); // title sort starts ascending
-      lib.setFolder(r'L:\Music\SomeRoot'); // now change filter
+      lib.setFolders({r'L:\Music\SomeRoot'}); // now change filter
       expect(lib.sortColumn, SortColumn.title); // title sort should NOT be reverted
       expect(lib.sortAscending, isTrue);
+    });
+  });
+
+  group('multi-select filters (Ctrl+click)', () {
+    test('setArtists with two values ORs them: union of both artists\' tracks', () {
+      // Fixture: 'a' is muse, 'b' is Feed Me, 'c' is ZZ Top, 'd' is apple corp.
+      lib.setArtists({'muse', 'Feed Me'});
+      expect(ids().toSet(), {'a', 'b'});
+    });
+
+    test('setArtists with one value narrows to just that artist, same as before', () {
+      lib.setArtists({'Feed Me'});
+      expect(ids(), ['b']);
+    });
+
+    test('setFolders clears downstream artist/album sets (cascade), even with multiple folders', () {
+      lib.setArtists({'muse'});
+      lib.setFolders({r'L:\Music\A', r'L:\Music\B'});
+      expect(lib.artistFilters, isEmpty);
+      expect(lib.albumFilters, isEmpty);
+    });
+
+    test('setArtists clears downstream album set (cascade), even with multiple artists', () {
+      lib.setAlbums({'Zeta'});
+      lib.setArtists({'muse', 'Feed Me'});
+      expect(lib.albumFilters, isEmpty);
     });
   });
 

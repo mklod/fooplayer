@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
@@ -90,15 +91,55 @@ void main() {
     expect(find.text('Feed Me'), findsWidgets);
     await tester.tap(find.text('RockFolder')); // select folder (basename display)
     await tester.pumpAndSettle();
-    expect(lib.folderFilter, r'L:\Music\RockFolder');
+    expect(lib.folderFilters, {r'L:\Music\RockFolder'});
     expect(find.text('Feed Me'), findsNothing); // filtered out everywhere
     expect(find.text('Oldest Song'), findsNothing); // track list narrowed
     // Clear via the pinned selection's X (only the Folder panel has a
     // selection at this point, so the close icon is unambiguous).
     await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
-    expect(lib.folderFilter, isNull);
+    expect(lib.folderFilters, isEmpty);
     expect(find.text('Oldest Song'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Ctrl+click accumulates a second artist in the filter panel, and the '
+      'track list shows the union of both artists\' tracks', (tester) async {
+    final lib = fixtureLibrary();
+    final player = PlayerService();
+    await tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: HomeScreen(
+            library: lib,
+            player: player,
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
+
+    // Scoped to the Artist panel: 'Muse'/'Feed Me' also appear in the track
+    // list's Artist column, so an unscoped text finder would be ambiguous.
+    final artistPanel = find.byKey(const Key('artist-filter-panel'));
+    Finder artistValue(String label) =>
+        find.descendant(of: artistPanel, matching: find.text(label));
+
+    // Plain click selects just Muse -- Feed Me's track drops out.
+    await tester.tap(artistValue('Muse'));
+    await tester.pumpAndSettle();
+    expect(lib.artistFilters, {'Muse'});
+    expect(find.text('Newest Song'), findsOneWidget); // Muse's track
+    expect(find.text('Oldest Song'), findsNothing); // Feed Me's track, filtered out
+
+    // Ctrl+click Feed Me: accumulates rather than replacing.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.tap(artistValue('Feed Me'));
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    expect(lib.artistFilters, {'Muse', 'Feed Me'});
+    // Union: both artists' tracks are visible now.
+    expect(find.text('Newest Song'), findsOneWidget);
+    expect(find.text('Oldest Song'), findsOneWidget);
+    // Pinned header reflects the multi-selection.
+    expect(find.text('2 selected'), findsOneWidget);
   });
 
   testWidgets('now-playing bar hidden with no track, transport icons exist otherwise',

@@ -81,29 +81,32 @@ class HomeScreen extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: FilterPanel(
+                                      key: const Key('folder-filter-panel'),
                                       title: 'Folder',
                                       values: library.folderNames,
-                                      selected: library.folderFilter,
-                                      onSelect: library.setFolder,
+                                      selected: library.folderFilters,
+                                      onSelect: library.setFolders,
                                       displayName: p.basename,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),
                                   Expanded(
                                     child: FilterPanel(
+                                      key: const Key('artist-filter-panel'),
                                       title: 'Artist',
                                       values: library.artists,
-                                      selected: library.artistFilter,
-                                      onSelect: library.setArtist,
+                                      selected: library.artistFilters,
+                                      onSelect: library.setArtists,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),
                                   Expanded(
                                     child: FilterPanel(
+                                      key: const Key('album-filter-panel'),
                                       title: 'Album',
                                       values: library.albums,
-                                      selected: library.albumFilter,
-                                      onSelect: library.setAlbum,
+                                      selected: library.albumFilters,
+                                      onSelect: library.setAlbums,
                                     ),
                                   ),
                                 ],

@@ -60,11 +60,11 @@ const _defaultRescanRootTimeout = Duration(seconds: 120);
 /// and [LibraryModel.setSort]/[LibraryModel.visibleTracks]).
 ///
 /// [trackNumber] backs the '#' column, which is only ever visible (see
-/// `ui/track_list.dart`) when a single album is selected or a playlist is
-/// active -- but it is still a selectable [setSort] target like any other
-/// column, both because [setAlbum] switches to it automatically (see its
-/// doc) and because that's what makes its header cell clickable the same
-/// way every other visible header is.
+/// `ui/track_list.dart`) when exactly one album is selected or a playlist
+/// is active -- but it is still a selectable [setSort] target like any
+/// other column, both because [setAlbums] switches to it automatically
+/// (see its doc) and because that's what makes its header cell clickable
+/// the same way every other visible header is.
 enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
 
 class LibraryModel extends ChangeNotifier {
@@ -83,14 +83,16 @@ class LibraryModel extends ChangeNotifier {
   /// pathway, with its own "corrupt, reseed to repair" wording.
   List<String> rootsFailed = [];
 
-  /// The selected library root ([Track.rootPath]), from the Folder filter
-  /// panel (`ui/home_screen.dart`) -- occupies the same top-of-cascade
-  /// position the old Genre filter used to (see [setFolder]): narrows
-  /// [artists]/[albums]/[visibleTracks] and is itself cleared by
-  /// [setPlaylist]. `null` means "every folder".
-  String? folderFilter;
-  String? artistFilter;
-  String? albumFilter;
+  /// The selected library root(s) ([Track.rootPath]), from the Folder
+  /// filter panel (`ui/home_screen.dart`) -- occupies the same
+  /// top-of-cascade position the old Genre filter used to (see
+  /// [setFolders]): narrows [artists]/[albums]/[visibleTracks] and is
+  /// itself cleared by [setPlaylist]. Empty means "every folder"; more than
+  /// one value ORs together (standard foobar2000 Ctrl+click multi-select --
+  /// see [setFolders]/`ui/filter_panel.dart`).
+  Set<String> folderFilters = {};
+  Set<String> artistFilters = {};
+  Set<String> albumFilters = {};
   String search = '';
   String? activePlaylist;
   String status = 'idle';
@@ -545,8 +547,8 @@ class LibraryModel extends ChangeNotifier {
   /// The Folder filter panel's values -- one entry per distinct
   /// [Track.rootPath] among the (search-filtered) tracks, i.e. the same
   /// cascade position/derivation [genres] used to occupy. Each entry *is*
-  /// the root path itself (what [setFolder] expects back, and what
-  /// [folderFilter] is compared against) -- `ui/home_screen.dart` renders
+  /// the root path itself (what [setFolders] expects back, and what
+  /// [folderFilters] is compared against) -- `ui/home_screen.dart` renders
   /// each one's basename via [FilterPanel.displayName] rather than this
   /// getter doing any display-string translation itself, so a root path
   /// round-trips through selection unchanged.
@@ -558,11 +560,11 @@ class LibraryModel extends ChangeNotifier {
   }
 
   List<String> get artists => distinctValues(
-      applyFilters(allTracks, rootPath: folderFilter, search: search),
+      applyFilters(allTracks, rootPath: folderFilters, search: search),
       (t) => t.artist);
   List<String> get albums => distinctValues(
       applyFilters(allTracks,
-          rootPath: folderFilter, artist: artistFilter, search: search),
+          rootPath: folderFilters, artist: artistFilters, search: search),
       (t) => t.album);
 
   List<Track> get visibleTracks {
@@ -576,9 +578,9 @@ class LibraryModel extends ChangeNotifier {
       return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
     }
     final filtered = applyFilters(allTracks,
-        rootPath: folderFilter,
-        artist: artistFilter,
-        album: albumFilter,
+        rootPath: folderFilters,
+        artist: artistFilters,
+        album: albumFilters,
         search: search);
     return sortTracks(filtered, sortColumn, sortAscending);
   }
@@ -597,40 +599,53 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Selects [rootPath] (one of [folderNames]) as the folder filter -- or
-  /// clears it, when `null`. Same cascade behavior [setArtist] has one rung
-  /// down: clears any downstream artist/album selection (a folder switch
-  /// invalidates whichever artist/album was showing under the old one) and
-  /// reverts a stale trackNumber sort exactly like [setAlbum]/[setArtist]
-  /// do -- see [_revertSortIfTrackNumber].
-  void setFolder(String? rootPath) {
-    folderFilter = rootPath;
-    artistFilter = null;
-    albumFilter = null;
+  /// Replaces the Folder filter selection with exactly [values] (each one
+  /// of [folderNames]) -- empty clears it. Same cascade behavior
+  /// [setArtists] has one rung down: clears any downstream artist/album
+  /// selection (a folder switch invalidates whichever artist/album was
+  /// showing under the old one) and reverts a stale trackNumber sort
+  /// exactly like [setAlbums]/[setArtists] do -- see
+  /// [_revertSortIfTrackNumber].
+  ///
+  /// [values] is the panel's *whole new selection*, not a single toggle --
+  /// `ui/filter_panel.dart` computes the resulting set itself (plain click
+  /// replaces it with one value, Ctrl+click toggles a value in/out of the
+  /// existing set) and calls this with the result, so the cascade/sort
+  /// side effects below only ever need to run once per user action.
+  void setFolders(Set<String> values) {
+    folderFilters = values;
+    artistFilters = {};
+    albumFilters = {};
     _revertSortIfTrackNumber();
     notifyListeners();
   }
 
-  void setArtist(String? a) {
-    artistFilter = a;
-    albumFilter = null;
+  /// Replaces the Artist filter selection with exactly [values] -- see
+  /// [setFolders]'s doc for the "whole new selection, not a toggle" contract
+  /// this and [setAlbums] share.
+  void setArtists(Set<String> values) {
+    artistFilters = values;
+    albumFilters = {};
     _revertSortIfTrackNumber();
     notifyListeners();
   }
 
-  /// Selects [a] as the album filter (or clears it, when `null`).
+  /// Replaces the Album filter selection with exactly [values] -- see
+  /// [setFolders]'s doc for the "whole new selection, not a toggle"
+  /// contract this shares.
   ///
   /// Also drives the track-list's default sort for the single-album view:
-  /// selecting an album switches to track-number order (ascending -- LP
-  /// side one, track one, first), matching how a real album is listened to
-  /// and making the now-visible '#' column (see `ui/track_list.dart`)
-  /// meaningful; clearing the album filter reverts to the library's normal
-  /// newest-first order. This only sets the *default* -- [setSort] (a
-  /// user's own header click) still always wins afterward, same as any
-  /// other sort change.
-  void setAlbum(String? a) {
-    albumFilter = a;
-    if (a != null) {
+  /// selecting exactly one album switches to track-number order (ascending
+  /// -- LP side one, track one, first), matching how a real album is
+  /// listened to and making the now-visible '#' column (see
+  /// `ui/track_list.dart`) meaningful; any other count -- none selected, or
+  /// several at once (multiple albums' track numbers don't share one
+  /// order) -- reverts to the library's normal newest-first order. This
+  /// only sets the *default* -- [setSort] (a user's own header click) still
+  /// always wins afterward, same as any other sort change.
+  void setAlbums(Set<String> values) {
+    albumFilters = values;
+    if (values.length == 1) {
       sortColumn = SortColumn.trackNumber;
       sortAscending = true;
     } else {
@@ -655,7 +670,9 @@ class LibraryModel extends ChangeNotifier {
 
   void setPlaylist(String? name) {
     activePlaylist = name;
-    folderFilter = artistFilter = albumFilter = null;
+    folderFilters = {};
+    artistFilters = {};
+    albumFilters = {};
     search = '';
     notifyListeners();
   }
@@ -664,9 +681,10 @@ class LibraryModel extends ChangeNotifier {
   /// is cleared while [sortColumn] is [SortColumn.trackNumber].
   ///
   /// Track number sorting only makes sense in album view; when navigating away
-  /// from an album via [setFolder]/[setArtist] (which clear [albumFilter]),
+  /// from an album via [setFolders]/[setArtists] (which clear [albumFilters]),
   /// a stale trackNumber sort would leave the '#' header hidden and no sort
-  /// arrow visible, confusing the user. Mirrors [setAlbum(null)]'s behavior.
+  /// arrow visible, confusing the user. Mirrors [setAlbums]' not-exactly-one
+  /// branch.
   void _revertSortIfTrackNumber() {
     if (sortColumn == SortColumn.trackNumber) {
       sortColumn = SortColumn.dateAdded;

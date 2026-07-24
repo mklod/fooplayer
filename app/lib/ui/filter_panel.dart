@@ -1,21 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'app_theme.dart';
 
-/// A titled, single-select filter list (Folder/Artist/Album in
+/// A titled, multi-select filter list (Folder/Artist/Album in
 /// `home_screen.dart`'s filter row): a scrolling `All (N)` + [values] list,
-/// plus -- whenever [selected] is non-null -- a PINNED header region above
-/// the list showing the current selection with a clear ("X") button.
+/// plus -- whenever [selected] is non-empty -- a PINNED header region above
+/// the list showing the current selection (one value, or "N selected") with
+/// a clear ("X") button.
 ///
 /// The pinned region sits outside the scrolling `ListView` (a sibling in the
 /// outer `Column`, not a list item), so it stays visible and clickable no
 /// matter how far the list below is scrolled -- previously the only way to
 /// clear a selection while scrolled past it was to scroll back up to find
 /// the highlighted row (or the `All` entry) again.
+///
+/// Selection model (standard foobar2000 multi-select): a plain click
+/// replaces the whole selection with just the clicked value -- unless it's
+/// already the sole selected value, in which case it clears the selection
+/// (same "click the only-selected value to deselect" behavior as before);
+/// Ctrl+click toggles the clicked value in/out of the existing selection
+/// instead of replacing it, so several values can be selected at once
+/// (their tracks OR together within this panel). Clicking `All (N)` always
+/// clears the selection outright, regardless of modifier keys.
 class FilterPanel extends StatelessWidget {
   final String title;
   final List<String> values;
-  final String? selected;
-  final ValueChanged<String?> onSelect;
+  final Set<String> selected;
+  final ValueChanged<Set<String>> onSelect;
 
   /// Renders [values] entries (and the pinned selected value) for display --
   /// defaults to the value itself. Selection/comparison (`selected`,
@@ -37,9 +48,29 @@ class FilterPanel extends StatelessWidget {
 
   String _label(String value) => displayName == null ? value : displayName!(value);
 
+  /// Handles a click on value [v] -- see the class doc's "Selection model"
+  /// paragraph for the plain-click-vs-Ctrl+click contract this implements.
+  /// [HardwareKeyboard.instance] reflects real-time modifier-key state (kept
+  /// current independently of pointer events by Flutter's key event
+  /// dispatch), so checking it here at click time correctly detects Ctrl
+  /// held during the click regardless of exactly when the key went down.
+  void _handleTap(String v) {
+    if (HardwareKeyboard.instance.isControlPressed) {
+      final next = Set<String>.of(selected);
+      if (!next.remove(v)) next.add(v);
+      onSelect(next);
+      return;
+    }
+    if (selected.length == 1 && selected.contains(v)) {
+      onSelect(const {});
+    } else {
+      onSelect({v});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final selectedValue = selected;
+    final hasSelection = selected.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -50,14 +81,16 @@ class FilterPanel extends StatelessWidget {
             style: Theme.of(context).textTheme.labelLarge,
           ),
         ),
-        if (selectedValue != null)
+        if (hasSelection)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 6, 4),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    _label(selectedValue),
+                    selected.length == 1
+                        ? _label(selected.first)
+                        : '${selected.length} selected',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context)
@@ -69,7 +102,7 @@ class FilterPanel extends StatelessWidget {
                 InkWell(
                   key: const Key('filter-clear'),
                   borderRadius: BorderRadius.circular(10),
-                  onTap: () => onSelect(null),
+                  onTap: () => onSelect(const {}),
                   child: const Padding(
                     padding: EdgeInsets.all(4),
                     child: Icon(Icons.close, size: 15, color: AppColors.inkSecondary),
@@ -85,16 +118,16 @@ class FilterPanel extends StatelessWidget {
                 dense: true,
                 visualDensity: VisualDensity.compact,
                 title: Text('All (${values.length})'),
-                selected: selected == null,
-                onTap: () => onSelect(null),
+                selected: selected.isEmpty,
+                onTap: () => onSelect(const {}),
               ),
               for (final v in values)
                 ListTile(
                   dense: true,
                   visualDensity: VisualDensity.compact,
                   title: Text(_label(v), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  selected: v == selected,
-                  onTap: () => onSelect(v == selected ? null : v),
+                  selected: selected.contains(v),
+                  onTap: () => _handleTap(v),
                 ),
             ],
           ),
