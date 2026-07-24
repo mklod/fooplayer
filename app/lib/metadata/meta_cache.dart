@@ -54,3 +54,24 @@ Future<List<Track>> fillMetadata(
   }
   return out;
 }
+
+/// Reads tags for a batch of tracks given as plain `(contentId, absPath,
+/// relPath)` records rather than [Track]/[File]/[Directory] instances, so
+/// the input is cheap to send across an isolate boundary.
+///
+/// This is what [LibraryModel.load]'s background enrichment runs inside
+/// `Isolate.run` per batch: the synchronous, SMB-bound tag reading happens
+/// off the calling isolate, and only the plain-value records go in and the
+/// resulting `contentId -> TrackTags` map (a sendable value type) comes
+/// back. It's also directly callable on the main isolate, e.g. in tests.
+Future<Map<String, TrackTags>> readTagsBatch(
+    List<(String, String, String)> records) async {
+  final out = <String, TrackTags>{};
+  for (final (contentId, absPath, relPath) in records) {
+    final file = File(absPath);
+    out[contentId] = file.existsSync()
+        ? await readTags(file, relPath: relPath)
+        : parseFromFilename(relPath);
+  }
+  return out;
+}

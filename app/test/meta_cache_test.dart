@@ -59,4 +59,24 @@ void main() {
     expect(filled.single.title, 'RootSong');
     expect(filled.single.album, ''); // Should be empty, not the library folder name
   });
+
+  test('readTagsBatch resolves each record independently: junk bytes and missing file both fall back to filename', () async {
+    final root = await Directory('${tmp.path}/lib4').create();
+    // Junk bytes -> unparseable -> filename fallback.
+    final junkPath = '${root.path}/Muse - New Born.mp3';
+    await File(junkPath).writeAsBytes(List.filled(32, 0));
+    // Never created -> missing file -> filename fallback.
+    final missingPath = '${root.path}/Artist X - Gone.mp3';
+
+    final results = await readTagsBatch([
+      ('junk-id', junkPath, 'Muse - New Born.mp3'),
+      ('missing-id', missingPath, 'Artist X - Gone.mp3'),
+    ]);
+
+    expect(results.keys, {'junk-id', 'missing-id'});
+    expect(results['junk-id']!.artist, 'Muse');
+    expect(results['junk-id']!.title, 'New Born');
+    expect(results['missing-id']!.artist, 'Artist X');
+    expect(results['missing-id']!.title, 'Gone');
+  });
 }
