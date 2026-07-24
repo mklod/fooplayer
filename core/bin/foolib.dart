@@ -20,7 +20,16 @@ Future<int> _run(List<String> argv) async {
     ..addOption('playlists')
     ..addFlag('apply', defaultsTo: false)
     ..addFlag('force', defaultsTo: false);
-  final args = parser.parse(argv.skip(1).toList());
+  late final ArgResults args;
+  try {
+    args = parser.parse(argv.skip(1).toList());
+    // Validate mandatory root by accessing it eagerly
+    args['root'];
+  } catch (e) {
+    stderr.writeln(e.toString());
+    stderr.writeln('usage: foolib <status|update|seed> --root <path> [options]');
+    return 2;
+  }
   final root = Directory(args['root'] as String);
   if (!root.existsSync()) {
     stderr.writeln('root not found: ${root.path}');
@@ -73,6 +82,11 @@ Future<int> _run(List<String> argv) async {
         stderr.writeln('seed requires --metadb-json (from tools/export_metadb.py)');
         return 2;
       }
+      final metadbFile = File(metadbJson);
+      if (!metadbFile.existsSync()) {
+        stderr.writeln('metadb file not found: $metadbJson');
+        return 2;
+      }
       final metadb = loadMetadbIndex(metadbJson);
       final result = buildSeedManifest(
         scan: scan,
@@ -85,6 +99,11 @@ Future<int> _run(List<String> argv) async {
       final playlistsDir = args['playlists'] as String?;
       final unmatchedTotal = <String, List<String>>{};
       if (playlistsDir != null) {
+        final playlistsDirObj = Directory(playlistsDir);
+        if (!playlistsDirObj.existsSync()) {
+          stderr.writeln('playlists directory not found: $playlistsDir');
+          return 2;
+        }
         final basenameToId = <String, String>{
           for (final t in scan) p.basename(t.relPath).toLowerCase(): t.contentId,
         };
