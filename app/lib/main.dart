@@ -114,17 +114,28 @@ void main() {
   );
   // [triggerLaunchRescan] is true only for the very first load (app
   // launch): that's the one load() call main.dart wires an automatic
-  // rescan onto, firing as soon as the instant feed is renderable rather
-  // than waiting for tag enrichment to finish (see load()'s
-  // onFirstFeedReady). Reloads triggered by a settings-dialog root
-  // add/remove don't also kick off a rescan here -- the periodic timer and
-  // Refresh button already cover ongoing discovery of new files.
-  void reloadLibrary({bool triggerLaunchRescan = false}) {
-    library.load(
+  // rescan onto. The rescan is fired only *after* load() itself has fully
+  // settled (feed rendered AND tag enrichment finished) -- not a delay
+  // anyone can see, since the instant feed already rendered minutes/seconds
+  // earlier via load()'s own internal notifyListeners() calls; awaiting
+  // load() here only postpones *starting the rescan*, never the feed. This
+  // sequencing -- await load(), then call rescan() -- is deliberately the
+  // "simplest, honest" wiring: rescan() itself refuses to run while
+  // LibraryModel.busy is still held (see its guard), and load() holds that
+  // flag for its own entire duration (feed + enrichment), so firing rescan
+  // from *inside* load() (as an early "first feed rendered" hook used to)
+  // would always find the flag still held and silently no-op every time.
+  // Reloads triggered by a settings-dialog root add/remove don't also kick
+  // off a rescan here -- the periodic timer and Refresh button already
+  // cover ongoing discovery of new files.
+  Future<void> reloadLibrary({bool triggerLaunchRescan = false}) async {
+    await library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,
-      onFirstFeedReady: triggerLaunchRescan ? library.rescan : null,
     );
+    if (triggerLaunchRescan) {
+      library.rescan();
+    }
   }
 
   // Settings-dialog add/remove calls writer() above then notifies -- react

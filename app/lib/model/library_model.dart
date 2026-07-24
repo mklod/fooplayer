@@ -87,8 +87,25 @@ class LibraryModel extends ChangeNotifier {
   /// rescan's own post-merge enrichment) only ever runs while this is
   /// already `true`, so it and a fresh [rescan]/[load] call never race on
   /// the shared tag cache or a root's manifest file.
+  ///
+  /// [load] itself is guarded by the same flag (see [load]'s re-entrancy
+  /// doc): a `load()` call that arrives while this is already `true` is
+  /// queued (see [_pendingLoad]) rather than run concurrently, so a
+  /// settings-triggered reload that arrives mid-enrichment can't clear this
+  /// flag out from under a still-running earlier load/rescan (previously
+  /// possible, since each call had its own independent `finally { _busy =
+  /// false; }`).
   bool get busy => _busy;
   bool _busy = false;
+
+  /// Set by [load] when a new load request arrives while [_busy] already
+  /// holds (see [load]'s re-entrancy doc); re-issued by [_runPendingLoad]
+  /// once the in-flight [load]/[rescan] releases [_busy]. Only ever holds
+  /// the *latest* such request -- an intermediate request superseded by a
+  /// newer one before the current operation finishes is simply dropped in
+  /// favor of it, so "the latest request eventually wins" rather than every
+  /// queued request running in turn.
+  Future<void> Function()? _pendingLoad;
 
   // Remembered from the most recent [load] call so [rescan] -- which takes
   // no arguments of its own -- knows what to rescan. Empty/null until the
@@ -99,20 +116,35 @@ class LibraryModel extends ChangeNotifier {
   Duration _enrichBatchTimeout = _defaultBatchTimeout;
   Duration _enrichFileTimeout = _defaultFileTimeout;
 
+  /// Loads (or reloads) the merged library from [libraryRoots].
+  ///
+  /// Re-entrancy: if [busy] is already `true` -- another [load] or a
+  /// [rescan] is in flight -- this call does NOT run concurrently with it
+  /// (which would race the in-flight one's tag-cache/manifest writes).
+  /// Instead its arguments are remembered (see [_pendingLoad]) and the
+  /// equivalent call is re-issued automatically the moment the current
+  /// operation finishes, so e.g. a settings-dialog root add/remove that
+  /// lands while the launch load is still enriching still eventually takes
+  /// effect rather than being silently dropped or corrupting state -- it
+  /// just waits its turn. If several `load()` calls stack up while busy,
+  /// only the last one's arguments survive to actually run.
   Future<void> load({
     required List<Directory> libraryRoots,
     required File cacheFile,
     void Function(int done, int total)? onProgress,
-    // Called right after the first feed is renderable -- either the
-    // instant-feed notify below (Part A) or the "nothing to show yet"
-    // early-return notify -- and BEFORE background tag enrichment (Part B)
-    // starts. This is what lets main.dart fire the launch-time rescan
-    // without making it wait for the (potentially slow, thousands-of-files)
-    // enrichment pass to finish first.
-    void Function()? onFirstFeedReady,
     Duration batchTimeout = _defaultBatchTimeout,
     Duration fileTimeout = _defaultFileTimeout,
   }) async {
+    if (_busy) {
+      _pendingLoad = () => load(
+            libraryRoots: libraryRoots,
+            cacheFile: cacheFile,
+            onProgress: onProgress,
+            batchTimeout: batchTimeout,
+            fileTimeout: fileTimeout,
+          );
+      return;
+    }
     _libraryRoots = libraryRoots;
     _cacheFile = cacheFile;
     _enrichBatchTimeout = batchTimeout;
@@ -123,20 +155,30 @@ class LibraryModel extends ChangeNotifier {
         libraryRoots: libraryRoots,
         cacheFile: cacheFile,
         onProgress: onProgress,
-        onFirstFeedReady: onFirstFeedReady,
         batchTimeout: batchTimeout,
         fileTimeout: fileTimeout,
       );
     } finally {
       _busy = false;
     }
+    await _runPendingLoad();
+  }
+
+  /// Runs and clears [_pendingLoad], if any -- called once each of [load]
+  /// and [rescan] releases [_busy], so a `load()` request that arrived
+  /// mid-run still eventually takes effect (see [load]'s re-entrancy doc).
+  /// No-op if nothing is pending.
+  Future<void> _runPendingLoad() async {
+    final pending = _pendingLoad;
+    if (pending == null) return;
+    _pendingLoad = null;
+    await pending();
   }
 
   Future<void> _loadBody({
     required List<Directory> libraryRoots,
     required File cacheFile,
     void Function(int done, int total)? onProgress,
-    void Function()? onFirstFeedReady,
     required Duration batchTimeout,
     required Duration fileTimeout,
   }) async {
@@ -181,7 +223,6 @@ class LibraryModel extends ChangeNotifier {
             ? 'no library roots configured'
             : 'no .library.json found in any configured root';
         notifyListeners();
-        onFirstFeedReady?.call();
         return;
       }
 
@@ -211,7 +252,6 @@ class LibraryModel extends ChangeNotifier {
       allTracks = tracks;
       status = missing.isEmpty ? 'ready' : 'ready (reading tags in background)';
       notifyListeners();
-      onFirstFeedReady?.call();
 
       if (missing.isNotEmpty) {
         // Part B -- off-thread enrichment: read tags for cache misses in
@@ -374,6 +414,10 @@ class LibraryModel extends ChangeNotifier {
     } finally {
       _busy = false;
       notifyListeners();
+      // A load() that arrived while this rescan held `_busy` is queued
+      // (see [_pendingLoad]/[load]'s re-entrancy doc) rather than dropped
+      // -- run it now that this rescan is done with the flag.
+      await _runPendingLoad();
     }
   }
 
