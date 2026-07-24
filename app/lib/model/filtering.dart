@@ -13,10 +13,17 @@ typedef FolderScope = ({String root, String sub});
 /// `applyFilters`'s [rootPath] doc) plus a *segment-safe* relPath prefix
 /// match: `sub: '2007-08'` matches `2007-08/x.mp3` but NOT `2007-085/x.mp3`
 /// (the prefix comparison always includes the trailing `/`).
+///
+/// Case-insensitive, mirroring [subfolderNames]' casing-agnostic dedupe
+/// (and [applyFilters]' artist/album matching): on a case-sensitive
+/// filesystem, two differently-cased spellings of the same subfolder can
+/// both appear as tracks under [scope.root], and [subfolderNames] merges
+/// them into a single Folder-pane entry, so the entry it selects has to
+/// match both casings too or drilling into it would silently drop one.
 bool trackInFolderScope(Track t, FolderScope scope) {
   if (t.rootPath != scope.root) return false;
   if (scope.sub.isEmpty) return true;
-  return t.relPath.startsWith('${scope.sub}/');
+  return t.relPath.toLowerCase().startsWith('${scope.sub.toLowerCase()}/');
 }
 
 List<Track> sortByDateAddedDesc(List<Track> tracks) {

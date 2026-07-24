@@ -407,10 +407,12 @@ class LibraryModel extends ChangeNotifier {
           notifyListeners();
 
           if (++batchesSinceSave >= _saveEveryNBatches) {
+            _mergeKnownDurationsInto(cache);
             await cache.save(cacheFile);
             batchesSinceSave = 0;
           }
         }
+        _mergeKnownDurationsInto(cache);
         await cache.save(cacheFile);
       }
       status = 'ready';
@@ -575,8 +577,42 @@ class LibraryModel extends ChangeNotifier {
       allTracks = List<Track>.of(out);
       notifyListeners();
     }
+    _mergeKnownDurationsInto(cache);
     await cache.save(cacheFile);
     return out;
+  }
+
+  /// Folds any duration already known in [allTracks] into [cache]'s
+  /// in-memory entries wherever the entry itself still shows `durationMs`
+  /// as null, so an enrichment [cache.save] mid-run can't clobber an
+  /// on-play duration backfill (see [updateDuration]) with the stale
+  /// null-duration snapshot [cache] was loaded with.
+  ///
+  /// [cache] is loaded once at the start of [_loadBody]/[_enrichNewTracks]
+  /// and only has its cache-*miss* entries touched by the enrichment loop
+  /// that owns it; a cache-*hit* track with a null-duration entry is never
+  /// revisited there even if [flushPendingDurationSaves] concurrently wrote
+  /// its backfilled duration to disk (or it's merely still pending, not
+  /// yet flushed) -- so periodically overwriting the whole file from this
+  /// map, unmerged, would silently erase that backfill. [allTracks] is
+  /// updated synchronously by [updateDuration] regardless of flush state,
+  /// so re-reading from it here covers both cases in one pass.
+  void _mergeKnownDurationsInto(MetaCache cache) {
+    final byId = {for (final t in allTracks) t.contentId: t};
+    for (final id in cache.entries.keys.toList(growable: false)) {
+      final entry = cache.entries[id]!;
+      if (entry.durationMs != null) continue;
+      final known = byId[id]?.durationMs;
+      if (known == null) continue;
+      cache.entries[id] = TrackTags(
+        title: entry.title,
+        artist: entry.artist,
+        album: entry.album,
+        genre: entry.genre,
+        durationMs: known,
+        trackNumber: entry.trackNumber,
+      );
+    }
   }
 
   List<Track> get _searched => applyFilters(allTracks, search: search);
@@ -715,7 +751,14 @@ class LibraryModel extends ChangeNotifier {
   /// toggles a value in/out of the existing set) and calls this with the
   /// result, so the cascade/sort side effects only ever run once per user
   /// action. Shares [drillIntoFolder]'s cascade/sort-revert side effects.
+  ///
+  /// No-ops (skips the cascade entirely) when [values] is exactly the
+  /// current [folderSiblings] -- e.g. Ctrl-toggling a sibling off and back
+  /// on, or a redundant call with the set unchanged -- so it doesn't wipe
+  /// the user's artist/album picks for a folder scope that never actually
+  /// changed.
   void setFolderSiblings(Set<String> values) {
+    if (_setEquals(folderSiblings, values)) return;
     folderSiblings = values;
     _onFolderSelectionChanged();
   }
@@ -724,7 +767,12 @@ class LibraryModel extends ChangeNotifier {
   /// to the top-level root list ([folderNames]) with no folder restriction
   /// on the track list. Shares [drillIntoFolder]'s cascade/sort-revert side
   /// effects (the artist/album lists rescope back to the whole library).
+  ///
+  /// No-ops when there is nothing to clear (both [folderPath] and
+  /// [folderSiblings] already empty) -- see [setFolderSiblings]'s doc for
+  /// why a no-op selection change must not still wipe artist/album filters.
   void clearFolderSelection() {
+    if (folderPath.isEmpty && folderSiblings.isEmpty) return;
     folderPath = [];
     folderSiblings = {};
     _onFolderSelectionChanged();
@@ -829,14 +877,15 @@ class LibraryModel extends ChangeNotifier {
   /// the write instead of waiting out the debounce. No-op when nothing is
   /// pending.
   ///
-  /// The default writer re-loads [_cacheFile] and merges the pending
-  /// durations into whatever it holds *now* -- each entry keeps its
-  /// existing tag fields (or falls back to the in-memory track's, for an
-  /// entry the cache doesn't have yet) with only durationMs replaced --
+  /// The default writer ([_writeDurationsToCache]) re-loads [_cacheFile] and
+  /// merges the pending durations into whatever it holds *now* -- each
+  /// entry keeps its existing tag fields with only durationMs replaced --
   /// rather than saving a full cache snapshot taken earlier, so it can't
   /// resurrect stale entries over a concurrent enrichment save's newer
-  /// ones. [durationCacheWriter], when set, replaces that default entirely
-  /// (tests).
+  /// ones. A contentId with no existing cache entry yet (not yet enriched)
+  /// is deliberately left pending rather than given a fabricated entry --
+  /// see [_writeDurationsToCache]'s doc. [durationCacheWriter], when set,
+  /// replaces that default entirely (tests).
   Future<void> flushPendingDurationSaves() async {
     _durationSaveTimer?.cancel();
     _durationSaveTimer = null;
@@ -853,15 +902,29 @@ class LibraryModel extends ChangeNotifier {
     final byId = {for (final t in allTracks) t.contentId: t};
     for (final entry in pending.entries) {
       final old = cache.entries[entry.key];
-      final t = byId[entry.key];
-      if (old == null && t == null) continue; // gone from the library
+      if (old == null) {
+        // No enriched cache entry yet for this track (a first-scan cache
+        // miss played before enrichment reached it). Fabricating one from
+        // in-memory, filename-derived fields would carry both durationMs
+        // and trackNumber keys and so pass MetaCache.load's staleness
+        // filter -- permanently masquerading as a real, already-enriched
+        // entry and excluding the track from ever getting its actual tags
+        // (see the finding this guards against). Keep a still-known track
+        // pending instead, so a later flush merges the duration into
+        // whatever real entry enrichment eventually writes; a track no
+        // longer in the library at all is simply dropped, as before.
+        if (byId.containsKey(entry.key)) {
+          _pendingDurationUpdates[entry.key] = entry.value;
+        }
+        continue;
+      }
       cache.entries[entry.key] = TrackTags(
-        title: old?.title ?? t?.title,
-        artist: old?.artist ?? t?.artist,
-        album: old?.album ?? t?.album,
-        genre: old?.genre ?? t?.genre,
+        title: old.title,
+        artist: old.artist,
+        album: old.album,
+        genre: old.genre,
         durationMs: entry.value,
-        trackNumber: old?.trackNumber ?? t?.trackNumber,
+        trackNumber: old.trackNumber,
       );
     }
     await cache.save(cacheFile);
@@ -959,6 +1022,15 @@ String _uniquePlaylistName(String name, Set<String> used) {
     n++;
   }
   return '$name ($n)';
+}
+
+/// Whether [a] and [b] contain exactly the same elements, order irrelevant
+/// -- used by [LibraryModel.setFolderSiblings] to detect a no-op selection
+/// change (see its doc) without pulling in package:collection's SetEquality
+/// for one call site.
+bool _setEquals(Set<String> a, Set<String> b) {
+  if (a.length != b.length) return false;
+  return a.containsAll(b);
 }
 
 /// Runs one library root's whole rescan cycle -- `fooplayer_core`'s

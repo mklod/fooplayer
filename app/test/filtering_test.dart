@@ -2,6 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/filtering.dart';
 import 'package:fooplayer_app/model/track.dart';
 
+Track _trackAt(String relPath, {String rootPath = r'L:\Music'}) => Track(
+      contentId: relPath,
+      relPath: relPath,
+      rootPath: rootPath,
+      dateAdded: DateTime.utc(2024, 1, 1),
+      title: relPath,
+    );
+
 Track tr(String id, int day,
         {String title = 't',
         String artist = '',
@@ -79,5 +87,26 @@ void main() {
   test('distinctValues dedupes case-insensitively, sorted', () {
     expect(distinctValues(lib, (t) => t.artist), ['Feed Me', 'Muse']);
     expect(distinctValues(lib, (t) => t.genre), ['Electronic', 'Rock']);
+  });
+
+  test(
+      'regression (adversarial review, LOW): trackInFolderScope matches the '
+      'sub prefix case-insensitively, mirroring subfolderNames\' '
+      'casing-agnostic dedupe', () {
+    const scope = (root: r'L:\Music', sub: 'Rock');
+    // A case-sensitive filesystem can hold both "Rock/x.mp3" and
+    // "rock/y.mp3" as distinct tracks; subfolderNames merges them into one
+    // Folder-pane entry ("Rock", first casing seen), so selecting it must
+    // not silently drop the differently-cased one.
+    expect(trackInFolderScope(_trackAt('Rock/x.mp3'), scope), isTrue);
+    expect(trackInFolderScope(_trackAt('rock/y.mp3'), scope), isTrue);
+    expect(trackInFolderScope(_trackAt('ROCK/z.mp3'), scope), isTrue);
+    // Still segment-safe: a longer sibling name is not a false match.
+    expect(trackInFolderScope(_trackAt('Rocket/w.mp3'), scope), isFalse);
+    // Still root-sensitive: exact root match required regardless of casing.
+    expect(
+        trackInFolderScope(
+            _trackAt('Rock/x.mp3', rootPath: r'L:\OtherMusic'), scope),
+        isFalse);
   });
 }

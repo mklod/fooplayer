@@ -208,4 +208,51 @@ void main() {
       expect(lib.folderEntries, ['2007-09']);
     });
   });
+
+  group('regression (adversarial review, LOW): no-op selection changes '
+      'must not wipe downstream artist/album picks', () {
+    test('re-selecting the same Ctrl-selected sibling set is a no-op', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setFolderSiblings({'2007-08'});
+      lib.setArtists({'Muse'});
+
+      lib.setFolderSiblings({'2007-08'}); // same set again
+
+      expect(lib.artistFilters, {'Muse'});
+    });
+
+    test(
+        'a genuinely completed toggle (off, then back on to a new set) '
+        'still cascades on each real change, only the exact repeat is a '
+        'no-op', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setFolderSiblings({'2007-08'});
+      lib.setArtists({'Muse'});
+
+      lib.setFolderSiblings({'2007-08', '2007-11'}); // genuine change
+      expect(lib.artistFilters, isEmpty, reason: 'the scope really did widen');
+
+      lib.setArtists({'Muse'}); // restore, to isolate the next call
+      lib.setFolderSiblings({'2007-08', '2007-11'}); // exact repeat -> no-op
+
+      expect(lib.artistFilters, {'Muse'});
+    });
+
+    test('clearFolderSelection is a no-op when nothing is selected', () {
+      lib.setArtists({'Muse'});
+
+      lib.clearFolderSelection(); // folderPath/folderSiblings already empty
+
+      expect(lib.artistFilters, {'Muse'});
+    });
+
+    test('a genuine change still cascades as before', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setArtists({'Muse'});
+
+      lib.setFolderSiblings({'2007-08'}); // different from current ({})
+
+      expect(lib.artistFilters, isEmpty);
+    });
+  });
 }
