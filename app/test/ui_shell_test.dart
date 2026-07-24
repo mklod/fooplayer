@@ -91,15 +91,25 @@ void main() {
     expect(find.text('Feed Me'), findsWidgets);
     await tester.tap(find.text('RockFolder')); // select folder (basename display)
     await tester.pumpAndSettle();
-    expect(lib.folderFilters, {r'L:\Music\RockFolder'});
+    // Plain click = select AND drill in (see LibraryModel.drillIntoFolder).
+    expect(lib.folderPath, [r'L:\Music\RockFolder']);
     expect(find.text('Feed Me'), findsNothing); // filtered out everywhere
     expect(find.text('Oldest Song'), findsNothing); // track list narrowed
+    // The pane's entries were replaced by RockFolder's subdirectories --
+    // its only track sits directly at root level, so no entries remain and
+    // the other root is no longer listed.
+    expect(find.text('ElectroFolder'), findsNothing);
+    // The pinned header shows the breadcrumb of the drilled folder.
+    expect(find.text('RockFolder'), findsOneWidget);
     // Clear via the pinned selection's X (only the Folder panel has a
-    // selection at this point, so the close icon is unambiguous).
+    // selection at this point, so the close icon is unambiguous) -- back to
+    // the top-level root list, filter fully cleared.
     await tester.tap(find.byIcon(Icons.close));
     await tester.pumpAndSettle();
-    expect(lib.folderFilters, isEmpty);
+    expect(lib.folderPath, isEmpty);
+    expect(lib.folderSiblings, isEmpty);
     expect(find.text('Oldest Song'), findsOneWidget);
+    expect(find.text('ElectroFolder'), findsOneWidget); // root list is back
   });
 
   testWidgets(

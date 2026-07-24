@@ -1,5 +1,24 @@
 import 'track.dart';
 
+/// One selected folder in the Folder pane's drill-down navigation (see
+/// `LibraryModel.folderPath`/`folderSiblings`): a library root plus a
+/// `/`-joined subdirectory prefix below it (empty [sub] = the root itself).
+/// A track is inside this scope when its [Track.rootPath] equals [root]
+/// exactly AND its [Track.relPath] lives at or below [sub] -- see
+/// [trackInFolderScope].
+typedef FolderScope = ({String root, String sub});
+
+/// Whether [t] lives inside [scope]: exact root match (root paths come from
+/// configured library roots, never free-typed text -- same reasoning as
+/// `applyFilters`'s [rootPath] doc) plus a *segment-safe* relPath prefix
+/// match: `sub: '2007-08'` matches `2007-08/x.mp3` but NOT `2007-085/x.mp3`
+/// (the prefix comparison always includes the trailing `/`).
+bool trackInFolderScope(Track t, FolderScope scope) {
+  if (t.rootPath != scope.root) return false;
+  if (scope.sub.isEmpty) return true;
+  return t.relPath.startsWith('${scope.sub}/');
+}
+
 List<Track> sortByDateAddedDesc(List<Track> tracks) {
   final indexed = tracks.asMap().entries.toList();
   indexed.sort((a, b) {
@@ -23,7 +42,8 @@ List<Track> applyFilters(
   Set<String> artist = const {},
   Set<String> album = const {},
   // The track's library root ([Track.rootPath]) to restrict to (the
-  // Folder filter panel's selection -- see LibraryModel.folderFilters).
+  // legacy whole-root folder filter shape; the Folder pane's drill-down
+  // selection now arrives via [folders] instead).
   // Exact match, unlike [genre]'s single-value or [artist]/[album]'s
   // case-insensitive set membership: root paths come straight from
   // configured library roots, never free-typed or tag-derived text, so
@@ -31,6 +51,12 @@ List<Track> applyFilters(
   // any accidental collision between two differently-cased-but-distinct
   // paths.
   Set<String> rootPath = const {},
+  // Folder drill-down scopes (see [FolderScope]): empty list means "no
+  // restriction from the Folder pane"; a non-empty list means the track
+  // must be inside ANY one of the scopes (Ctrl+click-selected sibling
+  // folders OR together, same panel-internal OR semantics as
+  // [artist]/[album]/[rootPath]).
+  List<FolderScope> folders = const [],
   String search = '',
 }) {
   final q = search.trim().toLowerCase();
@@ -49,11 +75,45 @@ List<Track> applyFilters(
         !inSetExact(t.rootPath, rootPath)) {
       return false;
     }
+    if (folders.isNotEmpty && !folders.any((f) => trackInFolderScope(t, f))) {
+      return false;
+    }
     if (q.isEmpty) return true;
     return t.title.toLowerCase().contains(q) ||
         t.artist.toLowerCase().contains(q) ||
         t.album.toLowerCase().contains(q);
   }).toList();
+}
+
+/// The immediate subdirectory names one level below `rootPath` + [prefix],
+/// derived purely from [tracks]' relPaths (relPaths use forward slashes --
+/// see `Track.relPath`) -- what the Folder pane lists after drilling into a
+/// folder. [prefix] is a `/`-joined subpath below the root, either empty
+/// (the root level itself) or WITHOUT a trailing slash (e.g. `'2007-08'`).
+///
+/// A track sitting directly at the [prefix] level (no further `/` in the
+/// remainder of its relPath) contributes NO entry -- its filename is not a
+/// directory, so no phantom entries appear. Names dedupe case-insensitively
+/// (first casing seen wins) and sort case-insensitively, matching
+/// [distinctValues]' conventions.
+List<String> subfolderNames(
+  List<Track> tracks, {
+  required String rootPath,
+  String prefix = '',
+}) {
+  final dirPrefix = prefix.isEmpty ? '' : '$prefix/';
+  final seen = <String, String>{}; // lower → first casing
+  for (final t in tracks) {
+    if (t.rootPath != rootPath) continue;
+    if (!t.relPath.startsWith(dirPrefix)) continue;
+    final rest = t.relPath.substring(dirPrefix.length);
+    final slash = rest.indexOf('/');
+    if (slash <= 0) continue; // a file at this level, or a degenerate path
+    final name = rest.substring(0, slash);
+    seen.putIfAbsent(name.toLowerCase(), () => name);
+  }
+  return seen.values.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 }
 
 List<String> distinctValues(List<Track> tracks, String Function(Track) field) {

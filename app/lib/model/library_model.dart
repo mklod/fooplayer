@@ -83,14 +83,27 @@ class LibraryModel extends ChangeNotifier {
   /// pathway, with its own "corrupt, reseed to repair" wording.
   List<String> rootsFailed = [];
 
-  /// The selected library root(s) ([Track.rootPath]), from the Folder
-  /// filter panel (`ui/home_screen.dart`) -- occupies the same
-  /// top-of-cascade position the old Genre filter used to (see
-  /// [setFolders]): narrows [artists]/[albums]/[visibleTracks] and is
-  /// itself cleared by [setPlaylist]. Empty means "every folder"; more than
-  /// one value ORs together (standard foobar2000 Ctrl+click multi-select --
-  /// see [setFolders]/`ui/filter_panel.dart`).
-  Set<String> folderFilters = {};
+  /// The Folder pane's drill-down position: the folder currently "drilled
+  /// into" whose immediate children [folderEntries] lists. Empty means the
+  /// pane is at the top level (listing library roots, [folderNames]);
+  /// otherwise element 0 is a [Track.rootPath] and any further elements are
+  /// successive subdirectory names below it (relPath segments -- forward
+  /// slashes, see [Track.relPath]).
+  ///
+  /// Occupies the same top-of-cascade position the old Genre filter used to
+  /// (see [drillIntoFolder]): together with [folderSiblings] it narrows
+  /// [artists]/[albums]/[visibleTracks], and it is cleared by [setPlaylist]
+  /// and [clearFolderSelection].
+  List<String> folderPath = [];
+
+  /// Ctrl+click-selected sibling entries at the Folder pane's *current
+  /// level* -- i.e. names from [folderEntries] (children of [folderPath];
+  /// full root paths while [folderPath] is empty). Non-empty narrows the
+  /// track filter to the union of these siblings INSTEAD of all of
+  /// [folderPath]'s contents; empty means "everything under [folderPath]"
+  /// (or no folder restriction at all when [folderPath] is empty too). See
+  /// [setFolderSiblings].
+  Set<String> folderSiblings = {};
   Set<String> artistFilters = {};
   Set<String> albumFilters = {};
   String search = '';
@@ -544,14 +557,14 @@ class LibraryModel extends ChangeNotifier {
 
   List<Track> get _searched => applyFilters(allTracks, search: search);
 
-  /// The Folder filter panel's values -- one entry per distinct
+  /// The Folder pane's top-level values -- one entry per distinct
   /// [Track.rootPath] among the (search-filtered) tracks, i.e. the same
-  /// cascade position/derivation the removed genre getter used to occupy. Each entry *is*
-  /// the root path itself (what [setFolders] expects back, and what
-  /// [folderFilters] is compared against) -- `ui/home_screen.dart` renders
-  /// each one's basename via [FilterPanel.displayName] rather than this
-  /// getter doing any display-string translation itself, so a root path
-  /// round-trips through selection unchanged.
+  /// cascade position/derivation the removed genre getter used to occupy.
+  /// Each entry *is* the root path itself (what [drillIntoFolder]/
+  /// [setFolderSiblings] expect back at this level) -- `ui/home_screen.dart`
+  /// renders each one's basename via [FilterPanel.displayName] rather than
+  /// this getter doing any display-string translation itself, so a root
+  /// path round-trips through selection unchanged.
   List<String> get folderNames {
     final paths = distinctValues(_searched, (t) => t.rootPath);
     paths.sort((a, b) =>
@@ -559,12 +572,62 @@ class LibraryModel extends ChangeNotifier {
     return paths;
   }
 
+  /// What the Folder pane currently lists: the library roots
+  /// ([folderNames]) while at the top level, otherwise the immediate
+  /// subdirectory names one level below [folderPath], derived from the
+  /// (search-filtered) tracks' relPaths (see [subfolderNames] -- tracks
+  /// sitting directly at [folderPath]'s level contribute no entries, so a
+  /// leaf folder yields an empty list and only filters the track list).
+  List<String> get folderEntries {
+    if (folderPath.isEmpty) return folderNames;
+    return subfolderNames(_searched,
+        rootPath: folderPath.first, prefix: folderPath.skip(1).join('/'));
+  }
+
+  /// The Folder pane's pinned-header text, or `null` when nothing is
+  /// selected (pane at the top level with no Ctrl-selected roots): a
+  /// `'monthly / 2007-08'`-style breadcrumb for a single selected folder
+  /// (the drilled [folderPath], extended by the sole [folderSiblings] entry
+  /// if there is exactly one), or `'N selected'` when several siblings are
+  /// Ctrl-selected at once.
+  String? get folderHeaderText {
+    if (folderPath.isEmpty && folderSiblings.isEmpty) return null;
+    if (folderSiblings.length > 1) return '${folderSiblings.length} selected';
+    final parts = <String>[
+      if (folderPath.isNotEmpty) p.basename(folderPath.first),
+      ...folderPath.skip(1),
+      if (folderSiblings.length == 1)
+        folderPath.isEmpty
+            ? p.basename(folderSiblings.first)
+            : folderSiblings.first,
+    ];
+    return parts.join(' / ');
+  }
+
+  /// The [FolderScope]s the current Folder-pane selection filters tracks
+  /// down to (see [applyFilters]' `folders` parameter): one per
+  /// Ctrl-selected sibling (their tracks OR together), just [folderPath]
+  /// itself when no siblings are toggled, or empty (no restriction) when
+  /// there is no folder selection at all.
+  List<FolderScope> get folderScopes {
+    if (folderPath.isEmpty) {
+      // Top level: siblings are whole root paths.
+      return [for (final r in folderSiblings) (root: r, sub: '')];
+    }
+    final root = folderPath.first;
+    final base = folderPath.skip(1).toList();
+    if (folderSiblings.isEmpty) return [(root: root, sub: base.join('/'))];
+    return [
+      for (final n in folderSiblings) (root: root, sub: [...base, n].join('/'))
+    ];
+  }
+
   List<String> get artists => distinctValues(
-      applyFilters(allTracks, rootPath: folderFilters, search: search),
+      applyFilters(allTracks, folders: folderScopes, search: search),
       (t) => t.artist);
   List<String> get albums => distinctValues(
       applyFilters(allTracks,
-          rootPath: folderFilters, artist: artistFilters, search: search),
+          folders: folderScopes, artist: artistFilters, search: search),
       (t) => t.album);
 
   List<Track> get visibleTracks {
@@ -578,7 +641,7 @@ class LibraryModel extends ChangeNotifier {
       return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
     }
     final filtered = applyFilters(allTracks,
-        rootPath: folderFilters,
+        folders: folderScopes,
         artist: artistFilters,
         album: albumFilters,
         search: search);
@@ -599,30 +662,69 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Replaces the Folder filter selection with exactly [values] (each one
-  /// of [folderNames]) -- empty clears it. Same cascade behavior
-  /// [setArtists] has one rung down: clears any downstream artist/album
-  /// selection (a folder switch invalidates whichever artist/album was
-  /// showing under the old one) and reverts a stale trackNumber sort
-  /// exactly like [setAlbums]/[setArtists] do -- see
-  /// [_revertSortIfTrackNumber].
+  /// Plain click in the Folder pane: selects [entry] (one of
+  /// [folderEntries] -- a root path at the top level, a subdirectory name
+  /// below that) AND drills into it, so the pane now lists ITS immediate
+  /// subdirectories instead of the level [entry] was clicked at. Any
+  /// Ctrl-selected siblings from the previous level are dropped ([entry] is
+  /// the whole selection now).
+  ///
+  /// Same cascade behavior [setArtists] has one rung down: clears any
+  /// downstream artist/album selection (a folder switch invalidates
+  /// whichever artist/album was showing under the old one) and reverts a
+  /// stale trackNumber sort exactly like [setAlbums]/[setArtists] do --
+  /// see [_revertSortIfTrackNumber].
+  void drillIntoFolder(String entry) {
+    folderPath = [...folderPath, entry];
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
+  /// Ctrl+click in the Folder pane: replaces the Ctrl-selected sibling set
+  /// at the pane's current level with exactly [values] (each one of
+  /// [folderEntries]) WITHOUT drilling -- the pane keeps listing the same
+  /// level, and the selected siblings' tracks OR together (see
+  /// [folderScopes]). Empty reverts the filter to all of [folderPath].
   ///
   /// [values] is the panel's *whole new selection*, not a single toggle --
-  /// `ui/filter_panel.dart` computes the resulting set itself (plain click
-  /// replaces it with one value, Ctrl+click toggles a value in/out of the
-  /// existing set) and calls this with the result, so the cascade/sort
-  /// side effects below only ever need to run once per user action.
-  void setFolders(Set<String> values) {
-    folderFilters = values;
+  /// `ui/filter_panel.dart` computes the resulting set itself (Ctrl+click
+  /// toggles a value in/out of the existing set) and calls this with the
+  /// result, so the cascade/sort side effects only ever run once per user
+  /// action. Shares [drillIntoFolder]'s cascade/sort-revert side effects.
+  void setFolderSiblings(Set<String> values) {
+    folderSiblings = values;
+    _onFolderSelectionChanged();
+  }
+
+  /// The Folder pane's pinned ✕: fully clears the folder selection -- back
+  /// to the top-level root list ([folderNames]) with no folder restriction
+  /// on the track list. Shares [drillIntoFolder]'s cascade/sort-revert side
+  /// effects (the artist/album lists rescope back to the whole library).
+  void clearFolderSelection() {
+    folderPath = [];
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
+  /// Shared tail of every folder-selection mutation ([drillIntoFolder]/
+  /// [setFolderSiblings]/[clearFolderSelection]): clears the downstream
+  /// artist/album filter sets, reverts a stale trackNumber sort (see
+  /// [_revertSortIfTrackNumber]), and notifies.
+  void _onFolderSelectionChanged() {
     artistFilters = {};
     albumFilters = {};
     _revertSortIfTrackNumber();
     notifyListeners();
   }
 
-  /// Replaces the Artist filter selection with exactly [values] -- see
-  /// [setFolders]'s doc for the "whole new selection, not a toggle" contract
-  /// this and [setAlbums] share.
+  /// Replaces the Artist filter selection with exactly [values] -- the
+  /// panel's *whole new selection*, not a single toggle (see
+  /// [setFolderSiblings]'s doc for the contract this and [setAlbums]
+  /// share): `ui/filter_panel.dart` computes the resulting set itself
+  /// (plain click replaces it with one value, Ctrl+click toggles a value
+  /// in/out of the existing set) and calls this with the result, so the
+  /// cascade/sort side effects below only ever need to run once per user
+  /// action.
   void setArtists(Set<String> values) {
     artistFilters = values;
     albumFilters = {};
@@ -631,7 +733,7 @@ class LibraryModel extends ChangeNotifier {
   }
 
   /// Replaces the Album filter selection with exactly [values] -- see
-  /// [setFolders]'s doc for the "whole new selection, not a toggle"
+  /// [setArtists]'s doc for the "whole new selection, not a toggle"
   /// contract this shares.
   ///
   /// Also drives the track-list's default sort for the single-album view:
@@ -670,7 +772,8 @@ class LibraryModel extends ChangeNotifier {
 
   void setPlaylist(String? name) {
     activePlaylist = name;
-    folderFilters = {};
+    folderPath = [];
+    folderSiblings = {};
     artistFilters = {};
     albumFilters = {};
     search = '';
@@ -681,7 +784,8 @@ class LibraryModel extends ChangeNotifier {
   /// is cleared while [sortColumn] is [SortColumn.trackNumber].
   ///
   /// Track number sorting only makes sense in album view; when navigating away
-  /// from an album via [setFolders]/[setArtists] (which clear [albumFilters]),
+  /// from an album via a folder-selection change/[setArtists] (which clear
+  /// [albumFilters]),
   /// a stale trackNumber sort would leave the '#' header hidden and no sort
   /// arrow visible, confusing the user. Mirrors [setAlbums]' not-exactly-one
   /// branch.

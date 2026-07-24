@@ -83,10 +83,25 @@ class HomeScreen extends StatelessWidget {
                                     child: FilterPanel(
                                       key: const Key('folder-filter-panel'),
                                       title: 'Folder',
-                                      values: library.folderNames,
-                                      selected: library.folderFilters,
-                                      onSelect: library.setFolders,
-                                      displayName: p.basename,
+                                      // Drill-down navigator (see
+                                      // LibraryModel.folderEntries): plain
+                                      // click selects AND descends into a
+                                      // folder, Ctrl+click toggles siblings
+                                      // at the current level, the pinned ✕
+                                      // resets to the root list. Entries
+                                      // are full root paths only at the top
+                                      // level (shown by basename); below
+                                      // that they're already bare names.
+                                      values: library.folderEntries,
+                                      selected: library.folderSiblings,
+                                      onSelect: library.setFolderSiblings,
+                                      onDrill: library.drillIntoFolder,
+                                      headerText: library.folderHeaderText,
+                                      onClearHeader:
+                                          library.clearFolderSelection,
+                                      displayName: library.folderPath.isEmpty
+                                          ? p.basename
+                                          : null,
                                     ),
                                   ),
                                   const VerticalDivider(width: 1),
