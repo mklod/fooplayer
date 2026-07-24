@@ -86,6 +86,29 @@ void main() {
     expect(find.text('2:05'), findsOneWidget); // 125000ms -> 2:05
   });
 
+  testWidgets(
+      'all row cells share the same 13px AppColors.ink style -- Time/Date '
+      'are no longer smaller/greyed-out relative to Artist/Album',
+      (tester) async {
+    final lib = fixtureLibrary();
+    await pumpTrackList(tester, lib, PlayerService());
+
+    final artistStyle = tester.widget<Text>(find.text('Muse')).style!;
+    final albumStyle = tester.widget<Text>(find.text('X')).style!;
+    final timeStyle = tester.widget<Text>(find.text('2:05')).style!; // Banana's duration
+    final dateStyle = tester.widget<Text>(find.text('2024-01-01')).style!; // Banana's date
+
+    for (final style in [artistStyle, albumStyle, timeStyle, dateStyle]) {
+      expect(style.fontSize, 13);
+      expect(style.color, AppColors.ink);
+      expect(style.fontWeight, isNot(FontWeight.w600)); // regular, unlike Title
+    }
+
+    final titleStyle = tester.widget<Text>(find.text('Banana')).style!;
+    expect(titleStyle.fontSize, 13);
+    expect(titleStyle.fontWeight, FontWeight.w600); // Title alone stays bold
+  });
+
   testWidgets('current-track title is highlighted in the accent color',
       (tester) async {
     final lib = fixtureLibrary();

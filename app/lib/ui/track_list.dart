@@ -26,6 +26,14 @@ String _fmtDuration(int? ms) {
 // outer flexible block, split internally by the same _kTitleFlex/_kArtistFlex
 // ratio the header uses (see _TrackRow); Album gets its own flexible block;
 // #, Time and Date are fixed-width, right side of the row, foobar-style.
+//
+// Every row cell (Title/Artist/Album/Time/Date) renders at the same 13px
+// size and [AppColors.ink] color -- Title alone adds w600 weight to carry
+// emphasis, matching the (now playing) accent-color treatment it also
+// switches into (see [_TrackRow.build]). This is deliberate: an earlier
+// version rendered Time/Date in a smaller, greyed-out `bodySmall` style,
+// which read as visually inconsistent with the other three text columns.
+const _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
 const double _kTrackNumberColumnWidth = 36;
 const double _kDurationColumnWidth = 44;
 const double _kDateColumnWidth = 82;
@@ -310,7 +318,6 @@ class _TrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final secondaryStyle = Theme.of(context).textTheme.bodySmall;
     return Material(
       color: isSelected ? AppColors.selectionFill : Colors.transparent,
       child: InkWell(
@@ -334,7 +341,7 @@ class _TrackRow extends StatelessWidget {
                     textAlign: TextAlign.right,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: secondaryStyle,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
               Expanded(
@@ -360,10 +367,7 @@ class _TrackRow extends StatelessWidget {
                         track.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.ink,
-                        ),
+                        style: _kRowTextStyle,
                       ),
                     ),
                   ],
@@ -375,7 +379,7 @@ class _TrackRow extends StatelessWidget {
                   track.album,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, color: AppColors.ink),
+                  style: _kRowTextStyle,
                 ),
               ),
               const SizedBox(width: 8),
@@ -386,7 +390,7 @@ class _TrackRow extends StatelessWidget {
                   textAlign: TextAlign.right,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: secondaryStyle,
+                  style: _kRowTextStyle,
                 ),
               ),
               const SizedBox(width: 16),
@@ -396,7 +400,7 @@ class _TrackRow extends StatelessWidget {
                   _fmtDate(track.dateAdded),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: secondaryStyle,
+                  style: _kRowTextStyle,
                 ),
               ),
             ],

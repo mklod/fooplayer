@@ -25,6 +25,30 @@ void main() {
     });
   });
 
+  group('parseFromFilename date-like parent folder is not an album', () {
+    test('a "YYYY-MM" parent directory (e.g. a dated export folder) yields no album', () {
+      final t = parseFromFilename('Various Artists/2012-11/Track One.mp3');
+      expect(t.album, isNull);
+      expect(t.title, 'Track One');
+    });
+
+    test('a bare "YYYY" parent directory also yields no album', () {
+      final t = parseFromFilename('Various Artists/1999/Track One.mp3');
+      expect(t.album, isNull);
+    });
+
+    test('a parent directory that merely starts with a date but has more '
+        'text is still treated as a real album', () {
+      final t = parseFromFilename('Various Artists/2012-11 Tour Rehearsals/Track One.mp3');
+      expect(t.album, '2012-11 Tour Rehearsals');
+    });
+
+    test('a top-level (no parent directory) file still has no album, same as before', () {
+      final t = parseFromFilename('2012-11.mp3');
+      expect(t.album, isNull);
+    });
+  });
+
   group('parseFromFilename track-number prefix', () {
     test('"NN Title.ext" -> trackNumber and a title with the prefix stripped', () {
       final t = parseFromFilename('03 You Love Me (Remix).mp3');

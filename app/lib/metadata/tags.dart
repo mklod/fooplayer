@@ -56,10 +56,21 @@ class TrackTags {
 /// isn't mistaken for a track number.
 final RegExp _trackNumberPrefix = RegExp(r'^(\d{1,3})(?:\s*-\s*|\s+)');
 
+/// Matches a parent-directory name that is *only* a date, not a real album
+/// title -- `YYYY-MM` (e.g. "2012-11", a common export/backup folder name)
+/// or a bare `YYYY` (e.g. "1999"). Such folders are organizational, not
+/// album names, so [parseFromFilename] treats them as "no album" rather
+/// than taking the folder name at face value. A folder that merely *starts*
+/// with a date but has more text (e.g. "2012-11 Tour Rehearsals") still
+/// passes through as a real album since the pattern is anchored both ends.
+final RegExp _dateLikeFolderPattern = RegExp(r'^\d{4}(-\d{2})?$');
+
 TrackTags parseFromFilename(String relPath) {
   final base = p.basenameWithoutExtension(relPath);
   final dir = p.dirname(relPath);
-  final album = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
+  final rawAlbum = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
+  final album =
+      (rawAlbum != null && _dateLikeFolderPattern.hasMatch(rawAlbum)) ? null : rawAlbum;
 
   int? trackNumber;
   var rest = base;
