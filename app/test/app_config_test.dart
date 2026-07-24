@@ -95,6 +95,42 @@ void main() {
     });
   });
 
+  group('writeConfigFile', () {
+    test('round-trips through readConfigFile and leaves no .tmp residue',
+        () {
+      final f = cfgFile();
+      writeConfigFile(f, {'libraryRoots': [r'L:\music'], 'ui': {'x': 1}});
+
+      expect(f.existsSync(), isTrue);
+      expect(readConfigFile(f), {
+        'libraryRoots': [r'L:\music'],
+        'ui': {'x': 1},
+      });
+      expect(File('${f.path}.tmp').existsSync(), isFalse);
+    });
+
+    test('creates the parent directory if it does not exist yet', () {
+      final nested = File('${tmp.path}/nested/dir/config.json');
+      expect(nested.parent.existsSync(), isFalse);
+
+      writeConfigFile(nested, {'libraryRoots': <String>[]});
+
+      expect(nested.existsSync(), isTrue);
+    });
+
+    test('a second write replaces the first, with no .tmp residue left '
+        'behind either time', () {
+      final f = cfgFile();
+      writeConfigFile(f, {'libraryRoots': [r'L:\music']});
+      writeConfigFile(f, {'libraryRoots': [r'D:\more music']});
+
+      expect(readConfigFile(f), {
+        'libraryRoots': [r'D:\more music'],
+      });
+      expect(File('${f.path}.tmp').existsSync(), isFalse);
+    });
+  });
+
   group('needsMigrationWrite', () {
     test('true when there is no libraryRoots key yet', () {
       expect(needsMigrationWrite({}), isTrue);

@@ -133,6 +133,64 @@ void main() {
   });
 
   test(
+      'a root whose .library.json is corrupt is recorded in rootsFailed '
+      '(not fatal) while the other root still loads its tracks', () async {
+    final good = await _root(tmp, 'good');
+    final bad = await _root(tmp, 'bad');
+    await _writeManifest(good, tracks: {
+      'only': _trackJson('only.mp3', '2024-01-01T00:00:00Z'),
+    });
+    // Garbage, not valid JSON at all -- loadManifestFile's jsonDecode
+    // throws a FormatException parsing this.
+    await File('${bad.path}/.library.json').writeAsString('{not valid json');
+
+    final model = LibraryModel();
+    await model
+        .load(
+          libraryRoots: [good, bad],
+          cacheFile: File('${tmp.path}/meta_cache.json'),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    expect(model.status, isNot(startsWith('error')));
+    expect(model.allTracks, hasLength(1));
+    expect(model.allTracks.single.contentId, 'only');
+    expect(model.rootsFailed, [bad.path]);
+    expect(model.rootsMissingManifest, isEmpty,
+        reason: 'bad has a .library.json -- it exists, it just fails to '
+            'parse, which is a different (and differently reported) case '
+            'than a root with no manifest at all');
+  });
+
+  test(
+      'a root whose .library.json is valid JSON but the wrong shape '
+      '(e.g. missing the tracks map) is also recorded in rootsFailed, not '
+      'fatal', () async {
+    final good = await _root(tmp, 'good');
+    final wrongShape = await _root(tmp, 'wrongShape');
+    await _writeManifest(good, tracks: {
+      'only': _trackJson('only.mp3', '2024-01-01T00:00:00Z'),
+    });
+    // Valid JSON, but schema/tracks are the wrong type -- loadManifestFile's
+    // `j['schema'] as int` / `j['tracks'] as Map<String, dynamic>` casts
+    // throw a TypeError, not a FormatException.
+    await File('${wrongShape.path}/.library.json')
+        .writeAsString(jsonEncode({'schema': 'nope', 'tracks': 'nope'}));
+
+    final model = LibraryModel();
+    await model
+        .load(
+          libraryRoots: [good, wrongShape],
+          cacheFile: File('${tmp.path}/meta_cache.json'),
+        )
+        .timeout(const Duration(seconds: 30));
+
+    expect(model.status, isNot(startsWith('error')));
+    expect(model.allTracks, hasLength(1));
+    expect(model.rootsFailed, [wrongShape.path]);
+  });
+
+  test(
       'when every root is missing a manifest, load completes (not an error '
       'state) with no tracks and every root reported as missing', () async {
     final rootA = await _root(tmp, 'rootA');

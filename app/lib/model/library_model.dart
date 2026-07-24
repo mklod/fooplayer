@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
+import '../metadata/isolate_io.dart';
 import '../metadata/meta_cache.dart';
 import '../metadata/tags.dart';
 import 'filtering.dart';
@@ -66,6 +67,14 @@ class LibraryModel extends ChangeNotifier {
   /// [load] -- skipped (not fatal) so the rest of the library still loads.
   /// The settings dialog surfaces these with a "seed with foolib" note.
   List<String> rootsMissingManifest = [];
+
+  /// Configured roots whose `.library.json` exists but failed to parse (as
+  /// of the last [load]) -- e.g. truncated by a crash mid-write, or hand
+  /// edited into invalid JSON/shape. Same treatment as
+  /// [rootsMissingManifest]: skipped, not fatal, so the remaining roots
+  /// still load; surfaced by the settings dialog via the same per-root note
+  /// pathway, with its own "corrupt, reseed to repair" wording.
+  List<String> rootsFailed = [];
   String? genreFilter;
   String? artistFilter;
   String? albumFilter;
@@ -195,6 +204,7 @@ class LibraryModel extends ChangeNotifier {
       final mergedPlaylists = <ManifestPlaylist>[];
       final usedPlaylistNames = <String>{};
       final missingManifest = <String>[];
+      final failedRoots = <String>[];
 
       for (final root in libraryRoots) {
         final manifest = File(p.join(root.path, '.library.json'));
@@ -202,7 +212,18 @@ class LibraryModel extends ChangeNotifier {
           missingManifest.add(root.path);
           continue;
         }
-        final data = loadManifestFile(manifest, rootPath: root.path);
+        final ManifestData data;
+        try {
+          data = loadManifestFile(manifest, rootPath: root.path);
+        } catch (e) {
+          // A single root's corrupt/unreadable .library.json (invalid JSON,
+          // wrong shape, an unsupported schema version, ...) must not take
+          // the rest of a multi-root library down with it -- record it
+          // (surfaced via [rootsFailed]) and move on to the remaining
+          // roots, exactly like the no-manifest-yet case above.
+          failedRoots.add(root.path);
+          continue;
+        }
         for (final t in data.tracks) {
           mergedTracks.putIfAbsent(t.contentId, () => t);
         }
@@ -215,6 +236,7 @@ class LibraryModel extends ChangeNotifier {
       }
 
       rootsMissingManifest = missingManifest;
+      rootsFailed = failedRoots;
       playlists = mergedPlaylists;
 
       if (mergedTracks.isEmpty) {
@@ -670,12 +692,11 @@ Future<Map<String, TrackTags>> _readBatchResilient(
   return out;
 }
 
-/// Runs [readTagsBatch] for [records] inside its own isolate, same as
-/// `Isolate.run` -- except that if it hasn't produced a result within
-/// [timeout], that isolate is killed outright and this throws
-/// [TimeoutException], instead of leaving a runaway synchronous read (see
-/// [_defaultBatchTimeout]) to keep burning CPU and network I/O in the
-/// background indefinitely.
+/// Runs [readTagsBatch] for [records] inside its own isolate, bounded by
+/// [timeout] -- see [runIsolateWithTimeout] (metadata/isolate_io.dart) for
+/// the kill-on-timeout mechanics this delegates to; [_defaultBatchTimeout]'s
+/// doc above explains why an unbounded batch read is dangerous in the first
+/// place.
 ///
 /// Any error [readTagsBatch] itself throws propagates normally (it is not
 /// swallowed here), so a genuine failure still surfaces via the caller's
@@ -683,58 +704,13 @@ Future<Map<String, TrackTags>> _readBatchResilient(
 Future<Map<String, TrackTags>> _readBatchIsolate(
   List<(String, String, String)> records, {
   required Duration timeout,
-}) async {
-  final resultPort = RawReceivePort();
-  final completer = Completer<Map<String, TrackTags>>();
-  resultPort.handler = (Object? response) {
-    resultPort.close();
-    if (response == null) {
-      completer.completeError(
-          StateError('tag-reading isolate exited without a result'),
-          StackTrace.current);
-      return;
-    }
-    final list = response as List<Object?>;
-    if (list.length == 2) {
-      final error = list[0];
-      final stack = list[1];
-      if (stack is StackTrace) {
-        completer.completeError(error!, stack);
-      } else {
-        // Two strings from the isolate's own onError handler (an uncaught
-        // async error) rather than from our entry point's try/catch below.
-        completer.completeError(
-            RemoteError(error.toString(), stack.toString()));
-      }
-    } else {
-      completer.complete(list[0] as Map<String, TrackTags>);
-    }
-  };
-
-  final Isolate isolate;
-  try {
-    isolate = await Isolate.spawn(
-      _readBatchIsolateEntry,
-      (records, resultPort.sendPort),
-      onError: resultPort.sendPort,
-      onExit: resultPort.sendPort,
-      errorsAreFatal: true,
-    );
-  } catch (_) {
-    // Spawning itself failed (synchronously, or the returned Future
-    // rejected) -- there's no isolate to kill, but resultPort must still
-    // be closed or it leaks. Mirrors Isolate.run's own handling of this
-    // case in dart:isolate.
-    resultPort.close();
-    rethrow;
-  }
-
-  try {
-    return await completer.future.timeout(timeout);
-  } finally {
-    isolate.kill(priority: Isolate.immediate);
-    resultPort.close();
-  }
+}) {
+  return runIsolateWithTimeout<Map<String, TrackTags>,
+      List<(String, String, String)>>(
+    _readBatchIsolateEntry,
+    records,
+    timeout: timeout,
+  );
 }
 
 void _readBatchIsolateEntry(

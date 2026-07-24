@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:path/path.dart' as p;
+import 'isolate_io.dart';
 
 class TrackTags {
   final String? title;
@@ -219,4 +221,74 @@ Future<List<int>?> readArt(File audioFile) async {
   } catch (_) {
     return null;
   }
+}
+
+/// Default budget for [readArtSafe] before it gives up on a single file's
+/// cover art and returns null (the caller falls back to a placeholder)
+/// instead of continuing to wait. Generous for any real embedded-art blob,
+/// short enough that a pathological file can't reproduce the freeze this
+/// function exists to prevent.
+const _defaultArtTimeout = Duration(seconds: 20);
+
+/// Isolate-safe, timeout-bounded wrapper around [readArt] -- this, not
+/// [readArt] directly, is what production art loading goes through (see
+/// `AlbumArt`'s default `loader` in `ui/now_playing_bar.dart`).
+///
+/// [readArt] is `async` in name only: there is no `await` before its call
+/// into [_readRawTags], whose synchronous parse can scan byte-by-byte to
+/// EOF on a file that defeats the MP3 frame-sync search (the same
+/// pathology documented on `_defaultBatchTimeout` in
+/// `model/library_model.dart`, for the tag-enrichment side of this same
+/// bug) -- such files exist in this library. Calling [readArt] directly
+/// from the UI isolate (as `AlbumArt` used to) therefore blocks the whole
+/// window -- "Not Responding" -- for as long as that scan takes over the
+/// SMB-mounted share: minutes, for a real file observed in production.
+///
+/// [readArtSafe] runs the same parse inside its own throwaway isolate via
+/// [runIsolateWithTimeout] (metadata/isolate_io.dart -- the same
+/// kill-capable-spawn-with-timeout machinery `LibraryModel`'s batched tag
+/// enrichment uses), so a pathological file costs at most [timeout] and
+/// never blocks the calling isolate at all. Returns null on timeout, on any
+/// error propagated from the isolate, or when the file simply has no
+/// embedded art -- callers can't tell these apart, which is fine: all three
+/// mean "show the placeholder".
+///
+/// [relPath] is accepted for API symmetry with [readTags]/[readTagsBatch]
+/// (useful to a future caller that wants it for logging) but isn't
+/// otherwise used here: unlike tag reads, art has no filename-derived
+/// fallback to fill in on failure.
+///
+/// [readArt] itself stays exported for direct use in tests (and is exactly
+/// what runs inside the spawned isolate below) -- it's only *production*
+/// art loading on a path that reaches the UI isolate that must go through
+/// this wrapper instead.
+Future<List<int>?> readArtSafe(
+  File file, {
+  String? relPath,
+  Duration timeout = _defaultArtTimeout,
+}) async {
+  try {
+    return await runIsolateWithTimeout<List<int>?, String>(
+      _readArtIsolateEntry,
+      file.path,
+      timeout: timeout,
+    );
+  } catch (_) {
+    // Timeout, isolate-spawn failure, or any error propagated from the
+    // isolate -- all treated the same as readArt's own catch(_): no art,
+    // fall back to the placeholder, never let a bad file surface as a
+    // crash or (worse, the bug this function fixes) a UI-isolate hang.
+    return null;
+  }
+}
+
+void _readArtIsolateEntry((String, SendPort) args) async {
+  final (path, resultPort) = args;
+  List<int>? result;
+  try {
+    result = await readArt(File(path));
+  } catch (e, s) {
+    Isolate.exit(resultPort, [e, s]);
+  }
+  Isolate.exit(resultPort, [result]);
 }

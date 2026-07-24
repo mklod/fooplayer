@@ -145,6 +145,7 @@ class _Sidebar extends StatelessWidget {
         builder: (context, _) => SettingsDialog(
           roots: libraryRootsPrefs.roots,
           rootsMissingManifest: library.rootsMissingManifest,
+          rootsFailed: library.rootsFailed,
           onAddRoot: libraryRootsPrefs.addRoot,
           onRemoveRoot: libraryRootsPrefs.removeRoot,
         ),

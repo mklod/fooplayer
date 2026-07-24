@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
@@ -30,11 +29,8 @@ File _configFile() => File(p.join(_appDataDir().path, 'config.json'));
 /// [_writeConfig] untouched.
 Map<String, dynamic> _loadConfig() => readConfigFile(_configFile());
 
-void _writeConfig(Map<String, dynamic> config) {
-  final cfg = _configFile();
-  cfg.parent.createSync(recursive: true);
-  cfg.writeAsStringSync(jsonEncode(config));
-}
+void _writeConfig(Map<String, dynamic> config) =>
+    writeConfigFile(_configFile(), config);
 
 /// Flushes any debounced [LayoutPrefs] write and cancels the periodic
 /// library-rescan [Timer] on app shutdown, so a drag-a-divider-then-close

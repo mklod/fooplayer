@@ -11,6 +11,7 @@ import 'package:fooplayer_app/ui/settings_dialog.dart';
 class _Harness extends StatefulWidget {
   final List<String> initialRoots;
   final List<String> initialMissing;
+  final List<String> initialFailed;
   final Future<String?> Function() pickDirectory;
   final void Function(String)? onAdd;
   final void Function(String)? onRemove;
@@ -18,6 +19,7 @@ class _Harness extends StatefulWidget {
   const _Harness({
     required this.initialRoots,
     this.initialMissing = const [],
+    this.initialFailed = const [],
     required this.pickDirectory,
     this.onAdd,
     this.onRemove,
@@ -30,6 +32,7 @@ class _Harness extends StatefulWidget {
 class _HarnessState extends State<_Harness> {
   late List<String> roots = List.of(widget.initialRoots);
   late List<String> missing = List.of(widget.initialMissing);
+  late List<String> failed = List.of(widget.initialFailed);
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +41,7 @@ class _HarnessState extends State<_Harness> {
         body: SettingsDialog(
           roots: roots,
           rootsMissingManifest: missing,
+          rootsFailed: failed,
           pickDirectory: widget.pickDirectory,
           onAddRoot: (path) {
             widget.onAdd?.call(path);
@@ -50,6 +54,7 @@ class _HarnessState extends State<_Harness> {
             setState(() {
               roots = roots.where((r) => r != path).toList();
               missing = missing.where((r) => r != path).toList();
+              failed = failed.where((r) => r != path).toList();
             });
           },
         ),
@@ -88,6 +93,32 @@ void main() {
       find.descendant(
         of: find.byKey(const Key('root-tile-L:\\music')),
         matching: find.text('no library manifest — seed with foolib'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('failed-manifest root shows the corrupt/reseed note; others do not',
+      (tester) async {
+    await tester.pumpWidget(_Harness(
+      initialRoots: [r'L:\music', r'L:\corrupt drop'],
+      initialFailed: [r'L:\corrupt drop'],
+      pickDirectory: () async => null,
+    ));
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('root-tile-L:\\corrupt drop')),
+        matching:
+            find.text('library manifest is corrupt — reseed with foolib to repair'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('root-tile-L:\\music')),
+        matching:
+            find.text('library manifest is corrupt — reseed with foolib to repair'),
       ),
       findsNothing,
     );

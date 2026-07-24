@@ -54,6 +54,33 @@ void _backupCorrupt(File file) {
   }
 }
 
+/// Writes [config] to [file] atomically: the full contents are written to a
+/// sibling `.tmp` file first, [file] itself (if it already exists) is then
+/// deleted, and the `.tmp` file is renamed into its place -- same
+/// discipline as `fooplayer_core`'s `saveManifest`
+/// (core/lib/src/manifest.dart), and for the same reason: a plain
+/// `file.writeAsStringSync(...)` truncates the existing file in place
+/// before writing the new bytes, so a crash or power loss mid-write can
+/// leave config.json truncated/corrupt on disk rather than merely stale.
+/// Writing the new content to an untouched temp file first and only then
+/// swapping it into place means [file] is always either the complete
+/// previous config or the complete new one -- never a partial write -- no
+/// matter when a crash lands.
+///
+/// [File.renameSync] does not overwrite an existing destination on Windows
+/// (unlike POSIX `rename`), so [file] is removed explicitly before the
+/// rename rather than relying on the rename itself to replace it --
+/// mirroring `saveManifest`'s own delete-then-rename dance.
+void writeConfigFile(File file, Map<String, dynamic> config) {
+  file.parent.createSync(recursive: true);
+  final tmp = File('${file.path}.tmp');
+  tmp.writeAsStringSync(jsonEncode(config));
+  if (file.existsSync()) {
+    file.deleteSync();
+  }
+  tmp.renameSync(file.path);
+}
+
 /// Migrates a raw config map (as returned by [readConfigFile]) to schema
 /// v2's `"libraryRoots"` list:
 ///

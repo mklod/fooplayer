@@ -33,7 +33,7 @@ class AlbumArt extends StatefulWidget {
     super.key,
     required this.contentId,
     required this.file,
-    this.loader = readArt,
+    this.loader = readArtSafe,
     this.size = 56,
   });
 
