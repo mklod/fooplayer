@@ -45,6 +45,20 @@ void main() {
     expect(t.contentId, isNot('poisoned'));
   });
 
+  test('malformed cache id (non-string) is treated as a cache miss', () async {
+    await scanLibrary(root);
+    final cacheFile = File('${root.path}/.hash_cache.json');
+
+    // Poison the cached id with a non-string value, but keep size/mtimeMs correct.
+    final cache = jsonDecode(cacheFile.readAsStringSync()) as Map<String, dynamic>;
+    (cache['albums/A/one.mp3'] as Map<String, dynamic>)['id'] = 123;
+    cacheFile.writeAsStringSync(jsonEncode(cache));
+
+    final tracks = await scanLibrary(root);
+    final t = tracks.firstWhere((t) => t.relPath == 'albums/A/one.mp3');
+    expect(t.contentId, hasLength(64));
+  });
+
   test('tolerates corrupted cache file and rebuilds', () async {
     // First scan creates cache
     await scanLibrary(root);

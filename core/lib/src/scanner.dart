@@ -70,9 +70,7 @@ Map<String, dynamic> _loadCache(File cacheFile) {
 
 bool _isCacheHit(dynamic cached, int fileSize, int mtimeMs) {
   if (cached is! Map<String, dynamic>) return false;
-  try {
-    return cached['size'] == fileSize && cached['mtimeMs'] == mtimeMs;
-  } catch (e) {
-    return false;
-  }
+  return cached['size'] == fileSize &&
+      cached['mtimeMs'] == mtimeMs &&
+      cached['id'] is String;
 }

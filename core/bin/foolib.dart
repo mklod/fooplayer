@@ -36,6 +36,37 @@ Future<int> _run(List<String> argv) async {
     return 2;
   }
 
+  if (!{'status', 'update', 'seed'}.contains(cmd)) {
+    stderr.writeln('unknown command: $cmd');
+    return 2;
+  }
+
+  // Validate everything we can before paying for the (potentially very
+  // expensive) full library scan below.
+  final manifestFile = File('${root.path}/$manifestFileName');
+  String? metadbJson;
+  String? playlistsDir;
+  if (cmd == 'seed') {
+    if (manifestFile.existsSync() && !(args['force'] as bool)) {
+      stderr.writeln('manifest already exists — seed refused (use --force to overwrite).');
+      return 1;
+    }
+    metadbJson = args['metadb-json'] as String?;
+    if (metadbJson == null) {
+      stderr.writeln('seed requires --metadb-json (from tools/export_metadb.py)');
+      return 2;
+    }
+    if (!File(metadbJson).existsSync()) {
+      stderr.writeln('metadb file not found: $metadbJson');
+      return 2;
+    }
+    playlistsDir = args['playlists'] as String?;
+    if (playlistsDir != null && !Directory(playlistsDir).existsSync()) {
+      stderr.writeln('playlists directory not found: $playlistsDir');
+      return 2;
+    }
+  }
+
   stdout.writeln('scanning ${root.path} ...');
   final scan = await scanLibrary(root, onProgress: (d, t) {
     if (d % 500 == 0 || d == t) stdout.writeln('  $d / $t');
@@ -72,22 +103,7 @@ Future<int> _run(List<String> argv) async {
       return 0;
 
     case 'seed':
-      final manifestFile = File('${root.path}/$manifestFileName');
-      if (manifestFile.existsSync() && !(args['force'] as bool)) {
-        stderr.writeln('manifest already exists — seed refused (use --force to overwrite).');
-        return 1;
-      }
-      final metadbJson = args['metadb-json'] as String?;
-      if (metadbJson == null) {
-        stderr.writeln('seed requires --metadb-json (from tools/export_metadb.py)');
-        return 2;
-      }
-      final metadbFile = File(metadbJson);
-      if (!metadbFile.existsSync()) {
-        stderr.writeln('metadb file not found: $metadbJson');
-        return 2;
-      }
-      final metadb = loadMetadbIndex(metadbJson);
+      final metadb = loadMetadbIndex(metadbJson!);
       final result = buildSeedManifest(
         scan: scan,
         metadb: metadb,
@@ -96,14 +112,8 @@ Future<int> _run(List<String> argv) async {
             File(p.join(root.path, rel)).statSync().changed.toUtc(),
       );
 
-      final playlistsDir = args['playlists'] as String?;
       final unmatchedTotal = <String, List<String>>{};
       if (playlistsDir != null) {
-        final playlistsDirObj = Directory(playlistsDir);
-        if (!playlistsDirObj.existsSync()) {
-          stderr.writeln('playlists directory not found: $playlistsDir');
-          return 2;
-        }
         final basenameToId = <String, String>{
           for (final t in scan) p.basename(t.relPath).toLowerCase(): t.contentId,
         };
@@ -135,7 +145,7 @@ Future<int> _run(List<String> argv) async {
       return 0;
 
     default:
-      stderr.writeln('unknown command: $cmd');
-      return 2;
+      // Unreachable: cmd is validated to be one of status/update/seed above.
+      throw StateError('unreachable command: $cmd');
   }
 }

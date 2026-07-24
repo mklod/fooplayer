@@ -51,6 +51,15 @@ void main() {
     expect(loadManifest(root).tracks.containsKey('abc123'), isTrue);
   });
 
+  test('malformed but valid JSON (wrong types) in main falls back to .bak', () async {
+    await saveManifest(sample(), root);
+    await saveManifest(sample(), root); // creates .bak
+    // Valid JSON, but 'tracks' is a List instead of a Map -> TypeError during parse.
+    File('${root.path}/.library.json')
+        .writeAsStringSync(jsonEncode({'schema': 1, 'tracks': [], 'playlists': []}));
+    expect(loadManifest(root).tracks.containsKey('abc123'), isTrue);
+  });
+
   test('rejects unknown schema version', () {
     File('${root.path}/.library.json')
         .writeAsStringSync(jsonEncode({'schema': 99, 'tracks': {}, 'playlists': []}));

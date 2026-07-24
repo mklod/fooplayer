@@ -81,6 +81,11 @@ Manifest loadManifest(Directory libraryRoot) {
       return _parse(main);
     } on FormatException {
       if (!bak.existsSync()) rethrow;
+    } on TypeError {
+      // Valid JSON but wrong shape/types (e.g. schema as a string, tracks
+      // as a list) — treat the same as a parse failure and fall back to
+      // the .bak, if any.
+      if (!bak.existsSync()) rethrow;
     }
   }
   return _parse(bak);
