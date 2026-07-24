@@ -145,6 +145,7 @@ class _TrackListHeader extends StatelessWidget {
                 library: library,
               ),
             ),
+            const SizedBox(width: 8),
             SizedBox(
               width: _kDurationColumnWidth,
               child: _HeaderCell(
@@ -154,6 +155,7 @@ class _TrackListHeader extends StatelessWidget {
                 alignEnd: true,
               ),
             ),
+            const SizedBox(width: 16),
             SizedBox(
               width: _kDateColumnWidth,
               child: _HeaderCell(
@@ -298,6 +300,7 @@ class _TrackRow extends StatelessWidget {
                   style: const TextStyle(fontSize: 13, color: AppColors.ink),
                 ),
               ),
+              const SizedBox(width: 8),
               SizedBox(
                 width: _kDurationColumnWidth,
                 child: Text(
@@ -308,6 +311,7 @@ class _TrackRow extends StatelessWidget {
                   style: secondaryStyle,
                 ),
               ),
+              const SizedBox(width: 16),
               SizedBox(
                 width: _kDateColumnWidth,
                 child: Text(
