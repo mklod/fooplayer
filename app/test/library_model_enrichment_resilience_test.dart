@@ -80,8 +80,15 @@ void main() {
       "parser's unbounded byte-by-byte scan)", () async {
     final tmp = await Directory.systemTemp.createTemp('no_frame_sync');
     addTearDown(() => tmp.delete(recursive: true));
-    final f = File('${tmp.path}/Artist - Weird Encode.mp3');
-    await f.writeAsBytes(_buildMp3WithNoFrameSync(title: 'Weird Encode'));
+    // The filename-derived title ("Placeholder Name") deliberately differs
+    // from the embedded ID3 title ("Real Tagged Title") so this test can
+    // only pass if the embedded tag was genuinely parsed -- if tag parsing
+    // silently failed and fell back to the filename (e.g. because
+    // _readRawTags threw and readTags's catch(_) masked it), the title
+    // would come back "Placeholder Name" instead and the assertion below
+    // would catch that.
+    final f = File('${tmp.path}/Artist - Placeholder Name.mp3');
+    await f.writeAsBytes(_buildMp3WithNoFrameSync(title: 'Real Tagged Title'));
 
     // Must complete promptly on local disk: this documents that the parse
     // itself never throws and never hangs computationally -- the real
@@ -89,7 +96,8 @@ void main() {
     // load()'s timeout (tested below) is what actually guards against.
     final tags = await readTags(f).timeout(const Duration(seconds: 5));
 
-    expect(tags.title, 'Weird Encode');
+    expect(tags.title, 'Real Tagged Title');
+    expect(tags.title, isNot('Placeholder Name'));
   });
 
   test(

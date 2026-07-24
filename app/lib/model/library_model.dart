@@ -285,13 +285,23 @@ Future<Map<String, TrackTags>> _readBatchIsolate(
     }
   };
 
-  final isolate = await Isolate.spawn(
-    _readBatchIsolateEntry,
-    (records, resultPort.sendPort),
-    onError: resultPort.sendPort,
-    onExit: resultPort.sendPort,
-    errorsAreFatal: true,
-  );
+  final Isolate isolate;
+  try {
+    isolate = await Isolate.spawn(
+      _readBatchIsolateEntry,
+      (records, resultPort.sendPort),
+      onError: resultPort.sendPort,
+      onExit: resultPort.sendPort,
+      errorsAreFatal: true,
+    );
+  } catch (_) {
+    // Spawning itself failed (synchronously, or the returned Future
+    // rejected) -- there's no isolate to kill, but resultPort must still
+    // be closed or it leaks. Mirrors Isolate.run's own handling of this
+    // case in dart:isolate.
+    resultPort.close();
+    rethrow;
+  }
 
   try {
     return await completer.future.timeout(timeout);
