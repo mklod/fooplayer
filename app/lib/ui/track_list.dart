@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/library_model.dart';
 import '../player/player_service.dart';
+import 'app_theme.dart';
 
 String _fmtDate(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -24,10 +25,16 @@ class TrackListView extends StatelessWidget {
             return ListTile(
               dense: true,
               selected: isCurrent,
+              // Selected rows use the theme's selectionFill/ink pairing; the
+              // currently-playing track additionally gets its title in the
+              // sparingly-used accent color.
               title: Text(t.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isCurrent ? AppColors.accent : null,
+                  )),
               subtitle: Text(
                   [t.artist, t.album].where((s) => s.isNotEmpty).join(' — '),
                   maxLines: 1,

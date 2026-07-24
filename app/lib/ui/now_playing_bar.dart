@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../metadata/tags.dart';
 import '../player/player_service.dart';
+import 'app_theme.dart';
 
 String _fmt(Duration d) {
   final m = d.inMinutes;
@@ -110,114 +111,107 @@ class NowPlayingBar extends StatelessWidget {
         return Container(
           height: 84,
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          // The bar's background IS Material 3's default inactive-track color,
-          // which renders the seek bar invisible at low progress — give the
-          // sliders an explicitly visible inactive track.
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              inactiveTrackColor: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final narrow = constraints.maxWidth < 640;
-                return Row(
-                  children: [
-                    AlbumArt(
-                      contentId: t.contentId,
-                      file: File(p.join(libraryRoot.path, t.relPath)),
-                    ),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 220),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              t.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
+          color: AppColors.barBg,
+          // Seek/volume sliders get their visible-against-barBg inactive
+          // track from the app theme's global SliderThemeData (hairline
+          // inactive, accent active) -- no local override needed here.
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 640;
+              return Row(
+                children: [
+                  AlbumArt(
+                    contentId: t.contentId,
+                    file: File(p.join(libraryRoot.path, t.relPath)),
+                  ),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    fit: FlexFit.loose,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            t.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
                             ),
-                            Text(
-                              [
-                                t.artist,
-                                t.album,
-                              ].where((s) => s.isNotEmpty).join(' — '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_previous),
-                      onPressed: player.previous,
-                    ),
-                    IconButton(
-                      iconSize: 36,
-                      icon: Icon(
-                        player.playing ? Icons.pause : Icons.play_arrow,
-                      ),
-                      onPressed: player.togglePlayPause,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.skip_next),
-                      onPressed: player.next,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.shuffle),
-                      isSelected: player.shuffle,
-                      color: player.shuffle
-                          ? Theme.of(context).colorScheme.primary
-                          : null,
-                      onPressed: player.toggleShuffle,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      _fmt(pos),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Expanded(
-                      child: Slider(
-                        value: total.inMilliseconds == 0
-                            ? 0
-                            : pos.inMilliseconds / total.inMilliseconds,
-                        onChanged: (v) => player.seek(
-                          Duration(
-                            milliseconds: (v * total.inMilliseconds).round(),
                           ),
+                          Text(
+                            [
+                              t.artist,
+                              t.album,
+                            ].where((s) => s.isNotEmpty).join(' — '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_previous),
+                    onPressed: player.previous,
+                  ),
+                  IconButton(
+                    iconSize: 36,
+                    icon: Icon(
+                      player.playing ? Icons.pause : Icons.play_arrow,
+                    ),
+                    onPressed: player.togglePlayPause,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_next),
+                    onPressed: player.next,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.shuffle),
+                    isSelected: player.shuffle,
+                    color: player.shuffle
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                    onPressed: player.toggleShuffle,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _fmt(pos),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: total.inMilliseconds == 0
+                          ? 0
+                          : pos.inMilliseconds / total.inMilliseconds,
+                      onChanged: (v) => player.seek(
+                        Duration(
+                          milliseconds: (v * total.inMilliseconds).round(),
                         ),
                       ),
                     ),
-                    Text(
-                      _fmt(total),
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    if (!narrow) ...[
-                      const SizedBox(width: 8),
-                      const Icon(Icons.volume_up, size: 18),
-                      SizedBox(
-                        width: 120,
-                        child: Slider(
-                          value: player.volume,
-                          onChanged: player.setVolume,
-                        ),
+                  ),
+                  Text(
+                    _fmt(total),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (!narrow) ...[
+                    const SizedBox(width: 8),
+                    const Icon(Icons.volume_up, size: 18),
+                    SizedBox(
+                      width: 120,
+                      child: Slider(
+                        value: player.volume,
+                        onChanged: player.setVolume,
                       ),
-                    ],
+                    ),
                   ],
-                );
-              },
-            ),
+                ],
+              );
+            },
           ),
         );
       },

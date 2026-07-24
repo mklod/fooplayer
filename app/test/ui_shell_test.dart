@@ -5,6 +5,7 @@ import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
+import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/home_screen.dart';
 import 'package:fooplayer_app/ui/now_playing_bar.dart';
 
@@ -24,7 +25,7 @@ void main() {
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: buildAppTheme(),
         home: HomeScreen(library: lib, player: player)));
     expect(find.text('Newest Song'), findsOneWidget);
     expect(find.text('Oldest Song'), findsOneWidget);
@@ -39,7 +40,7 @@ void main() {
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: buildAppTheme(),
         home: HomeScreen(library: lib, player: player)));
     await tester.tap(find.text('mix'));
     await tester.pumpAndSettle();
@@ -52,7 +53,7 @@ void main() {
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: buildAppTheme(),
         home: HomeScreen(library: lib, player: player)));
     // Both artists visible initially in the Artist panel.
     expect(find.text('Muse'), findsWidgets);
@@ -73,7 +74,7 @@ void main() {
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: buildAppTheme(),
         home: HomeScreen(library: lib, player: player)));
     expect(find.byIcon(Icons.play_arrow), findsNothing); // no current track
     // Simulate a queue without touching media_kit natives; setVolume triggers
@@ -136,7 +137,7 @@ void main() {
     final lib = fixtureLibrary();
     final player = PlayerService(libraryRoot: Directory.systemTemp);
     await tester.pumpWidget(MaterialApp(
-        theme: ThemeData.dark(useMaterial3: true),
+        theme: buildAppTheme(),
         home: HomeScreen(library: lib, player: player)));
     player.queueController.setQueue(lib.allTracks, 0);
     await player.setVolume(1.0);

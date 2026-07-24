@@ -20,7 +20,10 @@ class FilterPanel extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 12, 2),
-          child: Text(title, style: Theme.of(context).textTheme.labelLarge),
+          child: Text(
+            title.toUpperCase(),
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
         ),
         Expanded(
           child: ListView(

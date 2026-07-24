@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../model/library_model.dart';
 import '../player/player_service.dart';
+import 'app_theme.dart';
 import 'filter_panel.dart';
 import 'now_playing_bar.dart';
 import 'track_list.dart';
@@ -19,7 +20,17 @@ class HomeScreen extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(width: 200, child: _Sidebar(library: library)),
+                SizedBox(
+                  width: 200,
+                  // Material (not a plain Container/ColoredBox) so the
+                  // sidebar ListTiles' selection fill and ink splashes --
+                  // which paint on the nearest Material ancestor -- aren't
+                  // hidden behind an opaque background layer.
+                  child: Material(
+                    color: AppColors.panelBg,
+                    child: _Sidebar(library: library),
+                  ),
+                ),
                 const VerticalDivider(width: 1),
                 Expanded(
                   child: Column(
@@ -30,38 +41,44 @@ class HomeScreen extends StatelessWidget {
                       ),
                       SizedBox(
                         height: 180,
-                        child: ListenableBuilder(
-                          listenable: library,
-                          builder: (context, _) => Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(
-                                child: FilterPanel(
-                                  title: 'Genre',
-                                  values: library.genres,
-                                  selected: library.genreFilter,
-                                  onSelect: library.setGenre,
+                        // Same reasoning as the sidebar: Material, not
+                        // Container, so the filter panels' ListTile
+                        // selection/ink still paints correctly.
+                        child: Material(
+                          color: AppColors.panelBg,
+                          child: ListenableBuilder(
+                            listenable: library,
+                            builder: (context, _) => Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Expanded(
+                                  child: FilterPanel(
+                                    title: 'Genre',
+                                    values: library.genres,
+                                    selected: library.genreFilter,
+                                    onSelect: library.setGenre,
+                                  ),
                                 ),
-                              ),
-                              const VerticalDivider(width: 1),
-                              Expanded(
-                                child: FilterPanel(
-                                  title: 'Artist',
-                                  values: library.artists,
-                                  selected: library.artistFilter,
-                                  onSelect: library.setArtist,
+                                const VerticalDivider(width: 1),
+                                Expanded(
+                                  child: FilterPanel(
+                                    title: 'Artist',
+                                    values: library.artists,
+                                    selected: library.artistFilter,
+                                    onSelect: library.setArtist,
+                                  ),
                                 ),
-                              ),
-                              const VerticalDivider(width: 1),
-                              Expanded(
-                                child: FilterPanel(
-                                  title: 'Album',
-                                  values: library.albums,
-                                  selected: library.albumFilter,
-                                  onSelect: library.setAlbum,
+                                const VerticalDivider(width: 1),
+                                Expanded(
+                                  child: FilterPanel(
+                                    title: 'Album',
+                                    values: library.albums,
+                                    selected: library.albumFilter,
+                                    onSelect: library.setAlbum,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -120,8 +137,6 @@ class _SearchField extends StatelessWidget {
       decoration: const InputDecoration(
         prefixIcon: Icon(Icons.search),
         hintText: 'Search title, artist, album',
-        isDense: true,
-        border: OutlineInputBorder(),
       ),
       onChanged: library.setSearch,
     );

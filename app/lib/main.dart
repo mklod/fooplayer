@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'model/library_model.dart';
 import 'player/player_service.dart';
+import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
 
 const _defaultLibraryRoot = r'L:\music (original structure)';
@@ -50,7 +51,7 @@ class FooPlayerApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'fooplayer',
-      theme: ThemeData.dark(useMaterial3: true),
+      theme: buildAppTheme(),
       home: HomeScreen(library: library, player: player),
     );
   }
