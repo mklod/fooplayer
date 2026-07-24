@@ -26,7 +26,7 @@ void main() {
   test('shuffle keeps current, reorders upcoming deterministically, off restores', () {
     final q = QueueController();
     q.setQueue(tracks, 1); // current b; upcoming c,d
-    q.toggleShuffle((n) => n - 1); // deterministic: pick last each time → reversed
+    q.toggleShuffle((n) => 0); // deterministic: pick first each time (Fisher-Yates) → reversed
     expect(q.current!.contentId, 'b');
     final order = [q.advance()!.contentId, q.advance()!.contentId];
     expect(order, ['d', 'c']); // reversed by our fake randomBelow

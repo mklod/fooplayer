@@ -36,7 +36,7 @@ class QueueController {
       shuffle = true;
       final upcoming = _queue.sublist(_index + 1);
       for (var i = upcoming.length - 1; i > 0; i--) {
-        final j = randomBelow(i);
+        final j = randomBelow(i + 1);
         final tmp = upcoming[i];
         upcoming[i] = upcoming[j];
         upcoming[j] = tmp;
