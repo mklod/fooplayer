@@ -644,24 +644,31 @@ class LibraryModel extends ChangeNotifier {
         rootPath: folderPath.first, prefix: folderPath.skip(1).join('/'));
   }
 
-  /// The Folder pane's pinned-header text, or `null` when nothing is
-  /// selected (pane at the top level with no Ctrl-selected roots): a
-  /// `'monthly / 2007-08'`-style breadcrumb for a single selected folder
-  /// (the drilled [folderPath], extended by the sole [folderSiblings] entry
-  /// if there is exactly one), or `'N selected'` when several siblings are
-  /// Ctrl-selected at once.
-  String? get folderHeaderText {
-    if (folderPath.isEmpty && folderSiblings.isEmpty) return null;
-    if (folderSiblings.length > 1) return '${folderSiblings.length} selected';
+  /// The Folder pane's pinned-header breadcrumb, one display segment per
+  /// drill-down step -- `['monthly', '2007-08']` -- or empty when nothing
+  /// is selected (pane at the top level with no Ctrl-selected roots).
+  ///
+  /// Segment `i` (0-based) corresponds to [folderPath] element `i` (element
+  /// 0 shown by basename, it's a whole root path); when [folderSiblings] is
+  /// non-empty one *extra* trailing segment follows the path segments: the
+  /// sole sibling's name, or `'N selected'` for a multi-selection. The UI
+  /// (`ui/home_screen.dart`) prepends its own leading `'All'` segment, so a
+  /// click on *UI* segment `i` maps straight to `popFolderTo(i)` -- path
+  /// segment `i` here pops to depth `i + 1`, and the trailing sibling
+  /// segment is the current (non-clickable) position.
+  List<String> get folderBreadcrumbs {
     final parts = <String>[
       if (folderPath.isNotEmpty) p.basename(folderPath.first),
       ...folderPath.skip(1),
-      if (folderSiblings.length == 1)
-        folderPath.isEmpty
-            ? p.basename(folderSiblings.first)
-            : folderSiblings.first,
     ];
-    return parts.join(' / ');
+    if (folderSiblings.length > 1) {
+      parts.add('${folderSiblings.length} selected');
+    } else if (folderSiblings.length == 1) {
+      parts.add(folderPath.isEmpty
+          ? p.basename(folderSiblings.first)
+          : folderSiblings.first);
+    }
+    return parts;
   }
 
   /// The [FolderScope]s the current Folder-pane selection filters tracks
@@ -760,6 +767,31 @@ class LibraryModel extends ChangeNotifier {
   void setFolderSiblings(Set<String> values) {
     if (_setEquals(folderSiblings, values)) return;
     folderSiblings = values;
+    _onFolderSelectionChanged();
+  }
+
+  /// Breadcrumb click in the Folder pane's pinned header: pops the
+  /// drill-down back OUT to [depth] path segments (0 = the top-level root
+  /// list -- equivalent to [clearFolderSelection]), dropping every deeper
+  /// [folderPath] segment and any Ctrl-selected [folderSiblings] (they
+  /// belonged to the deeper level being abandoned). [folderEntries] then
+  /// lists the kept path's immediate children again, exactly as if the user
+  /// had just drilled down to it. A [depth] at or beyond the current
+  /// [folderPath] length keeps the whole path and only clears the sibling
+  /// selection (that's the deepest clickable segment when a sibling
+  /// selection is what the trailing breadcrumb segment shows).
+  ///
+  /// Shares [drillIntoFolder]'s cascade/sort-revert side effects (see
+  /// [_onFolderSelectionChanged]); no-ops entirely -- preserving downstream
+  /// artist/album picks, see [setFolderSiblings]'s doc for why -- when
+  /// nothing would change (path already at most [depth] deep, no siblings).
+  void popFolderTo(int depth) {
+    if (depth < 0) depth = 0; // defensive: treat any underflow as "roots"
+    if (depth >= folderPath.length && folderSiblings.isEmpty) return;
+    if (depth < folderPath.length) {
+      folderPath = folderPath.sublist(0, depth);
+    }
+    folderSiblings = {};
     _onFolderSelectionChanged();
   }
 
