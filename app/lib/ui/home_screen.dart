@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
+import '../model/manifest_io.dart';
+import '../model/playlist_store.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'drag_divider.dart';
 import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
+import 'playlist_dialogs.dart';
 import 'settings_dialog.dart';
 import 'track_list.dart';
 
@@ -16,16 +19,24 @@ class HomeScreen extends StatelessWidget {
   final PlayerService player;
   final LayoutPrefs layoutPrefs;
   final LibraryRootsPrefs libraryRootsPrefs;
+
+  /// Playlist CRUD service the sidebar and track-list context menus write
+  /// through. Defaults to a real [PlaylistStore] over [library]; injectable
+  /// so widget tests can substitute a spy that never touches disk.
+  final PlaylistStore? playlistStore;
+
   const HomeScreen({
     super.key,
     required this.library,
     required this.player,
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
+    this.playlistStore,
   });
 
   @override
   Widget build(BuildContext context) {
+    final store = playlistStore ?? PlaylistStore(library: library);
     return Scaffold(
       body: Column(
         children: [
@@ -45,7 +56,9 @@ class HomeScreen extends StatelessWidget {
                     child: Material(
                       color: AppColors.panelBg,
                       child: _Sidebar(
-                          library: library, libraryRootsPrefs: libraryRootsPrefs),
+                          library: library,
+                          libraryRootsPrefs: libraryRootsPrefs,
+                          playlistStore: store),
                     ),
                   ),
                   VerticalDragDivider(
@@ -155,8 +168,10 @@ class HomeScreen extends StatelessWidget {
                               .setFilterHeight(layoutPrefs.filterHeight + dy),
                         ),
                         Expanded(
-                            child:
-                                TrackListView(library: library, player: player)),
+                            child: TrackListView(
+                                library: library,
+                                player: player,
+                                playlistStore: store)),
                         _StatusBar(library: library),
                       ],
                     ),
@@ -175,7 +190,22 @@ class HomeScreen extends StatelessWidget {
 class _Sidebar extends StatelessWidget {
   final LibraryModel library;
   final LibraryRootsPrefs libraryRootsPrefs;
-  const _Sidebar({required this.library, required this.libraryRootsPrefs});
+  final PlaylistStore playlistStore;
+  const _Sidebar({
+    required this.library,
+    required this.libraryRootsPrefs,
+    required this.playlistStore,
+  });
+
+  Future<void> _createPlaylist(BuildContext context) async {
+    final name = await showPlaylistNameDialog(context, store: playlistStore);
+    if (name == null || !context.mounted) return;
+    try {
+      await playlistStore.createPlaylist(name);
+    } on PlaylistStoreException catch (e) {
+      if (context.mounted) showPlaylistError(context, e);
+    }
+  }
 
   void _openSettings(BuildContext context) {
     showDialog<void>(
@@ -205,16 +235,26 @@ class _Sidebar extends StatelessWidget {
                 ListTile(
                   title: const Text('Library'),
                   selected: library.activePlaylist == null,
+                  // Clears any active playlist (setPlaylist(null) also
+                  // resets folder/artist/album/search state) -- the
+                  // "clicking Library must clear" path of the #30
+                  // selection-clear trio, alongside the toggle-off tap and
+                  // the ✕ on the active playlist row below.
                   onTap: () => library.setPlaylist(null),
                 ),
                 const Divider(),
                 for (final pl in library.playlists)
-                  ListTile(
-                    title:
-                        Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    selected: library.activePlaylist == pl.name,
-                    onTap: () => library.setPlaylist(pl.name),
+                  _PlaylistTile(
+                    library: library,
+                    store: playlistStore,
+                    playlist: pl,
                   ),
+                ListTile(
+                  key: const Key('new-playlist'),
+                  leading: const Icon(Icons.add, size: 18),
+                  title: const Text('New playlist'),
+                  onTap: () => _createPlaylist(context),
+                ),
               ],
             ),
           ),
@@ -228,6 +268,76 @@ class _Sidebar extends StatelessWidget {
             onTap: () => _openSettings(context),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One sidebar playlist row. Interaction model (#29/#30):
+///
+/// - Tap selects the playlist; tapping the ALREADY-ACTIVE row toggles it
+///   back off (returns to the Library view) -- one of the three
+///   selection-clear paths, alongside the row's ✕ and the Library row.
+/// - The active row alone shows a small trailing ✕ doing the same clear.
+/// - Right-click opens a context menu with "Delete playlist" (behind a
+///   confirm dialog); a delete refused by the store -- e.g. the playlist
+///   lives in another root's manifest -- surfaces its message in a
+///   SnackBar rather than silently no-opping.
+class _PlaylistTile extends StatelessWidget {
+  final LibraryModel library;
+  final PlaylistStore store;
+  final ManifestPlaylist playlist;
+  const _PlaylistTile({
+    required this.library,
+    required this.store,
+    required this.playlist,
+  });
+
+  Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    final overlayBox =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlayBox.size,
+      ),
+      items: const [
+        PopupMenuItem(value: 'delete', child: Text('Delete playlist')),
+      ],
+    );
+    if (action != 'delete' || !context.mounted) return;
+    final confirmed = await confirmDeletePlaylist(context, playlist.name);
+    if (!confirmed || !context.mounted) return;
+    try {
+      await store.deletePlaylist(playlist.name);
+    } on PlaylistStoreException catch (e) {
+      if (context.mounted) showPlaylistError(context, e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active = library.activePlaylist == playlist.name;
+    return GestureDetector(
+      onSecondaryTapDown: (details) =>
+          _showContextMenu(context, details.globalPosition),
+      child: ListTile(
+        title: Text(playlist.name,
+            maxLines: 1, overflow: TextOverflow.ellipsis),
+        selected: active,
+        // Toggle: a tap on the already-active playlist clears back to the
+        // Library view instead of being a dead click.
+        onTap: () => library.setPlaylist(active ? null : playlist.name),
+        trailing: active
+            ? IconButton(
+                key: Key('clear-playlist-${playlist.name}'),
+                icon: const Icon(Icons.close,
+                    size: 14, color: AppColors.inkSecondary),
+                tooltip: 'Back to Library',
+                onPressed: () => library.setPlaylist(null),
+              )
+            : null,
       ),
     );
   }

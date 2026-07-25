@@ -287,10 +287,14 @@ class LibraryModel extends ChangeNotifier {
         for (final t in data.tracks) {
           mergedTracks.putIfAbsent(t.contentId, () => t);
         }
-        for (final pl in data.playlists) {
+        for (var i = 0; i < data.playlists.length; i++) {
+          final pl = data.playlists[i];
           mergedPlaylists.add(ManifestPlaylist(
             name: _uniquePlaylistName(pl.name, usedPlaylistNames),
             trackIds: pl.trackIds,
+            rootPath: root.path,
+            sourceName: pl.name,
+            sourceIndex: i,
           ));
         }
       }
@@ -1012,6 +1016,77 @@ class LibraryModel extends ChangeNotifier {
   void dispose() {
     _durationSaveTimer?.cancel();
     super.dispose();
+  }
+
+  /// The first configured library root -- the one PlaylistStore's writes
+  /// go to (see its class doc) -- or null before the first [load]. Kept in
+  /// [load]'s remembered-arguments group ([_libraryRoots]).
+  Directory? get firstRoot => _libraryRoots.isEmpty ? null : _libraryRoots.first;
+
+  /// Attempts to take the [busy] flag for a short external manifest write
+  /// (PlaylistStore's load-mutate-save cycle on the first root's
+  /// `.library.json`). Returns false -- caller should retry shortly -- when
+  /// a [load]/[rescan] already holds it; those write the very same manifest
+  /// file from inside their isolates, so interleaving would lose updates.
+  ///
+  /// While held, [rescan] no-ops and a concurrent [load] queues itself via
+  /// [_pendingLoad] -- exactly the discipline the two of them already apply
+  /// to each other. MUST be paired with [endManifestWrite] (in a
+  /// `finally`).
+  bool tryBeginManifestWrite() {
+    if (_busy) return false;
+    _busy = true;
+    return true;
+  }
+
+  /// Releases the flag taken by [tryBeginManifestWrite], notifies (so a UI
+  /// disabled on [busy] re-enables), and runs any [load] that queued up
+  /// while the write held the flag.
+  Future<void> endManifestWrite() async {
+    _busy = false;
+    notifyListeners();
+    await _runPendingLoad();
+  }
+
+  /// Re-reads ONLY the playlists section of every root's manifest and
+  /// rebuilds the merged [playlists] list (same first-root-first collision
+  /// suffixing and ownership stamping as [load]'s merge) -- the lightweight
+  /// refresh PlaylistStore asks for after each mutation, deliberately NOT a
+  /// full [load] (no track re-merge, no tag enrichment, no [busy]
+  /// involvement -- callable while PlaylistStore still holds the manifest
+  /// write flag).
+  ///
+  /// Roots with a missing or unparseable manifest are skipped, mirroring
+  /// [load]. If [activePlaylist] no longer exists afterward (it was just
+  /// deleted), the selection falls back to the Library view.
+  void reloadPlaylists() {
+    final merged = <ManifestPlaylist>[];
+    final used = <String>{};
+    for (final root in _libraryRoots) {
+      final manifest = File(p.join(root.path, '.library.json'));
+      if (!manifest.existsSync()) continue;
+      List<ManifestPlaylist> loaded;
+      try {
+        loaded = loadManifestPlaylistsFile(manifest);
+      } catch (_) {
+        continue; // corrupt manifest: skipped, same as load()
+      }
+      for (var i = 0; i < loaded.length; i++) {
+        merged.add(ManifestPlaylist(
+          name: _uniquePlaylistName(loaded[i].name, used),
+          trackIds: loaded[i].trackIds,
+          rootPath: root.path,
+          sourceName: loaded[i].name,
+          sourceIndex: i,
+        ));
+      }
+    }
+    playlists = merged;
+    if (activePlaylist != null &&
+        !merged.any((pl) => pl.name == activePlaylist)) {
+      activePlaylist = null;
+    }
+    notifyListeners();
   }
 
   void setPlaylist(String? name) {

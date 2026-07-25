@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../model/library_model.dart';
+import '../model/playlist_store.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
+import 'playlist_dialogs.dart';
 
 String _fmtDate(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -102,12 +104,18 @@ class TrackListView extends StatelessWidget {
   /// of actually shelling out.
   final void Function(Track track) launchExplorer;
 
+  /// Backs the context menu's "Add to playlist" / "Remove from playlist"
+  /// items. Defaults to a real [PlaylistStore] over [library]; injectable
+  /// so widget tests can substitute a spy that never touches disk.
+  final PlaylistStore? playlistStore;
+
   const TrackListView({
     super.key,
     required this.library,
     required this.player,
     this.onPlayTrack,
     this.launchExplorer = _launchInExplorer,
+    this.playlistStore,
   });
 
   void _play(List<Track> tracks, int index) {
@@ -121,6 +129,7 @@ class TrackListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final store = playlistStore ?? PlaylistStore(library: library);
     return ListenableBuilder(
       listenable: Listenable.merge([library, player]),
       builder: (context, _) {
@@ -163,6 +172,8 @@ class TrackListView extends StatelessWidget {
                       _play(tracks, i);
                     },
                     launchExplorer: launchExplorer,
+                    library: library,
+                    playlistStore: store,
                     showTrackNumber: showTrackNumber,
                     // Playlist order is curator-defined, not tag-derived, so
                     // '#' shows where the track sits in that order (1-based)
@@ -338,6 +349,10 @@ class _TrackRow extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onPlay;
   final void Function(Track track) launchExplorer;
+  // For the context menu's playlist items: the model supplies the playlist
+  // list / active-playlist state, the store performs the writes.
+  final LibraryModel library;
+  final PlaylistStore playlistStore;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -350,6 +365,8 @@ class _TrackRow extends StatelessWidget {
     required this.onSelect,
     required this.onPlay,
     required this.launchExplorer,
+    required this.library,
+    required this.playlistStore,
     required this.showTrackNumber,
     this.trackNumberText,
   });
@@ -366,6 +383,8 @@ class _TrackRow extends StatelessWidget {
           globalPosition: details.globalPosition,
           track: track,
           launchExplorer: launchExplorer,
+          library: library,
+          playlistStore: playlistStore,
         ),
         // The default ink splash + pressed highlight take hundreds of ms to
         // play out, which made single-click selection feel sluggish. Both
@@ -460,35 +479,119 @@ class _TrackRow extends StatelessWidget {
   }
 }
 
-/// Row context-menu items (currently just the one). A private enum rather
-/// than a bare string keeps [showMenu]'s selected value type-checked.
-enum _TrackMenuAction { viewInFolder }
+/// Row context-menu items. A private enum rather than a bare string keeps
+/// [showMenu]'s selected value type-checked.
+enum _TrackMenuAction { viewInFolder, addToPlaylist, removeFromPlaylist }
 
 /// Shows the row's right-click context menu at [globalPosition] (from
-/// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]) and, if
-/// its one item is chosen, invokes [launchExplorer] with [track].
+/// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]):
+///
+/// - "View in folder" invokes [launchExplorer] with [track];
+/// - "Add to playlist" opens a follow-up menu (a poor-man's submenu, shown
+///   at the same anchor) listing every merged playlist plus "New
+///   playlist..." -- see [_showAddToPlaylistMenu];
+/// - "Remove from playlist" appears only in playlist view (an active
+///   playlist) and removes [track] from it.
+///
+/// Store refusals ([PlaylistStoreException] -- e.g. the target playlist
+/// lives in another root's manifest) surface via SnackBar, never silently.
 Future<void> _showTrackContextMenu({
   required BuildContext context,
   required Offset globalPosition,
   required Track track,
   required void Function(Track track) launchExplorer,
+  required LibraryModel library,
+  required PlaylistStore playlistStore,
 }) async {
   final overlayBox =
       Overlay.of(context).context.findRenderObject() as RenderBox;
+  final activePlaylist = library.activePlaylist;
   final selection = await showMenu<_TrackMenuAction>(
     context: context,
     position: RelativeRect.fromRect(
       globalPosition & const Size(1, 1),
       Offset.zero & overlayBox.size,
     ),
-    items: const [
-      PopupMenuItem(
+    items: [
+      const PopupMenuItem(
         value: _TrackMenuAction.viewInFolder,
         child: Text('View in folder'),
       ),
+      const PopupMenuItem(
+        value: _TrackMenuAction.addToPlaylist,
+        child: Text('Add to playlist ▸'),
+      ),
+      if (activePlaylist != null)
+        const PopupMenuItem(
+          value: _TrackMenuAction.removeFromPlaylist,
+          child: Text('Remove from playlist'),
+        ),
     ],
   );
-  if (selection == _TrackMenuAction.viewInFolder) {
-    launchExplorer(track);
+  if (!context.mounted) return;
+  switch (selection) {
+    case _TrackMenuAction.viewInFolder:
+      launchExplorer(track);
+    case _TrackMenuAction.addToPlaylist:
+      await _showAddToPlaylistMenu(
+        context: context,
+        globalPosition: globalPosition,
+        track: track,
+        library: library,
+        playlistStore: playlistStore,
+      );
+    case _TrackMenuAction.removeFromPlaylist:
+      if (activePlaylist == null) return; // unreachable; item not shown
+      try {
+        await playlistStore.removeTrack(activePlaylist, track.contentId);
+      } on PlaylistStoreException catch (e) {
+        if (context.mounted) showPlaylistError(context, e);
+      }
+    case null:
+      return;
+  }
+}
+
+/// The "Add to playlist" follow-up menu: every merged playlist by display
+/// name, then "New playlist..." (which runs the shared name dialog, creates
+/// the playlist, and adds [track] to it in one flow). Values are indices
+/// into the captured playlist list (-1 for "new") so a playlist literally
+/// named "New playlist..." can't be confused with the affordance.
+Future<void> _showAddToPlaylistMenu({
+  required BuildContext context,
+  required Offset globalPosition,
+  required Track track,
+  required LibraryModel library,
+  required PlaylistStore playlistStore,
+}) async {
+  final overlayBox =
+      Overlay.of(context).context.findRenderObject() as RenderBox;
+  final playlists = library.playlists;
+  final choice = await showMenu<int>(
+    context: context,
+    position: RelativeRect.fromRect(
+      globalPosition & const Size(1, 1),
+      Offset.zero & overlayBox.size,
+    ),
+    items: [
+      for (var i = 0; i < playlists.length; i++)
+        PopupMenuItem(value: i, child: Text(playlists[i].name)),
+      if (playlists.isNotEmpty) const PopupMenuDivider(),
+      const PopupMenuItem(value: -1, child: Text('New playlist...')),
+    ],
+  );
+  if (choice == null || !context.mounted) return;
+  try {
+    if (choice >= 0) {
+      await playlistStore.addTrack(playlists[choice].name, track.contentId);
+    } else {
+      final name =
+          await showPlaylistNameDialog(context, store: playlistStore);
+      if (name == null) return;
+      await playlistStore.createPlaylist(name);
+      await playlistStore.addTrack(name, track.contentId);
+    }
+  } on PlaylistStoreException catch (e) {
+    if (context.mounted) showPlaylistError(context, e);
   }
 }
