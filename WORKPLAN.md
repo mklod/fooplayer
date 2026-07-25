@@ -2,19 +2,10 @@
 
 *Forward-looking queue. State: [STATUS.md](STATUS.md) · History: [CHANGELOG.md](CHANGELOG.md). Last update: 2026-07-24.*
 
-## Gate: HOLD until Mike confirms reboot
+## ✅ Completed 2026-07-24 night (post-reboot)
 
-Nothing below executes until the reboot confirmation (his explicit instruction).
-
-## Immediately post-reboot
-
-1. **Emulator verification under WHPX** — boot `pixel7` on Microsoft's hypervisor (crashing AEHD driver removed), re-run the smoke test. The emulator is strategically important to Mike (future automated agentic testing).
-2. **Held UI batch** (tracker #27–31) — run as one parallel workflow round:
-   - #27 Album view shows no track numbers (e.g. Urban Flora) — investigate tag/cache/render
-   - #28 Breadcrumb step-wise up-navigation (2007-08 → monthly → all), not just full-clear ✕
-   - #29 Playlist create / delete / add-to-playlist (app writes playlists into the first root's manifest via core `saveManifest`)
-   - #30 Clear playlist selection (Library click and/or ✕ on active playlist row)
-   - #31 Metro-style transport buttons from `C:\icons` originals, bundled as app assets
+- Emulator verified under WHPX (15s boots, app runs, AEHD gone for good).
+- Held UI batch #27–31 shipped via ultracode round 2 (see CHANGELOG): track numbers in folder-opened albums, clickable breadcrumb, playlist CRUD + deselection, metro transport buttons — plus the adversarial zombie-rescan fix.
 
 ## Next milestones (order per Mike: desktop polish → mobile)
 

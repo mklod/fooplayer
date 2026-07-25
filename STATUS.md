@@ -10,7 +10,7 @@
 | Library manifests | ✅ Five scoped roots seeded (monthly 1,844 / alt-times 2,398 / albums 685 / loose-2020 437 / loose-old 92); dates permanent, retag-proof |
 | Windows desktop app | ✅ Daily-drivable. iTunes-style light UI, sortable columns, folder drill-down, multi-select filters, search ✕, auto-rescan, on-play duration backfill, view-in-folder, select/double-click-play. 223/223 tests, whole-branch + adversarial reviews clean, merged to `main` |
 | Android | 🟡 APK builds, manifest pipeline proven on emulator; desktop-layout-squeezed UI only (phone-native drawer UI is next Android milestone) |
-| Android emulator | ⏸ Offline until next reboot: crashing `aehd.sys` driver removed after it bluescreened the machine (2026-07-24 05:36); Microsoft WHPX hypervisor queued via `hypervisorlaunchtype auto` |
+| Android emulator | ✅ Verified under WHPX post-reboot (15s boots); AEHD permanently removed 
 | File-dates fix (foobar2000/Explorer sorting) | ⏸ ON HOLD by Mike's explicit instruction — see [music-library-dates-issue.md](docs/music-library-dates-issue.md) |
 | Repo migration to `L:\PROJECTS\fooplayer` | ⏸ Deferred — empty target dir created by Mike; plan: fresh clone from GitHub + re-point worktrees (worktree metadata makes in-place copies messy) |
 | LAN sync / phone library sync (Plan 3) | ⛔ Not started |
@@ -24,7 +24,7 @@
 
 ## Blocking on Mike
 
-1. **Reboot confirmation** → unlocks: WHPX emulator verification, then the held TODO batch (see WORKPLAN).
+1. ~~Reboot~~ done — emulator verified, batch #27–31 shipped.
 2. **File-dates decision** (mtime route / Samba fix / both / skip).
 
 ## Known machine facts
