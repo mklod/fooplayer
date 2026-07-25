@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1843
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -8,13 +8,17 @@ import 'package:path/path.dart' as p;
 import 'model/app_config.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
+import 'model/playlist_store.dart';
 import 'platform_paths.dart';
 import 'player/player_service.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
+import 'ui/phone/browse_views.dart';
+import 'ui/phone/mini_player.dart';
 import 'ui/phone/phone_shell.dart';
+import 'ui/phone/track_context_sheet.dart';
 
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
 /// launch-time and Refresh-button triggers -- see main() below.
@@ -191,14 +195,56 @@ class FooPlayerApp extends StatelessWidget {
       // rule (a desktop OS never satisfies it). The Builder exists so the
       // check runs under MaterialApp's MediaQuery.
       home: Builder(
-        builder: (context) => usePhoneShell(context)
-            ? PhoneShell(library: library, player: player)
-            : HomeScreen(
-                library: library,
-                player: player,
-                layoutPrefs: layoutPrefs,
-                libraryRootsPrefs: libraryRootsPrefs,
-              ),
+        builder: (context) {
+          if (!usePhoneShell(context)) {
+            return HomeScreen(
+              library: library,
+              player: player,
+              layoutPrefs: layoutPrefs,
+              libraryRootsPrefs: libraryRootsPrefs,
+            );
+          }
+          // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
+          // the mini-player slot (it self-hides when no track is loaded),
+          // P3's browse views fill the viewBuilders map, and P3's real
+          // track context sheet replaces P1's placeholder for the feed and
+          // search rows. Same PlaylistStore-per-build pattern as
+          // HomeScreen (the store is a stateless facade over the library).
+          final store = PlaylistStore(library: library);
+          return PhoneShell(
+            library: library,
+            player: player,
+            onTrackLongPress: (sheetContext, track) => showTrackContextSheet(
+              sheetContext,
+              track: track,
+              library: library,
+              store: store,
+            ),
+            miniPlayerBuilder: (_) => MiniPlayer(player: player),
+            viewBuilders: {
+              PhoneView.folders: (_) => FoldersView(
+                    library: library,
+                    store: store,
+                    onPlayTrack: player.playFrom,
+                  ),
+              PhoneView.artists: (_) => ArtistsView(
+                    library: library,
+                    store: store,
+                    onPlayTrack: player.playFrom,
+                  ),
+              PhoneView.albums: (_) => AlbumsView(
+                    library: library,
+                    store: store,
+                    onPlayTrack: player.playFrom,
+                  ),
+              PhoneView.playlists: (_) => PlaylistsView(
+                    library: library,
+                    store: store,
+                    onPlayTrack: player.playFrom,
+                  ),
+            },
+          );
+        },
       ),
     );
   }
