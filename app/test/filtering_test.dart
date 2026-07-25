@@ -109,4 +109,46 @@ void main() {
             _trackAt('Rock/x.mp3', rootPath: r'L:\OtherMusic'), scope),
         isFalse);
   });
+
+  group('isSingleAlbum (backs the Folder-pane album view, #27)', () {
+    test('all tracks sharing one non-empty album -> true', () {
+      expect(
+          isSingleAlbum([
+            tr('a', 1, album: 'Urban Flora'),
+            tr('b', 2, album: 'Urban Flora'),
+          ]),
+          isTrue);
+    });
+
+    test('album comparison is case-insensitive, like applyFilters', () {
+      expect(
+          isSingleAlbum([
+            tr('a', 1, album: 'Urban Flora'),
+            tr('b', 2, album: 'urban flora'),
+          ]),
+          isTrue);
+    });
+
+    test('two different albums -> false', () {
+      expect(
+          isSingleAlbum([
+            tr('a', 1, album: 'Urban Flora'),
+            tr('b', 2, album: 'Origin'),
+          ]),
+          isFalse);
+    });
+
+    test('any empty-album track disqualifies the set', () {
+      expect(
+          isSingleAlbum([
+            tr('a', 1, album: 'Urban Flora'),
+            tr('b', 2, album: ''),
+          ]),
+          isFalse);
+    });
+
+    test('empty list -> false (nothing to show a track order for)', () {
+      expect(isSingleAlbum(const []), isFalse);
+    });
+  });
 }

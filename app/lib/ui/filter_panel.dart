@@ -27,8 +27,9 @@ import 'app_theme.dart';
 /// providing [onDrill] reroutes plain clicks to it (the owner replaces
 /// [values] with the clicked folder's children -- navigation, not
 /// replace-the-selection), while Ctrl+click keeps its toggle-into-
-/// [selected] behavior. [headerText] pins the owner-computed breadcrumb
-/// ("monthly / 2007-08") even while [selected] itself is empty, and
+/// [selected] behavior. [headerText] (single string) or [headerSegments]
+/// (step-wise clickable breadcrumb -- "All / monthly / 2007-08") pins the
+/// owner-computed breadcrumb even while [selected] itself is empty, and
 /// [onClearHeader] lets the pinned ✕ reset the whole drill-down rather
 /// than just emptying [selected].
 class FilterPanel extends StatelessWidget {
@@ -49,6 +50,23 @@ class FilterPanel extends StatelessWidget {
   /// drill-down breadcrumb, whose text spans levels this panel can't
   /// derive from [selected] alone.
   final String? headerText;
+
+  /// Step-wise breadcrumb alternative to [headerText] (takes precedence
+  /// over it when both are given): the pinned header renders these as
+  /// ` / `-separated segments where every segment EXCEPT the last is an
+  /// individually clickable link (subtle [AppColors.inkSecondary], hover
+  /// underline + [AppColors.ink]) reporting its index to
+  /// [onHeaderSegmentTap], while the last -- the level currently shown --
+  /// stays plain non-clickable ink. The Folder pane passes
+  /// `['All', ...LibraryModel.folderBreadcrumbs]` so each ancestor level
+  /// (including the leading full-reset 'All') is one click away, instead of
+  /// the ✕-or-nothing navigation a single [headerText] string allows.
+  final List<String>? headerSegments;
+
+  /// Receives the index (into [headerSegments]) of a clicked breadcrumb
+  /// segment. Only ever called with indices before the last segment (the
+  /// last is non-clickable); when null, all segments render plain.
+  final ValueChanged<int>? onHeaderSegmentTap;
 
   /// What the pinned header's ✕ does -- defaults to `onSelect({})` (clear
   /// the selection set, the two remaining panels' behavior). The Folder
@@ -75,6 +93,8 @@ class FilterPanel extends StatelessWidget {
     this.displayName,
     this.onDrill,
     this.headerText,
+    this.headerSegments,
+    this.onHeaderSegmentTap,
     this.onClearHeader,
   });
 
@@ -106,7 +126,8 @@ class FilterPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasSelection = headerText != null || selected.isNotEmpty;
+    final hasSelection =
+        headerSegments != null || headerText != null || selected.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -123,18 +144,23 @@ class FilterPanel extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    headerText ??
-                        (selected.length == 1
-                            ? _label(selected.first)
-                            : '${selected.length} selected'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
+                  child: headerSegments != null
+                      ? _BreadcrumbRow(
+                          segments: headerSegments!,
+                          onSegmentTap: onHeaderSegmentTap,
+                        )
+                      : Text(
+                          headerText ??
+                              (selected.length == 1
+                                  ? _label(selected.first)
+                                  : '${selected.length} selected'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
                 ),
                 InkWell(
                   key: const Key('filter-clear'),
@@ -170,6 +196,88 @@ class FilterPanel extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The pinned header's step-wise breadcrumb (see
+/// [FilterPanel.headerSegments]): ` / `-separated segments, every one but
+/// the last a [_BreadcrumbLink] reporting its index to [onSegmentTap], the
+/// last plain emphasized ink (it IS the current level -- nothing to
+/// navigate to). Horizontally scrollable so a deep path overflows
+/// gracefully (scroll to reach the tail) instead of tripping a Row
+/// overflow. Deliberately NOT `reverse: true` -- that trailing-end
+/// anchoring made the painted position disagree with the hit-test
+/// position inside the HomeScreen layout, so segment clicks landed on
+/// nothing (caught by the end-to-end widget tests).
+class _BreadcrumbRow extends StatelessWidget {
+  final List<String> segments;
+  final ValueChanged<int>? onSegmentTap;
+
+  const _BreadcrumbRow({required this.segments, this.onSegmentTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < segments.length; i++) ...[
+            if (i > 0)
+              Text(' / ',
+                  style: base?.copyWith(color: AppColors.inkSecondary)),
+            if (i < segments.length - 1 && onSegmentTap != null)
+              _BreadcrumbLink(
+                key: Key('breadcrumb-seg-$i'),
+                label: segments[i],
+                onTap: () => onSegmentTap!(i),
+              )
+            else
+              Text(
+                segments[i],
+                key: Key('breadcrumb-seg-$i'),
+                style: base?.copyWith(fontWeight: FontWeight.w600),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One clickable breadcrumb segment: subtle link styling --
+/// [AppColors.inkSecondary] at rest, underlined [AppColors.ink] on hover --
+/// so ancestor levels read as navigation without shouting over the plain
+/// current-level segment next to them.
+class _BreadcrumbLink extends StatefulWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _BreadcrumbLink({super.key, required this.label, required this.onTap});
+
+  @override
+  State<_BreadcrumbLink> createState() => _BreadcrumbLinkState();
+}
+
+class _BreadcrumbLinkState extends State<_BreadcrumbLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    return InkWell(
+      onTap: widget.onTap,
+      onHover: (h) => setState(() => _hovered = h),
+      child: Text(
+        widget.label,
+        style: base?.copyWith(
+          color: _hovered ? AppColors.ink : AppColors.inkSecondary,
+          decoration:
+              _hovered ? TextDecoration.underline : TextDecoration.none,
+        ),
+      ),
     );
   }
 }

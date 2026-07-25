@@ -1,3 +1,4 @@
+// Last modified: 2026-07-24--1807
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -287,10 +288,14 @@ class LibraryModel extends ChangeNotifier {
         for (final t in data.tracks) {
           mergedTracks.putIfAbsent(t.contentId, () => t);
         }
-        for (final pl in data.playlists) {
+        for (var i = 0; i < data.playlists.length; i++) {
+          final pl = data.playlists[i];
           mergedPlaylists.add(ManifestPlaylist(
             name: _uniquePlaylistName(pl.name, usedPlaylistNames),
             trackIds: pl.trackIds,
+            rootPath: root.path,
+            sourceName: pl.name,
+            sourceIndex: i,
           ));
         }
       }
@@ -436,8 +441,11 @@ class LibraryModel extends ChangeNotifier {
   ///
   /// Per root (skipping any with no `.library.json` yet -- same as [load],
   /// those need `foolib seed` first): the actual scan/diff/stamp/save cycle
-  /// runs inside [Isolate.run] (bounded by [rootTimeout]; a root that blows
-  /// its budget is skipped, not left to stall the rest of the rescan) since
+  /// runs inside its own isolate via the kill-capable
+  /// [runIsolateWithTimeout] (bounded by [rootTimeout]; a root that blows
+  /// its budget has its isolate KILLED and is skipped, not left to stall
+  /// the rest of the rescan -- or, worse, to survive as a zombie whose
+  /// eventual `saveManifest` clobbers a later playlist write) since
   /// `scanLibrary` is synchronous-I/O-heavy over the SMB-mounted share --
   /// only plain sendable records cross back to this isolate. Newly found
   /// tracks are merged in immediately with filename-derived metadata (so
@@ -469,8 +477,17 @@ class LibraryModel extends ChangeNotifier {
 
         List<(String, String, String)> newRecords;
         try {
-          newRecords = await Isolate.run(() => _rescanRootIsolateEntry(root.path))
-              .timeout(rootTimeout);
+          // MUST be the kill-capable runIsolateWithTimeout, never
+          // `Isolate.run(...).timeout(...)`: Future.timeout does not cancel
+          // the isolate, so a timed-out root's scan would keep running as a
+          // zombie and call core.saveManifest at some arbitrary later time
+          // -- AFTER this rescan's `finally` has released [_busy] -- racing
+          // (and silently clobbering) a PlaylistStore mutation's own
+          // manifest save made under tryBeginManifestWrite. Killing the
+          // isolate at the deadline guarantees a timed-out root performs no
+          // late manifest write.
+          newRecords = await runIsolateWithTimeout<List<(String, String, String)>,
+              String>(_rescanRootIsolateEntry, root.path, timeout: rootTimeout);
         } on TimeoutException {
           status = 'rescan of $rootName timed out';
           notifyListeners();
@@ -644,24 +661,31 @@ class LibraryModel extends ChangeNotifier {
         rootPath: folderPath.first, prefix: folderPath.skip(1).join('/'));
   }
 
-  /// The Folder pane's pinned-header text, or `null` when nothing is
-  /// selected (pane at the top level with no Ctrl-selected roots): a
-  /// `'monthly / 2007-08'`-style breadcrumb for a single selected folder
-  /// (the drilled [folderPath], extended by the sole [folderSiblings] entry
-  /// if there is exactly one), or `'N selected'` when several siblings are
-  /// Ctrl-selected at once.
-  String? get folderHeaderText {
-    if (folderPath.isEmpty && folderSiblings.isEmpty) return null;
-    if (folderSiblings.length > 1) return '${folderSiblings.length} selected';
+  /// The Folder pane's pinned-header breadcrumb, one display segment per
+  /// drill-down step -- `['monthly', '2007-08']` -- or empty when nothing
+  /// is selected (pane at the top level with no Ctrl-selected roots).
+  ///
+  /// Segment `i` (0-based) corresponds to [folderPath] element `i` (element
+  /// 0 shown by basename, it's a whole root path); when [folderSiblings] is
+  /// non-empty one *extra* trailing segment follows the path segments: the
+  /// sole sibling's name, or `'N selected'` for a multi-selection. The UI
+  /// (`ui/home_screen.dart`) prepends its own leading `'All'` segment, so a
+  /// click on *UI* segment `i` maps straight to `popFolderTo(i)` -- path
+  /// segment `i` here pops to depth `i + 1`, and the trailing sibling
+  /// segment is the current (non-clickable) position.
+  List<String> get folderBreadcrumbs {
     final parts = <String>[
       if (folderPath.isNotEmpty) p.basename(folderPath.first),
       ...folderPath.skip(1),
-      if (folderSiblings.length == 1)
-        folderPath.isEmpty
-            ? p.basename(folderSiblings.first)
-            : folderSiblings.first,
     ];
-    return parts.join(' / ');
+    if (folderSiblings.length > 1) {
+      parts.add('${folderSiblings.length} selected');
+    } else if (folderSiblings.length == 1) {
+      parts.add(folderPath.isEmpty
+          ? p.basename(folderSiblings.first)
+          : folderSiblings.first);
+    }
+    return parts;
   }
 
   /// The [FolderScope]s the current Folder-pane selection filters tracks
@@ -689,6 +713,34 @@ class LibraryModel extends ChangeNotifier {
       applyFilters(allTracks,
           folders: folderScopes, artist: artistFilters, search: search),
       (t) => t.album);
+
+  /// Whether the current Folder-pane selection is a view of exactly one
+  /// album: a single selected scope (one drilled folder, or exactly one
+  /// Ctrl-selected sibling -- multi-sibling selections span folders and
+  /// never qualify) whose (search-scoped) tracks all carry the same
+  /// non-empty album, per [isSingleAlbum].
+  ///
+  /// This is what makes selecting an album *folder* under a library root
+  /// (e.g. `albums/Alina Baraz & Galimatias - Urban Flora/01 Show Me.mp3`)
+  /// behave like selecting that album in the Albums pane: the '#' column
+  /// shows the tag track numbers (see `ui/track_list.dart`) and the default
+  /// sort switches to track order (see [_onFolderSelectionChanged]).
+  /// Without it, an album reached through the Folder pane -- the only way
+  /// to reach it when the album lives as a folder under a whole-albums
+  /// library root -- rendered with no '#' column at all, even though every
+  /// track had a perfectly good tag/cache trackNumber.
+  ///
+  /// Deliberately keyed to an *explicit* single-folder selection, not to
+  /// "the visible tracks happen to share one album": the full unfiltered
+  /// library (or an artist filter) coincidentally containing one album must
+  /// keep the column hidden, matching the long-standing library-mode
+  /// behavior pinned by track_list_track_number_column_test.dart.
+  bool get folderSelectionIsSingleAlbum {
+    final scopes = folderScopes;
+    if (scopes.length != 1) return false;
+    return isSingleAlbum(
+        applyFilters(allTracks, folders: scopes, search: search));
+  }
 
   List<Track> get visibleTracks {
     if (activePlaylist != null) {
@@ -731,9 +783,10 @@ class LibraryModel extends ChangeNotifier {
   ///
   /// Same cascade behavior [setArtists] has one rung down: clears any
   /// downstream artist/album selection (a folder switch invalidates
-  /// whichever artist/album was showing under the old one) and reverts a
-  /// stale trackNumber sort exactly like [setAlbums]/[setArtists] do --
-  /// see [_revertSortIfTrackNumber].
+  /// whichever artist/album was showing under the old one) and re-derives
+  /// the default sort for the new selection -- track-number order when the
+  /// selected folder is a single album's, otherwise reverting a stale
+  /// trackNumber sort -- see [_onFolderSelectionChanged].
   void drillIntoFolder(String entry) {
     folderPath = [...folderPath, entry];
     folderSiblings = {};
@@ -763,6 +816,31 @@ class LibraryModel extends ChangeNotifier {
     _onFolderSelectionChanged();
   }
 
+  /// Breadcrumb click in the Folder pane's pinned header: pops the
+  /// drill-down back OUT to [depth] path segments (0 = the top-level root
+  /// list -- equivalent to [clearFolderSelection]), dropping every deeper
+  /// [folderPath] segment and any Ctrl-selected [folderSiblings] (they
+  /// belonged to the deeper level being abandoned). [folderEntries] then
+  /// lists the kept path's immediate children again, exactly as if the user
+  /// had just drilled down to it. A [depth] at or beyond the current
+  /// [folderPath] length keeps the whole path and only clears the sibling
+  /// selection (that's the deepest clickable segment when a sibling
+  /// selection is what the trailing breadcrumb segment shows).
+  ///
+  /// Shares [drillIntoFolder]'s cascade/sort-revert side effects (see
+  /// [_onFolderSelectionChanged]); no-ops entirely -- preserving downstream
+  /// artist/album picks, see [setFolderSiblings]'s doc for why -- when
+  /// nothing would change (path already at most [depth] deep, no siblings).
+  void popFolderTo(int depth) {
+    if (depth < 0) depth = 0; // defensive: treat any underflow as "roots"
+    if (depth >= folderPath.length && folderSiblings.isEmpty) return;
+    if (depth < folderPath.length) {
+      folderPath = folderPath.sublist(0, depth);
+    }
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
   /// The Folder pane's pinned ✕: fully clears the folder selection -- back
   /// to the top-level root list ([folderNames]) with no folder restriction
   /// on the track list. Shares [drillIntoFolder]'s cascade/sort-revert side
@@ -780,12 +858,29 @@ class LibraryModel extends ChangeNotifier {
 
   /// Shared tail of every folder-selection mutation ([drillIntoFolder]/
   /// [setFolderSiblings]/[clearFolderSelection]): clears the downstream
-  /// artist/album filter sets, reverts a stale trackNumber sort (see
-  /// [_revertSortIfTrackNumber]), and notifies.
+  /// artist/album filter sets, then sets the sort to match what the new
+  /// selection *is* -- mirroring [setAlbums]' two branches one pane up:
+  ///
+  /// - Selection resolves to a single album's folder
+  ///   ([folderSelectionIsSingleAlbum]): default to track-number order
+  ///   ascending, the same album-view default [setAlbums] applies when
+  ///   exactly one album is picked in the Albums pane. (Before this branch
+  ///   existed, an album opened via the Folder pane kept the newest-first
+  ///   library sort, scrambling the album's track order.)
+  /// - Anything else: revert a stale trackNumber sort (see
+  ///   [_revertSortIfTrackNumber]).
+  ///
+  /// Either way this only sets the *default* -- a subsequent [setSort]
+  /// (user's own header click) still wins, same as after [setAlbums].
   void _onFolderSelectionChanged() {
     artistFilters = {};
     albumFilters = {};
-    _revertSortIfTrackNumber();
+    if (folderSelectionIsSingleAlbum) {
+      sortColumn = SortColumn.trackNumber;
+      sortAscending = true;
+    } else {
+      _revertSortIfTrackNumber();
+    }
     notifyListeners();
   }
 
@@ -936,6 +1031,77 @@ class LibraryModel extends ChangeNotifier {
     super.dispose();
   }
 
+  /// The first configured library root -- the one PlaylistStore's writes
+  /// go to (see its class doc) -- or null before the first [load]. Kept in
+  /// [load]'s remembered-arguments group ([_libraryRoots]).
+  Directory? get firstRoot => _libraryRoots.isEmpty ? null : _libraryRoots.first;
+
+  /// Attempts to take the [busy] flag for a short external manifest write
+  /// (PlaylistStore's load-mutate-save cycle on the first root's
+  /// `.library.json`). Returns false -- caller should retry shortly -- when
+  /// a [load]/[rescan] already holds it; those write the very same manifest
+  /// file from inside their isolates, so interleaving would lose updates.
+  ///
+  /// While held, [rescan] no-ops and a concurrent [load] queues itself via
+  /// [_pendingLoad] -- exactly the discipline the two of them already apply
+  /// to each other. MUST be paired with [endManifestWrite] (in a
+  /// `finally`).
+  bool tryBeginManifestWrite() {
+    if (_busy) return false;
+    _busy = true;
+    return true;
+  }
+
+  /// Releases the flag taken by [tryBeginManifestWrite], notifies (so a UI
+  /// disabled on [busy] re-enables), and runs any [load] that queued up
+  /// while the write held the flag.
+  Future<void> endManifestWrite() async {
+    _busy = false;
+    notifyListeners();
+    await _runPendingLoad();
+  }
+
+  /// Re-reads ONLY the playlists section of every root's manifest and
+  /// rebuilds the merged [playlists] list (same first-root-first collision
+  /// suffixing and ownership stamping as [load]'s merge) -- the lightweight
+  /// refresh PlaylistStore asks for after each mutation, deliberately NOT a
+  /// full [load] (no track re-merge, no tag enrichment, no [busy]
+  /// involvement -- callable while PlaylistStore still holds the manifest
+  /// write flag).
+  ///
+  /// Roots with a missing or unparseable manifest are skipped, mirroring
+  /// [load]. If [activePlaylist] no longer exists afterward (it was just
+  /// deleted), the selection falls back to the Library view.
+  void reloadPlaylists() {
+    final merged = <ManifestPlaylist>[];
+    final used = <String>{};
+    for (final root in _libraryRoots) {
+      final manifest = File(p.join(root.path, '.library.json'));
+      if (!manifest.existsSync()) continue;
+      List<ManifestPlaylist> loaded;
+      try {
+        loaded = loadManifestPlaylistsFile(manifest);
+      } catch (_) {
+        continue; // corrupt manifest: skipped, same as load()
+      }
+      for (var i = 0; i < loaded.length; i++) {
+        merged.add(ManifestPlaylist(
+          name: _uniquePlaylistName(loaded[i].name, used),
+          trackIds: loaded[i].trackIds,
+          rootPath: root.path,
+          sourceName: loaded[i].name,
+          sourceIndex: i,
+        ));
+      }
+    }
+    playlists = merged;
+    if (activePlaylist != null &&
+        !merged.any((pl) => pl.name == activePlaylist)) {
+      activePlaylist = null;
+    }
+    notifyListeners();
+  }
+
   void setPlaylist(String? name) {
     activePlaylist = name;
     folderPath = [];
@@ -1037,7 +1203,9 @@ bool _setEquals(Set<String> a, Set<String> b) {
 /// `scanLibrary` (walk + stat + hash), `loadManifest`, `diffAgainstManifest`,
 /// `applyDiff` (stamping any new tracks with `DateTime.now()`), then
 /// `saveManifest` -- inside its own isolate (see [LibraryModel.rescan],
-/// which runs this via `Isolate.run`).
+/// which runs this via [runIsolateWithTimeout] so a root that blows its
+/// timeout is KILLED, not left running as a zombie that could clobber a
+/// later manifest write -- see the comment at rescan's call site).
 ///
 /// [scanLibrary]'s directory walk and per-file `statSync` calls are
 /// synchronous-heavy over the SMB-mounted library share, exactly like the
@@ -1045,26 +1213,34 @@ bool _setEquals(Set<String> a, Set<String> b) {
 /// it from blocking the UI/platform thread.
 ///
 /// Takes and returns only plain, isolate-sendable values: the root's path
-/// as a `String` in, and for every genuinely new track a `(contentId,
-/// relPath, date_added ISO-8601 string)` record out -- never a `Manifest`
-/// or `ScannedTrack` object graph. The caller (running on the main isolate)
-/// reconstructs whatever [Track]s it needs from these records.
-Future<List<(String, String, String)>> _rescanRootIsolateEntry(
-    String rootPath) async {
-  final root = Directory(rootPath);
-  final scanned = await core.scanLibrary(root);
-  final manifest = core.loadManifest(root);
-  final diff = core.diffAgainstManifest(manifest, scanned);
-  core.applyDiff(manifest, diff, scanned, DateTime.now);
-  await core.saveManifest(manifest, root);
-  return [
-    for (final t in diff.newTracks)
-      (
-        t.contentId,
-        manifest.tracks[t.contentId]!.paths.first,
-        manifest.tracks[t.contentId]!.dateAdded,
-      ),
-  ];
+/// as a `String` in (plus the result [SendPort] the
+/// [runIsolateWithTimeout] protocol requires), and for every genuinely new
+/// track a `(contentId, relPath, date_added ISO-8601 string)` record out --
+/// never a `Manifest` or `ScannedTrack` object graph. The caller (running
+/// on the main isolate) reconstructs whatever [Track]s it needs from these
+/// records.
+void _rescanRootIsolateEntry((String, SendPort) args) async {
+  final (rootPath, resultPort) = args;
+  List<(String, String, String)> result;
+  try {
+    final root = Directory(rootPath);
+    final scanned = await core.scanLibrary(root);
+    final manifest = core.loadManifest(root);
+    final diff = core.diffAgainstManifest(manifest, scanned);
+    core.applyDiff(manifest, diff, scanned, DateTime.now);
+    await core.saveManifest(manifest, root);
+    result = [
+      for (final t in diff.newTracks)
+        (
+          t.contentId,
+          manifest.tracks[t.contentId]!.paths.first,
+          manifest.tracks[t.contentId]!.dateAdded,
+        ),
+    ];
+  } catch (e, s) {
+    Isolate.exit(resultPort, [e, s]);
+  }
+  Isolate.exit(resultPort, [result]);
 }
 
 /// Resolves [records] one at a time, each bounded by [timeout], for use
