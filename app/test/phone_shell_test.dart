@@ -1,0 +1,175 @@
+// Last modified: 2026-07-24--1837
+//
+// Widget tests for the Plan 2b PhoneShell: drawer navigation + active
+// highlight, the feed view's newest-first rows (title / artist — album /
+// duration), tap-plays-immediately (phone idiom), the long-press context
+// sheet placeholder, and the two merge slots (miniPlayerBuilder /
+// viewBuilders) that the P2/P3 branches fill.
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/track.dart';
+import 'package:fooplayer_app/player/player_service.dart';
+import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/phone/phone_shell.dart';
+
+LibraryModel fixtureLibrary() {
+  final m = LibraryModel();
+  m.allTracks = [
+    Track(
+        contentId: 'old',
+        relPath: 'old.mp3',
+        dateAdded: DateTime.utc(2020, 1, 1),
+        title: 'Oldest Song',
+        artist: 'Feed Me',
+        album: 'Calamari Tuesday',
+        durationMs: 200000),
+    Track(
+        contentId: 'new',
+        relPath: 'new.mp3',
+        dateAdded: DateTime.utc(2026, 7, 1),
+        title: 'Newest Song',
+        artist: 'Muse',
+        album: 'Absolution'),
+  ];
+  m.status = 'ready';
+  return m;
+}
+
+Future<void> pumpShell(
+  WidgetTester tester, {
+  required LibraryModel library,
+  void Function(List<Track>, int)? onPlayTrack,
+  WidgetBuilder? miniPlayerBuilder,
+  Map<PhoneView, WidgetBuilder> viewBuilders = const {},
+}) {
+  return tester.pumpWidget(MaterialApp(
+    theme: buildAppTheme(),
+    home: PhoneShell(
+      library: library,
+      player: PlayerService(),
+      // Every test injects a spy (or discards) -- the default would build
+      // a real media_kit Player, which has no natives under `flutter test`.
+      onPlayTrack: onPlayTrack ?? (_, _) {},
+      miniPlayerBuilder: miniPlayerBuilder,
+      viewBuilders: viewBuilders,
+    ),
+  ));
+}
+
+Future<void> openDrawer(WidgetTester tester) async {
+  await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  testWidgets('feed shows rows newest-first with subtitle and duration',
+      (tester) async {
+    await pumpShell(tester, library: fixtureLibrary());
+    expect(find.text('Newest Song'), findsOneWidget);
+    expect(find.text('Oldest Song'), findsOneWidget);
+    // Newest above oldest (date-added desc).
+    expect(tester.getTopLeft(find.text('Newest Song')).dy,
+        lessThan(tester.getTopLeft(find.text('Oldest Song')).dy));
+    // Subtitle format: artist — album.
+    expect(find.text('Muse — Absolution'), findsOneWidget);
+    // Duration right cell: 200000 ms = 3:20; the duration-less track shows
+    // an empty cell (no fake 0:00 anywhere).
+    expect(find.text('3:20'), findsOneWidget);
+    expect(find.text('0:00'), findsNothing);
+    // AppBar titles the active view.
+    expect(find.text('Library'), findsOneWidget);
+  });
+
+  testWidgets('tapping a feed row plays it via the injected callback',
+      (tester) async {
+    final played = <(List<Track>, int)>[];
+    await pumpShell(tester,
+        library: fixtureLibrary(),
+        onPlayTrack: (tracks, index) => played.add((tracks, index)));
+    await tester.tap(find.text('Oldest Song'));
+    await tester.pump();
+    expect(played, hasLength(1));
+    final (queue, index) = played.single;
+    // The queue is the feed in its on-screen (date-desc) order and the
+    // index points at the tapped row.
+    expect(queue.map((t) => t.title).toList(),
+        ['Newest Song', 'Oldest Song']);
+    expect(index, 1);
+  });
+
+  testWidgets('long-press opens the context sheet placeholder',
+      (tester) async {
+    await pumpShell(tester, library: fixtureLibrary());
+    await tester.longPress(find.text('Newest Song'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('phone-sheet-add-to-playlist')), findsOneWidget);
+    expect(find.byKey(const Key('phone-sheet-view-details')), findsOneWidget);
+    // Tapping an entry just dismisses (placeholder behavior).
+    await tester.tap(find.byKey(const Key('phone-sheet-add-to-playlist')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('phone-sheet-add-to-playlist')), findsNothing);
+  });
+
+  testWidgets('drawer lists all entries and navigation switches the body',
+      (tester) async {
+    await pumpShell(tester, library: fixtureLibrary());
+    await openDrawer(tester);
+    for (final v in PhoneView.values) {
+      expect(find.byKey(Key('phone-drawer-${v.name}')), findsOneWidget);
+    }
+    // Library is the active entry initially.
+    expect(
+        tester
+            .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
+            .selected,
+        isTrue);
+
+    await tester.tap(find.byKey(const Key('phone-drawer-artists')));
+    await tester.pumpAndSettle();
+    // Drawer closed, AppBar retitled, placeholder body shown, feed gone.
+    expect(find.byKey(const Key('phone-drawer-artists')), findsNothing);
+    expect(find.text('Artists'), findsOneWidget);
+    expect(find.text('coming soon'), findsOneWidget);
+    expect(find.text('Newest Song'), findsNothing);
+
+    // Re-open: the active highlight moved to Artists.
+    await openDrawer(tester);
+    expect(
+        tester
+            .widget<ListTile>(find.byKey(const Key('phone-drawer-artists')))
+            .selected,
+        isTrue);
+    expect(
+        tester
+            .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
+            .selected,
+        isFalse);
+
+    // And navigating back to Library restores the feed.
+    await tester.tap(find.byKey(const Key('phone-drawer-library')));
+    await tester.pumpAndSettle();
+    expect(find.text('Newest Song'), findsOneWidget);
+  });
+
+  testWidgets('viewBuilders slot overrides a browse view body',
+      (tester) async {
+    await pumpShell(tester, library: fixtureLibrary(), viewBuilders: {
+      PhoneView.folders: (_) => const Text('REAL FOLDERS VIEW'),
+    });
+    await openDrawer(tester);
+    await tester.tap(find.byKey(const Key('phone-drawer-folders')));
+    await tester.pumpAndSettle();
+    expect(find.text('REAL FOLDERS VIEW'), findsOneWidget);
+    expect(find.text('coming soon'), findsNothing);
+  });
+
+  testWidgets('miniPlayerBuilder slot renders at the Scaffold bottom',
+      (tester) async {
+    await pumpShell(tester,
+        library: fixtureLibrary(),
+        miniPlayerBuilder: (_) =>
+            const SizedBox(key: Key('mini-player'), height: 64));
+    expect(find.byKey(const Key('mini-player')), findsOneWidget);
+  });
+}

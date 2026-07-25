@@ -1,3 +1,4 @@
+// Last modified: 2026-07-24--1837
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -9,9 +10,11 @@ import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
 import 'platform_paths.dart';
 import 'player/player_service.dart';
+import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
+import 'ui/phone/phone_shell.dart';
 
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
 /// launch-time and Refresh-button triggers -- see main() below.
@@ -182,11 +185,20 @@ class FooPlayerApp extends StatelessWidget {
     return MaterialApp(
       title: 'fooplayer',
       theme: buildAppTheme(),
-      home: HomeScreen(
-        library: library,
-        player: player,
-        layoutPrefs: layoutPrefs,
-        libraryRootsPrefs: libraryRootsPrefs,
+      // Adaptive form-factor switch (Plan 2b): Android (or a future
+      // phone-sized mobile target) gets the PhoneShell; desktop keeps the
+      // panel layout untouched -- see usePhoneShell's doc for the exact
+      // rule (a desktop OS never satisfies it). The Builder exists so the
+      // check runs under MaterialApp's MediaQuery.
+      home: Builder(
+        builder: (context) => usePhoneShell(context)
+            ? PhoneShell(library: library, player: player)
+            : HomeScreen(
+                library: library,
+                player: player,
+                layoutPrefs: layoutPrefs,
+                libraryRootsPrefs: libraryRootsPrefs,
+              ),
       ),
     );
   }
