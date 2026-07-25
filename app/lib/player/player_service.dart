@@ -15,6 +15,43 @@ class PlayerService extends ChangeNotifier {
   Duration? duration;
   double volume = 1.0;
 
+  /// The contentId [_openCurrent] confirmed the engine has *finished*
+  /// opening -- i.e. the only track [handleDurationChange] will attribute an
+  /// observed duration to. Recorded only once `player.open()` for that
+  /// track resolves (not when the track becomes [queueController]'s
+  /// `current`, which happens synchronously and *earlier*, at the top of
+  /// [_openCurrent]).
+  ///
+  /// That ordering is what closes the race this guards against: rapid
+  /// next/next/next (A->B->C) advances `current` synchronously well ahead
+  /// of the engine, so a `duration` stream event for B that's merely
+  /// delayed (media_kit/mpv hadn't finished probing it before the user
+  /// skipped again) can otherwise arrive after `current == C` and get
+  /// misattributed to C -- permanently, since [handleDurationChange]'s
+  /// `durationMs == null` gate then blocks any future correction. media_kit
+  /// serializes every `Player.open()` call through an internal lock and
+  /// each one *starts* by stopping/tearing down whatever was previously
+  /// loaded, so a stale event genuinely belonging to a previous track is
+  /// always delivered before the next open() resolves -- i.e. before this
+  /// field advances past that track's id. Comparing against `current`
+  /// instead (which already flips the instant a skip is requested, not once
+  /// the engine catches up) would not detect this: it would already equal
+  /// whatever's newly current by the time the stale event arrives.
+  String? _openedContentId;
+
+  /// On-play duration backfill hook: invoked (when set) each time the
+  /// engine reports a real, nonzero duration for the current track *and*
+  /// that track's library metadata has no [Track.durationMs] of its own --
+  /// i.e. exactly the tracks whose Time column is blank because the tag
+  /// parser couldn't derive a duration at scan time (e.g. an MP3 whose
+  /// APEv2 tag routes it to a parser with no stream-duration logic; see
+  /// metadata/tags.dart's `_readRawTags` dispatch). main.dart wires this to
+  /// [LibraryModel.updateDuration] so any such track permanently gains its
+  /// duration the first time it's played. Tracks that already have a
+  /// durationMs never re-invoke this -- the engine's value would just
+  /// restate what the library already knows.
+  void Function(String contentId, Duration duration)? onObservedDuration;
+
   PlayerService();
 
   Track? get current => queueController.current;
@@ -27,10 +64,7 @@ class PlayerService extends ChangeNotifier {
       position = d;
       notifyListeners();
     });
-    player.stream.duration.listen((d) {
-      duration = d;
-      notifyListeners();
-    });
+    player.stream.duration.listen(handleDurationChange);
     player.stream.playing.listen((v) {
       playing = v;
       notifyListeners();
@@ -42,14 +76,47 @@ class PlayerService extends ChangeNotifier {
     return player;
   }
 
+  /// The `player.stream.duration` listener body (see [_ensurePlayer]),
+  /// extracted so tests can drive duration changes directly -- constructing
+  /// a real media_kit [Player] needs natives no test environment here has.
+  /// Mirrors the engine's duration into [duration] and, when it's a real
+  /// (nonzero) value for a current track the library has no duration for,
+  /// reports it via [onObservedDuration] (see its doc for why that gate).
+  @visibleForTesting
+  void handleDurationChange(Duration d) {
+    duration = d;
+    final t = queueController.current;
+    if (d > Duration.zero &&
+        t != null &&
+        t.durationMs == null &&
+        t.contentId == _openedContentId) {
+      onObservedDuration?.call(t.contentId, d);
+    }
+    notifyListeners();
+  }
+
+  /// Test-only hook mirroring what a real [_openCurrent] call records once
+  /// its `player.open()` resolves (see [_openedContentId]'s doc) -- lets
+  /// tests drive [handleDurationChange] realistically without a real
+  /// media_kit [Player], which needs natives no test environment here has.
+  @visibleForTesting
+  void debugMarkOpened(String? contentId) {
+    _openedContentId = contentId;
+  }
+
   Future<void> _openCurrent() async {
     final t = queueController.current;
     if (t == null) {
+      _openedContentId = null;
       await _player?.stop();
       return;
     }
     final path = p.join(t.rootPath, t.relPath);
     await _ensurePlayer().open(Media(path), play: true);
+    // Only now -- once the engine has actually finished switching to this
+    // track -- does it become the one a duration event can be attributed
+    // to. See [_openedContentId]'s doc for why the timing matters.
+    _openedContentId = t.contentId;
     notifyListeners();
   }
 

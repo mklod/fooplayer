@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
@@ -28,11 +27,8 @@ File _configFile(Directory dataDir) =>
 Map<String, dynamic> _loadConfig(Directory dataDir) =>
     readConfigFile(_configFile(dataDir));
 
-void _writeConfig(Map<String, dynamic> config, Directory dataDir) {
-  final cfg = _configFile(dataDir);
-  cfg.parent.createSync(recursive: true);
-  cfg.writeAsStringSync(jsonEncode(config));
-}
+void _writeConfig(Map<String, dynamic> config, Directory dataDir) =>
+    writeConfigFile(_configFile(dataDir), config);
 
 /// Flushes any debounced [LayoutPrefs] write and cancels the periodic
 /// library-rescan [Timer] on app shutdown, so a drag-a-divider-then-close
@@ -95,6 +91,14 @@ void main() async {
 
   final library = LibraryModel();
   final player = PlayerService();
+  // On-play duration backfill: when the engine reports a real duration for
+  // a track whose library metadata has none (its cache entry was persisted
+  // with durationMs: null because the tag parser couldn't derive one --
+  // e.g. an APEv2-tagged MP3; see PlayerService.onObservedDuration), fold
+  // it back into the library + tag cache so the track permanently gains
+  // its Time value from having been played once.
+  player.onObservedDuration = (contentId, duration) =>
+      library.updateDuration(contentId, duration.inMilliseconds);
 
   final layoutPrefs = LayoutPrefs.fromConfig(
     config['ui'] as Map<String, dynamic>?,
@@ -114,17 +118,28 @@ void main() async {
   );
   // [triggerLaunchRescan] is true only for the very first load (app
   // launch): that's the one load() call main.dart wires an automatic
-  // rescan onto, firing as soon as the instant feed is renderable rather
-  // than waiting for tag enrichment to finish (see load()'s
-  // onFirstFeedReady). Reloads triggered by a settings-dialog root
-  // add/remove don't also kick off a rescan here -- the periodic timer and
-  // Refresh button already cover ongoing discovery of new files.
-  void reloadLibrary({bool triggerLaunchRescan = false}) {
-    library.load(
+  // rescan onto. The rescan is fired only *after* load() itself has fully
+  // settled (feed rendered AND tag enrichment finished) -- not a delay
+  // anyone can see, since the instant feed already rendered minutes/seconds
+  // earlier via load()'s own internal notifyListeners() calls; awaiting
+  // load() here only postpones *starting the rescan*, never the feed. This
+  // sequencing -- await load(), then call rescan() -- is deliberately the
+  // "simplest, honest" wiring: rescan() itself refuses to run while
+  // LibraryModel.busy is still held (see its guard), and load() holds that
+  // flag for its own entire duration (feed + enrichment), so firing rescan
+  // from *inside* load() (as an early "first feed rendered" hook used to)
+  // would always find the flag still held and silently no-op every time.
+  // Reloads triggered by a settings-dialog root add/remove don't also kick
+  // off a rescan here -- the periodic timer and Refresh button already
+  // cover ongoing discovery of new files.
+  Future<void> reloadLibrary({bool triggerLaunchRescan = false}) async {
+    await library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,
-      onFirstFeedReady: triggerLaunchRescan ? library.rescan : null,
     );
+    if (triggerLaunchRescan) {
+      library.rescan();
+    }
   }
 
   // Settings-dialog add/remove calls writer() above then notifies -- react

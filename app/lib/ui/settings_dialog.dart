@@ -8,16 +8,17 @@ Future<String?> defaultPickDirectory() => file_selector.getDirectoryPath();
 
 /// Lists the app's configured library roots with add/remove controls.
 ///
-/// Fully controlled by its caller: [roots] and [rootsMissingManifest] are
-/// rendered as given, and [onAddRoot]/[onRemoveRoot] are called to request
-/// a change -- this widget holds no state of its own, so re-opening it (or
-/// rebuilding it inside a `ListenableBuilder` over the roots source of
-/// truth, as `home_screen.dart` does) always reflects the current
-/// configuration exactly, with a single place (main.dart's wiring) owning
-/// persistence and triggering a library reload.
+/// Fully controlled by its caller: [roots], [rootsMissingManifest] and
+/// [rootsFailed] are rendered as given, and [onAddRoot]/[onRemoveRoot] are
+/// called to request a change -- this widget holds no state of its own, so
+/// re-opening it (or rebuilding it inside a `ListenableBuilder` over the
+/// roots source of truth, as `home_screen.dart` does) always reflects the
+/// current configuration exactly, with a single place (main.dart's wiring)
+/// owning persistence and triggering a library reload.
 class SettingsDialog extends StatelessWidget {
   final List<String> roots;
   final List<String> rootsMissingManifest;
+  final List<String> rootsFailed;
   final Future<String?> Function() pickDirectory;
   final ValueChanged<String> onAddRoot;
   final ValueChanged<String> onRemoveRoot;
@@ -26,6 +27,7 @@ class SettingsDialog extends StatelessWidget {
     super.key,
     required this.roots,
     this.rootsMissingManifest = const [],
+    this.rootsFailed = const [],
     this.pickDirectory = defaultPickDirectory,
     required this.onAddRoot,
     required this.onRemoveRoot,
@@ -40,6 +42,7 @@ class SettingsDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final missing = rootsMissingManifest.toSet();
+    final failed = rootsFailed.toSet();
     return AlertDialog(
       title: const Text('Library roots'),
       content: SizedBox(
@@ -66,7 +69,10 @@ class SettingsDialog extends StatelessWidget {
                         title: Text(root, maxLines: 1, overflow: TextOverflow.ellipsis),
                         subtitle: missing.contains(root)
                             ? const Text('no library manifest — seed with foolib')
-                            : null,
+                            : failed.contains(root)
+                                ? const Text(
+                                    'library manifest is corrupt — reseed with foolib to repair')
+                                : null,
                         trailing: IconButton(
                           key: Key('remove-root-$root'),
                           icon: const Icon(Icons.remove_circle_outline),

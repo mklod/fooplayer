@@ -1,3 +1,4 @@
+// Last modified: 2026-07-24--1734
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -33,7 +34,7 @@ class AlbumArt extends StatefulWidget {
     super.key,
     required this.contentId,
     required this.file,
-    this.loader = readArt,
+    this.loader = readArtSafe,
     this.size = 56,
   });
 
@@ -93,6 +94,41 @@ class _AlbumArtState extends State<AlbumArt> {
   }
 }
 
+/// Asset paths for the metro-style transport glyphs (Mike's original
+/// foobar2000 JScript panel set, bundled under assets/icons/). Public so
+/// widget tests can assert on the exact asset each button renders.
+const kIconPlay = 'assets/icons/play.png';
+const kIconPause = 'assets/icons/pause.png';
+const kIconNext = 'assets/icons/next.png';
+const kIconPrevious = 'assets/icons/previous.png';
+const kIconShuffleOff = 'assets/icons/shuffle1.png';
+const kIconShuffleOn = 'assets/icons/shuffle2.png';
+
+/// One metro-style PNG glyph, sized and tinted for the now-playing bar.
+///
+/// The source PNGs are WHITE glyphs on transparency (verified by pixel
+/// sampling -- avg opaque RGB is 255,255,255), which would be invisible
+/// against the light [AppColors.barBg]; the srcIn [ColorFilter] repaints
+/// every opaque pixel [AppColors.ink] so they read like the rest of the
+/// bar's chrome.
+class _MetroIcon extends StatelessWidget {
+  final String asset;
+  final double size;
+  const _MetroIcon(this.asset, {this.size = 26});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      asset,
+      width: size,
+      height: size,
+      color: AppColors.ink,
+      colorBlendMode: BlendMode.srcIn,
+      filterQuality: FilterQuality.medium,
+    );
+  }
+}
+
 /// Fixed-size prev/play/next transport controls, anchored to the bar's
 /// left edge. `mainAxisSize: min` is required here: as a non-flex child of
 /// the bar's outer [Row] (alongside the [Expanded] centering spacers), a
@@ -108,16 +144,22 @@ class _Transport extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: const Icon(Icons.skip_previous),
+          tooltip: 'Previous',
+          icon: const _MetroIcon(kIconPrevious),
           onPressed: player.previous,
         ),
         IconButton(
-          iconSize: 36,
-          icon: Icon(player.playing ? Icons.pause : Icons.play_arrow),
+          tooltip: player.playing ? 'Pause' : 'Play',
+          iconSize: 32,
+          icon: _MetroIcon(
+            player.playing ? kIconPause : kIconPlay,
+            size: 32,
+          ),
           onPressed: player.togglePlayPause,
         ),
         IconButton(
-          icon: const Icon(Icons.skip_next),
+          tooltip: 'Next',
+          icon: const _MetroIcon(kIconNext),
           onPressed: player.next,
         ),
       ],
@@ -137,10 +179,15 @@ class _VolumeGroup extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Shuffle state is conveyed by the glyph itself (shuffle2.png has
+        // the "on" framing), replacing the old accent-color treatment.
         IconButton(
-          icon: const Icon(Icons.shuffle),
+          tooltip: 'Shuffle',
           isSelected: player.shuffle,
-          color: player.shuffle ? AppColors.accent : null,
+          icon: _MetroIcon(
+            player.shuffle ? kIconShuffleOn : kIconShuffleOff,
+            size: 24,
+          ),
           onPressed: player.toggleShuffle,
         ),
         const SizedBox(width: 4),

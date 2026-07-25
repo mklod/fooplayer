@@ -17,14 +17,15 @@ class MetaCache {
       for (final entry in j.entries) {
         final v = entry.value;
         if (v is! Map<String, dynamic>) continue;
-        // Entries written before durationMs existed lack the key entirely
-        // (as opposed to carrying it with a null value, which means a
-        // format whose parser genuinely found no duration). Those pre-
-        // existing entries are deliberately left out of the loaded cache so
-        // every caller's normal cache-miss path (`cache.entries[id] ==
-        // null`) re-reads the file and backfills duration -- instead of
-        // needing its own separate staleness check.
+        // Entries written before durationMs (or, later, trackNumber)
+        // existed lack the key entirely (as opposed to carrying it with a
+        // null value, which means a format whose parser genuinely found
+        // none). Those pre-existing entries are deliberately left out of
+        // the loaded cache so every caller's normal cache-miss path
+        // (`cache.entries[id] == null`) re-reads the file and backfills the
+        // new field -- instead of needing its own separate staleness check.
         if (!v.containsKey('durationMs')) continue;
+        if (!v.containsKey('trackNumber')) continue;
         entries[entry.key] = TrackTags.fromJson(v);
       }
       return MetaCache._(entries);
@@ -65,6 +66,7 @@ Future<List<Track>> fillMetadata(
       album: tags.album,
       genre: tags.genre,
       durationMs: tags.durationMs,
+      trackNumber: tags.trackNumber,
     ));
     onProgress?.call(++done, tracks.length);
   }

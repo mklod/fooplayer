@@ -94,11 +94,46 @@ void main() {
         'album': 'B',
         'genre': 'G',
         'durationMs': null,
+        'trackNumber': 4,
       }
     }));
     final cache = MetaCache.load(f);
     expect(cache.entries.containsKey('id'), isTrue);
     expect(cache.entries['id']!.durationMs, isNull);
+  });
+
+  test('cache entries written before trackNumber existed (key entirely absent) are treated as a miss', () async {
+    final f = File('${tmp.path}/legacy_cache2.json');
+    // A pre-track-number cache file: durationMs present (so it clears that
+    // staleness check) but no trackNumber key at all on the entry.
+    await f.writeAsString(jsonEncode({
+      'legacy-id': {
+        'title': 'Old Title',
+        'artist': 'Old Artist',
+        'album': 'Old Album',
+        'genre': 'Old Genre',
+        'durationMs': 200000,
+      }
+    }));
+    final cache = MetaCache.load(f);
+    expect(cache.entries.containsKey('legacy-id'), isFalse);
+  });
+
+  test('a cached entry with trackNumber explicitly null (genuinely unknown) is still a hit', () async {
+    final f = File('${tmp.path}/known_null_tracknum_cache.json');
+    await f.writeAsString(jsonEncode({
+      'id': {
+        'title': 'T',
+        'artist': 'A',
+        'album': 'B',
+        'genre': 'G',
+        'durationMs': 200000,
+        'trackNumber': null,
+      }
+    }));
+    final cache = MetaCache.load(f);
+    expect(cache.entries.containsKey('id'), isTrue);
+    expect(cache.entries['id']!.trackNumber, isNull);
   });
 
   test('fillMetadata carries a cached durationMs into the returned Track', () async {
@@ -108,6 +143,26 @@ void main() {
     final filled =
         await fillMetadata([tr('hasdur', 'x.mp3', rootPath: root.path)], cache);
     expect(filled.single.durationMs, 123456);
+  });
+
+  test('fillMetadata carries a cached trackNumber into the returned Track', () async {
+    final root = await Directory('${tmp.path}/lib6').create();
+    final cache = MetaCache.load(File('${tmp.path}/mc6.json'));
+    cache.entries['hasnum'] = const TrackTags(title: 'T', trackNumber: 5);
+    final filled =
+        await fillMetadata([tr('hasnum', 'x.mp3', rootPath: root.path)], cache);
+    expect(filled.single.trackNumber, 5);
+  });
+
+  test('fillMetadata on a cache miss backfills trackNumber from the filename prefix', () async {
+    final root = await Directory('${tmp.path}/lib7').create();
+    await File('${root.path}/03 You Love Me (Remix).mp3')
+        .writeAsBytes(List.filled(32, 0)); // junk -> filename fallback
+    final cache = MetaCache.load(File('${tmp.path}/mc7.json'));
+    final filled = await fillMetadata(
+        [tr('miss2', '03 You Love Me (Remix).mp3', rootPath: root.path)], cache);
+    expect(filled.single.trackNumber, 3);
+    expect(filled.single.title, 'You Love Me (Remix)');
   });
 
   test('readTagsBatch resolves each record independently: junk bytes and missing file both fall back to filename', () async {

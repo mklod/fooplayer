@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:path/path.dart' as p;
+import 'isolate_io.dart';
 
 class TrackTags {
   final String? title;
@@ -11,8 +13,18 @@ class TrackTags {
   // metadata exposed one (see the per-format dispatch in `_readRawTags`
   // below); null when the file's tags/stream headers didn't carry it.
   final int? durationMs;
+  // 1-based position within its album, when the format's parser metadata
+  // exposed one (see the per-format dispatch in `_readRawTags` below) or --
+  // failing that -- when [parseFromFilename] found a leading "NN " / "NN - "
+  // number prefix on the filename; null when neither source had one.
+  final int? trackNumber;
   const TrackTags(
-      {this.title, this.artist, this.album, this.genre, this.durationMs});
+      {this.title,
+      this.artist,
+      this.album,
+      this.genre,
+      this.durationMs,
+      this.trackNumber});
 
   bool get isEmpty =>
       (title == null || title!.isEmpty) &&
@@ -25,6 +37,7 @@ class TrackTags {
         'album': album,
         'genre': genre,
         'durationMs': durationMs,
+        'trackNumber': trackNumber,
       };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
         title: j['title'] as String?,
@@ -32,19 +45,50 @@ class TrackTags {
         album: j['album'] as String?,
         genre: j['genre'] as String?,
         durationMs: j['durationMs'] as int?,
+        trackNumber: j['trackNumber'] as int?,
       );
 }
+
+/// Matches a leading track-number prefix on a bare (extension-stripped)
+/// filename -- "03 " or "07 - " style -- so [parseFromFilename] can split it
+/// off before the artist/title separator check below runs. Capped at three
+/// digits so a four-digit year some filenames lead with (e.g. "1999 - Song")
+/// isn't mistaken for a track number.
+final RegExp _trackNumberPrefix = RegExp(r'^(\d{1,3})(?:\s*-\s*|\s+)');
+
+/// Matches a parent-directory name that is *only* a date, not a real album
+/// title -- `YYYY-MM` (e.g. "2012-11", a common export/backup folder name)
+/// or a bare `YYYY` (e.g. "1999"). Such folders are organizational, not
+/// album names, so [parseFromFilename] treats them as "no album" rather
+/// than taking the folder name at face value. A folder that merely *starts*
+/// with a date but has more text (e.g. "2012-11 Tour Rehearsals") still
+/// passes through as a real album since the pattern is anchored both ends.
+final RegExp _dateLikeFolderPattern = RegExp(r'^\d{4}(-\d{2})?$');
 
 TrackTags parseFromFilename(String relPath) {
   final base = p.basenameWithoutExtension(relPath);
   final dir = p.dirname(relPath);
-  final album = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
-  final sep = base.indexOf(' - ');
-  if (sep < 0) return TrackTags(title: base, album: album);
+  final rawAlbum = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
+  final album =
+      (rawAlbum != null && _dateLikeFolderPattern.hasMatch(rawAlbum)) ? null : rawAlbum;
+
+  int? trackNumber;
+  var rest = base;
+  final numMatch = _trackNumberPrefix.firstMatch(base);
+  if (numMatch != null) {
+    trackNumber = int.parse(numMatch.group(1)!);
+    rest = base.substring(numMatch.end);
+  }
+
+  final sep = rest.indexOf(' - ');
+  if (sep < 0) {
+    return TrackTags(title: rest, album: album, trackNumber: trackNumber);
+  }
   return TrackTags(
-    artist: base.substring(0, sep).trim(),
-    title: base.substring(sep + 3).trim(),
+    artist: rest.substring(0, sep).trim(),
+    title: rest.substring(sep + 3).trim(),
     album: album,
+    trackNumber: trackNumber,
   );
 }
 
@@ -58,6 +102,7 @@ class _RawTags {
   final String? album;
   final String? genre;
   final int? durationMs;
+  final int? trackNumber;
   final List<Picture> pictures;
   const _RawTags({
     this.title,
@@ -65,6 +110,7 @@ class _RawTags {
     this.album,
     this.genre,
     this.durationMs,
+    this.trackNumber,
     this.pictures = const [],
   });
 }
@@ -115,6 +161,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.pictures,
       );
     }
@@ -126,6 +173,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.pictures,
       );
     }
@@ -137,6 +185,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber.firstOrNull,
         pictures: m.pictures,
       );
     }
@@ -148,6 +197,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album,
         genre: m.genre,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber,
         pictures: m.picture == null ? const [] : [m.picture!],
       );
     }
@@ -159,6 +209,7 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
         album: m.album.firstOrNull,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
+        trackNumber: m.trackNumber.firstOrNull,
         pictures: m.pictures,
       );
     }
@@ -183,6 +234,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       album: _blankAsNull(raw.album),
       genre: _blankAsNull(raw.genre),
       durationMs: raw.durationMs,
+      trackNumber: raw.trackNumber,
     );
     if (fromTags.isEmpty) {
       // No usable title/artist/album tags, but the duration came from the
@@ -195,6 +247,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
         album: fb.album,
         genre: fb.genre,
         durationMs: raw.durationMs,
+        trackNumber: fromTags.trackNumber ?? fb.trackNumber,
       );
     }
     // Fill gaps (e.g. tagged title but no artist) from the filename.
@@ -205,6 +258,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       album: fromTags.album ?? fb.album,
       genre: fromTags.genre,
       durationMs: fromTags.durationMs,
+      trackNumber: fromTags.trackNumber ?? fb.trackNumber,
     );
   } catch (_) {
     return parseFromFilename(relPath ?? audioFile.path);
@@ -219,4 +273,74 @@ Future<List<int>?> readArt(File audioFile) async {
   } catch (_) {
     return null;
   }
+}
+
+/// Default budget for [readArtSafe] before it gives up on a single file's
+/// cover art and returns null (the caller falls back to a placeholder)
+/// instead of continuing to wait. Generous for any real embedded-art blob,
+/// short enough that a pathological file can't reproduce the freeze this
+/// function exists to prevent.
+const _defaultArtTimeout = Duration(seconds: 20);
+
+/// Isolate-safe, timeout-bounded wrapper around [readArt] -- this, not
+/// [readArt] directly, is what production art loading goes through (see
+/// `AlbumArt`'s default `loader` in `ui/now_playing_bar.dart`).
+///
+/// [readArt] is `async` in name only: there is no `await` before its call
+/// into [_readRawTags], whose synchronous parse can scan byte-by-byte to
+/// EOF on a file that defeats the MP3 frame-sync search (the same
+/// pathology documented on `_defaultBatchTimeout` in
+/// `model/library_model.dart`, for the tag-enrichment side of this same
+/// bug) -- such files exist in this library. Calling [readArt] directly
+/// from the UI isolate (as `AlbumArt` used to) therefore blocks the whole
+/// window -- "Not Responding" -- for as long as that scan takes over the
+/// SMB-mounted share: minutes, for a real file observed in production.
+///
+/// [readArtSafe] runs the same parse inside its own throwaway isolate via
+/// [runIsolateWithTimeout] (metadata/isolate_io.dart -- the same
+/// kill-capable-spawn-with-timeout machinery `LibraryModel`'s batched tag
+/// enrichment uses), so a pathological file costs at most [timeout] and
+/// never blocks the calling isolate at all. Returns null on timeout, on any
+/// error propagated from the isolate, or when the file simply has no
+/// embedded art -- callers can't tell these apart, which is fine: all three
+/// mean "show the placeholder".
+///
+/// [relPath] is accepted for API symmetry with [readTags]/[readTagsBatch]
+/// (useful to a future caller that wants it for logging) but isn't
+/// otherwise used here: unlike tag reads, art has no filename-derived
+/// fallback to fill in on failure.
+///
+/// [readArt] itself stays exported for direct use in tests (and is exactly
+/// what runs inside the spawned isolate below) -- it's only *production*
+/// art loading on a path that reaches the UI isolate that must go through
+/// this wrapper instead.
+Future<List<int>?> readArtSafe(
+  File file, {
+  String? relPath,
+  Duration timeout = _defaultArtTimeout,
+}) async {
+  try {
+    return await runIsolateWithTimeout<List<int>?, String>(
+      _readArtIsolateEntry,
+      file.path,
+      timeout: timeout,
+    );
+  } catch (_) {
+    // Timeout, isolate-spawn failure, or any error propagated from the
+    // isolate -- all treated the same as readArt's own catch(_): no art,
+    // fall back to the placeholder, never let a bad file surface as a
+    // crash or (worse, the bug this function fixes) a UI-isolate hang.
+    return null;
+  }
+}
+
+void _readArtIsolateEntry((String, SendPort) args) async {
+  final (path, resultPort) = args;
+  List<int>? result;
+  try {
+    result = await readArt(File(path));
+  } catch (e, s) {
+    Isolate.exit(resultPort, [e, s]);
+  }
+  Isolate.exit(resultPort, [result]);
 }
