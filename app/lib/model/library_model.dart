@@ -1,3 +1,4 @@
+// Last modified: 2026-07-24--1807
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -440,8 +441,11 @@ class LibraryModel extends ChangeNotifier {
   ///
   /// Per root (skipping any with no `.library.json` yet -- same as [load],
   /// those need `foolib seed` first): the actual scan/diff/stamp/save cycle
-  /// runs inside [Isolate.run] (bounded by [rootTimeout]; a root that blows
-  /// its budget is skipped, not left to stall the rest of the rescan) since
+  /// runs inside its own isolate via the kill-capable
+  /// [runIsolateWithTimeout] (bounded by [rootTimeout]; a root that blows
+  /// its budget has its isolate KILLED and is skipped, not left to stall
+  /// the rest of the rescan -- or, worse, to survive as a zombie whose
+  /// eventual `saveManifest` clobbers a later playlist write) since
   /// `scanLibrary` is synchronous-I/O-heavy over the SMB-mounted share --
   /// only plain sendable records cross back to this isolate. Newly found
   /// tracks are merged in immediately with filename-derived metadata (so
@@ -473,8 +477,17 @@ class LibraryModel extends ChangeNotifier {
 
         List<(String, String, String)> newRecords;
         try {
-          newRecords = await Isolate.run(() => _rescanRootIsolateEntry(root.path))
-              .timeout(rootTimeout);
+          // MUST be the kill-capable runIsolateWithTimeout, never
+          // `Isolate.run(...).timeout(...)`: Future.timeout does not cancel
+          // the isolate, so a timed-out root's scan would keep running as a
+          // zombie and call core.saveManifest at some arbitrary later time
+          // -- AFTER this rescan's `finally` has released [_busy] -- racing
+          // (and silently clobbering) a PlaylistStore mutation's own
+          // manifest save made under tryBeginManifestWrite. Killing the
+          // isolate at the deadline guarantees a timed-out root performs no
+          // late manifest write.
+          newRecords = await runIsolateWithTimeout<List<(String, String, String)>,
+              String>(_rescanRootIsolateEntry, root.path, timeout: rootTimeout);
         } on TimeoutException {
           status = 'rescan of $rootName timed out';
           notifyListeners();
@@ -1190,7 +1203,9 @@ bool _setEquals(Set<String> a, Set<String> b) {
 /// `scanLibrary` (walk + stat + hash), `loadManifest`, `diffAgainstManifest`,
 /// `applyDiff` (stamping any new tracks with `DateTime.now()`), then
 /// `saveManifest` -- inside its own isolate (see [LibraryModel.rescan],
-/// which runs this via `Isolate.run`).
+/// which runs this via [runIsolateWithTimeout] so a root that blows its
+/// timeout is KILLED, not left running as a zombie that could clobber a
+/// later manifest write -- see the comment at rescan's call site).
 ///
 /// [scanLibrary]'s directory walk and per-file `statSync` calls are
 /// synchronous-heavy over the SMB-mounted library share, exactly like the
@@ -1198,26 +1213,34 @@ bool _setEquals(Set<String> a, Set<String> b) {
 /// it from blocking the UI/platform thread.
 ///
 /// Takes and returns only plain, isolate-sendable values: the root's path
-/// as a `String` in, and for every genuinely new track a `(contentId,
-/// relPath, date_added ISO-8601 string)` record out -- never a `Manifest`
-/// or `ScannedTrack` object graph. The caller (running on the main isolate)
-/// reconstructs whatever [Track]s it needs from these records.
-Future<List<(String, String, String)>> _rescanRootIsolateEntry(
-    String rootPath) async {
-  final root = Directory(rootPath);
-  final scanned = await core.scanLibrary(root);
-  final manifest = core.loadManifest(root);
-  final diff = core.diffAgainstManifest(manifest, scanned);
-  core.applyDiff(manifest, diff, scanned, DateTime.now);
-  await core.saveManifest(manifest, root);
-  return [
-    for (final t in diff.newTracks)
-      (
-        t.contentId,
-        manifest.tracks[t.contentId]!.paths.first,
-        manifest.tracks[t.contentId]!.dateAdded,
-      ),
-  ];
+/// as a `String` in (plus the result [SendPort] the
+/// [runIsolateWithTimeout] protocol requires), and for every genuinely new
+/// track a `(contentId, relPath, date_added ISO-8601 string)` record out --
+/// never a `Manifest` or `ScannedTrack` object graph. The caller (running
+/// on the main isolate) reconstructs whatever [Track]s it needs from these
+/// records.
+void _rescanRootIsolateEntry((String, SendPort) args) async {
+  final (rootPath, resultPort) = args;
+  List<(String, String, String)> result;
+  try {
+    final root = Directory(rootPath);
+    final scanned = await core.scanLibrary(root);
+    final manifest = core.loadManifest(root);
+    final diff = core.diffAgainstManifest(manifest, scanned);
+    core.applyDiff(manifest, diff, scanned, DateTime.now);
+    await core.saveManifest(manifest, root);
+    result = [
+      for (final t in diff.newTracks)
+        (
+          t.contentId,
+          manifest.tracks[t.contentId]!.paths.first,
+          manifest.tracks[t.contentId]!.dateAdded,
+        ),
+    ];
+  } catch (e, s) {
+    Isolate.exit(resultPort, [e, s]);
+  }
+  Isolate.exit(resultPort, [result]);
 }
 
 /// Resolves [records] one at a time, each bounded by [timeout], for use

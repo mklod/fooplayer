@@ -89,6 +89,72 @@ void main() {
     );
   });
 
+  test(
+      'a timed-out root rescan is KILLED, not left as a zombie -- it must '
+      'never save the manifest after the timeout fired (batch2 review: '
+      'Isolate.run(...).timeout() does not cancel the isolate, so the old '
+      'wiring let a stalled scan call saveManifest at an arbitrary later '
+      'time, clobbering e.g. a PlaylistStore write made after rescan '
+      'released busy)', () async {
+    final root = await Directory('${tmp.path}/lib').create();
+
+    final existingFile = File('${root.path}/Existing Song.mp3');
+    await existingFile.writeAsBytes(List<int>.filled(64, 0x33));
+    final existingId = await contentIdForFile(existingFile);
+
+    final manifest = Manifest.empty();
+    manifest.tracks[existingId] = TrackEntry(
+      dateAdded: '2020-01-01T00:00:00.000Z',
+      paths: const ['Existing Song.mp3'],
+    );
+    await saveManifest(manifest, root);
+
+    final cacheFile = File('${tmp.path}/meta_cache.json');
+    final model = LibraryModel();
+    await model
+        .load(libraryRoots: [root], cacheFile: cacheFile)
+        .timeout(const Duration(seconds: 30));
+    expect(model.allTracks, hasLength(1));
+
+    // Plenty of new files, so that (under the old zombie-prone wiring) the
+    // orphaned scan cycle had real work to finish before its late
+    // saveManifest -- and so a late save is unmistakable: 40 extra entries.
+    for (var i = 0; i < 40; i++) {
+      await File('${root.path}/Artist - New Track $i.mp3')
+          .writeAsBytes(List<int>.filled(200, i + 1));
+    }
+
+    final statuses = <String>[];
+    model.addListener(() => statuses.add(model.status));
+
+    // Duration.zero guarantees the timeout fires before the spawned
+    // isolate's scan cycle can possibly complete, deterministically taking
+    // the timed-out-root path.
+    await model
+        .rescan(rootTimeout: Duration.zero)
+        .timeout(const Duration(seconds: 30));
+
+    expect(statuses, contains('rescan of lib timed out'),
+        reason: 'the zero-budget root must have hit the timeout path');
+    expect(model.busy, isFalse);
+    // The timed-out root contributed nothing to the in-memory library.
+    expect(model.allTracks, hasLength(1));
+
+    // The heart of the regression: the timed-out isolate must be dead. Give
+    // a hypothetical zombie ample time to finish scanning 41 small local
+    // files and save (the old wiring did so well within this window), while
+    // checking the manifest on disk never changes.
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (DateTime.now().isBefore(deadline)) {
+      final onDisk = loadManifest(root);
+      expect(onDisk.tracks, hasLength(1),
+          reason: 'a manifest write after the timeout means the rescan '
+              'isolate survived as a zombie -- the exact lost-update bug '
+              'this test pins down');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  });
+
   test('rescan is a no-op while a rescan is already in flight', () async {
     final root = await Directory('${tmp.path}/lib').create();
     final existingFile = File('${root.path}/Existing Song.mp3');
