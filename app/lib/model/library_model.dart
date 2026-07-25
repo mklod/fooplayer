@@ -690,6 +690,34 @@ class LibraryModel extends ChangeNotifier {
           folders: folderScopes, artist: artistFilters, search: search),
       (t) => t.album);
 
+  /// Whether the current Folder-pane selection is a view of exactly one
+  /// album: a single selected scope (one drilled folder, or exactly one
+  /// Ctrl-selected sibling -- multi-sibling selections span folders and
+  /// never qualify) whose (search-scoped) tracks all carry the same
+  /// non-empty album, per [isSingleAlbum].
+  ///
+  /// This is what makes selecting an album *folder* under a library root
+  /// (e.g. `albums/Alina Baraz & Galimatias - Urban Flora/01 Show Me.mp3`)
+  /// behave like selecting that album in the Albums pane: the '#' column
+  /// shows the tag track numbers (see `ui/track_list.dart`) and the default
+  /// sort switches to track order (see [_onFolderSelectionChanged]).
+  /// Without it, an album reached through the Folder pane -- the only way
+  /// to reach it when the album lives as a folder under a whole-albums
+  /// library root -- rendered with no '#' column at all, even though every
+  /// track had a perfectly good tag/cache trackNumber.
+  ///
+  /// Deliberately keyed to an *explicit* single-folder selection, not to
+  /// "the visible tracks happen to share one album": the full unfiltered
+  /// library (or an artist filter) coincidentally containing one album must
+  /// keep the column hidden, matching the long-standing library-mode
+  /// behavior pinned by track_list_track_number_column_test.dart.
+  bool get folderSelectionIsSingleAlbum {
+    final scopes = folderScopes;
+    if (scopes.length != 1) return false;
+    return isSingleAlbum(
+        applyFilters(allTracks, folders: scopes, search: search));
+  }
+
   List<Track> get visibleTracks {
     if (activePlaylist != null) {
       // Playlist order is curator-defined, not date/name-derived -- never
@@ -731,9 +759,10 @@ class LibraryModel extends ChangeNotifier {
   ///
   /// Same cascade behavior [setArtists] has one rung down: clears any
   /// downstream artist/album selection (a folder switch invalidates
-  /// whichever artist/album was showing under the old one) and reverts a
-  /// stale trackNumber sort exactly like [setAlbums]/[setArtists] do --
-  /// see [_revertSortIfTrackNumber].
+  /// whichever artist/album was showing under the old one) and re-derives
+  /// the default sort for the new selection -- track-number order when the
+  /// selected folder is a single album's, otherwise reverting a stale
+  /// trackNumber sort -- see [_onFolderSelectionChanged].
   void drillIntoFolder(String entry) {
     folderPath = [...folderPath, entry];
     folderSiblings = {};
@@ -780,12 +809,29 @@ class LibraryModel extends ChangeNotifier {
 
   /// Shared tail of every folder-selection mutation ([drillIntoFolder]/
   /// [setFolderSiblings]/[clearFolderSelection]): clears the downstream
-  /// artist/album filter sets, reverts a stale trackNumber sort (see
-  /// [_revertSortIfTrackNumber]), and notifies.
+  /// artist/album filter sets, then sets the sort to match what the new
+  /// selection *is* -- mirroring [setAlbums]' two branches one pane up:
+  ///
+  /// - Selection resolves to a single album's folder
+  ///   ([folderSelectionIsSingleAlbum]): default to track-number order
+  ///   ascending, the same album-view default [setAlbums] applies when
+  ///   exactly one album is picked in the Albums pane. (Before this branch
+  ///   existed, an album opened via the Folder pane kept the newest-first
+  ///   library sort, scrambling the album's track order.)
+  /// - Anything else: revert a stale trackNumber sort (see
+  ///   [_revertSortIfTrackNumber]).
+  ///
+  /// Either way this only sets the *default* -- a subsequent [setSort]
+  /// (user's own header click) still wins, same as after [setAlbums].
   void _onFolderSelectionChanged() {
     artistFilters = {};
     albumFilters = {};
-    _revertSortIfTrackNumber();
+    if (folderSelectionIsSingleAlbum) {
+      sortColumn = SortColumn.trackNumber;
+      sortAscending = true;
+    } else {
+      _revertSortIfTrackNumber();
+    }
     notifyListeners();
   }
 
