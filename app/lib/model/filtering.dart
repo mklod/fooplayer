@@ -123,6 +123,31 @@ List<String> subfolderNames(
     ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 }
 
+/// Whether [tracks] is a non-empty list whose tracks ALL carry the same
+/// single, non-empty album (compared case-insensitively, mirroring
+/// [applyFilters]' album matching) -- i.e. the list unambiguously shows ONE
+/// album's own tracks.
+///
+/// This is what lets a Folder-pane selection of an album *folder* (e.g.
+/// `albums/Alina Baraz & Galimatias - Urban Flora/` under a library root)
+/// behave like selecting that album in the Albums pane -- '#' column
+/// visible, track-number default sort (see
+/// `LibraryModel.folderSelectionIsSingleAlbum`). An empty list is NOT a
+/// single album (nothing to show a track order for), and any track with an
+/// empty album disqualifies the set (its position in "the" album is
+/// unknowable).
+bool isSingleAlbum(List<Track> tracks) {
+  if (tracks.isEmpty) return false;
+  String? albumLower;
+  for (final t in tracks) {
+    if (t.album.isEmpty) return false;
+    final lower = t.album.toLowerCase();
+    albumLower ??= lower;
+    if (lower != albumLower) return false;
+  }
+  return true;
+}
+
 List<String> distinctValues(List<Track> tracks, String Function(Track) field) {
   final seen = <String, String>{}; // lower → first casing
   for (final t in tracks) {

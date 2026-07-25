@@ -126,13 +126,17 @@ class TrackListView extends StatelessWidget {
       builder: (context, _) {
         final tracks = library.visibleTracks;
         // The '#' column only earns its place when it means something
-        // unambiguous: exactly one album's own track order, or a
+        // unambiguous: exactly one album's own track order (selected in
+        // the Albums pane OR as a single album folder in the Folder pane
+        // -- see LibraryModel.folderSelectionIsSingleAlbum), or a
         // playlist's curated position. Anywhere else (the full library, a
         // genre/artist filter spanning many albums, or several albums
         // selected at once) track numbers from different albums would
         // collide meaninglessly, so the column stays hidden.
         final isPlaylist = library.activePlaylist != null;
-        final showTrackNumber = isPlaylist || library.albumFilters.length == 1;
+        final showTrackNumber = isPlaylist ||
+            library.albumFilters.length == 1 ||
+            library.folderSelectionIsSingleAlbum;
         return Column(
           children: [
             _TrackListHeader(

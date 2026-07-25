@@ -175,11 +175,16 @@ void main() {
       expect(lib.artistFilters, isEmpty);
     });
 
-    test('folder changes revert a stale trackNumber sort (indirect album '
-        'clear), for drill, sibling-toggle and clear alike', () {
+    test('folder changes to a MULTI-album scope revert a stale trackNumber '
+        'sort (indirect album clear), for drill, sibling-toggle and clear '
+        'alike', () {
+      // Every change here lands on a selection spanning several albums --
+      // a single-album folder selection now legitimately KEEPS/SETS the
+      // trackNumber sort instead (see the single-album group below), so
+      // the sibling-toggle case uses two folders holding different albums.
       for (final change in [
         () => lib.drillIntoFolder(monthlyRoot),
-        () => lib.setFolderSiblings({'2007-08'}),
+        () => lib.setFolderSiblings({'2007-08', '2007-11'}),
         () => lib.clearFolderSelection(),
       ]) {
         lib.setAlbums({'Origin'}); // single album -> trackNumber ascending
@@ -188,6 +193,71 @@ void main() {
         expect(lib.sortColumn, SortColumn.dateAdded);
         expect(lib.sortAscending, isFalse);
       }
+    });
+  });
+
+  group('regression (#27): selecting a single album FOLDER behaves like the '
+      'album view -- track numbers must not disappear just because the album '
+      'was reached through the Folder pane', () {
+    // Real-world shape: the user's `albums` library root holds one folder
+    // per album (e.g. `albums/Alina Baraz & Galimatias - Urban Flora/01
+    // Show Me.mp3`), so the ONLY way to open such an album from the Folder
+    // pane is a folder selection -- which sets folderScopes, not
+    // albumFilters. The '#' column and track-number default sort used to
+    // key exclusively off albumFilters, so these views showed no numbers.
+    test('drilling into a folder whose tracks all share one album switches '
+        'to trackNumber sort ascending (same default as setAlbums)', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.drillIntoFolder('2007-08'); // a1+a2 only: both album 'Origin'
+      expect(lib.folderSelectionIsSingleAlbum, isTrue);
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      expect(lib.sortAscending, isTrue);
+      expect(lib.visibleTracks.map((t) => t.contentId), ['a1', 'a2']);
+    });
+
+    test('a single Ctrl-selected sibling folder holding one album also '
+        'qualifies', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setFolderSiblings({'2007-08'});
+      expect(lib.folderSelectionIsSingleAlbum, isTrue);
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      expect(lib.sortAscending, isTrue);
+    });
+
+    test('a multi-album folder scope does NOT qualify (numbers from '
+        'different albums would collide)', () {
+      lib.drillIntoFolder(monthlyRoot); // Origin+Calamari+Fandango+Drukqs
+      expect(lib.folderSelectionIsSingleAlbum, isFalse);
+      expect(lib.sortColumn, SortColumn.dateAdded);
+    });
+
+    test('several Ctrl-selected siblings never qualify, even when they '
+        'happen to hold the same album', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setFolderSiblings({'2007-08', '2007-11'});
+      expect(lib.folderSelectionIsSingleAlbum, isFalse);
+    });
+
+    test('no folder selection at all never qualifies (full library must '
+        'keep the column hidden even if it coincidentally holds one album)', () {
+      lib.allTracks =
+          lib.allTracks.where((t) => t.album == 'Origin').toList();
+      expect(lib.folderSelectionIsSingleAlbum, isFalse);
+    });
+
+    test('an empty scope (folder matching no tracks) does not qualify', () {
+      lib.drillIntoFolder(r'L:\Music\NoSuchRoot');
+      expect(lib.folderSelectionIsSingleAlbum, isFalse);
+      expect(lib.sortColumn, SortColumn.dateAdded);
+    });
+
+    test('a user header click after opening an album folder still wins '
+        'over the trackNumber default', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.drillIntoFolder('2007-08');
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      lib.setSort(SortColumn.title);
+      expect(lib.sortColumn, SortColumn.title);
     });
   });
 

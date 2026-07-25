@@ -1,10 +1,12 @@
 // The '#' track-number column (see ui/track_list.dart) is only meaningful
-// in two contexts: a single album selected (its own track order) or a
-// playlist active (curator-defined position) -- everywhere else (the full
-// library, a genre/artist filter spanning many albums) numbers from
-// different albums would collide meaninglessly, so the column stays
-// hidden. In playlist mode the column shows the track's 1-based position in
-// the playlist, not its (possibly unrelated) tag track number.
+// when the view is unambiguously ONE album's track order -- selected in
+// the Albums pane (albumFilters) or as a single album folder in the Folder
+// pane (LibraryModel.folderSelectionIsSingleAlbum) -- or a playlist's
+// curator-defined position. Everywhere else (the full library, a
+// genre/artist filter spanning many albums) numbers from different albums
+// would collide meaninglessly, so the column stays hidden. In playlist mode
+// the column shows the track's 1-based position in the playlist, not its
+// (possibly unrelated) tag track number.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
@@ -86,6 +88,51 @@ void main() {
 
     expect(find.text('#'), findsNothing);
     expect(find.text('# ▲'), findsNothing);
+  });
+
+  testWidgets(
+      'regression (#27): a single album FOLDER selected in the Folder pane '
+      'shows the # column with tag numbers in track order -- the exact '
+      'real-world shape: an `albums` library root holding one folder per '
+      'album, reached by drill-down, where the column used to stay hidden '
+      'because only albumFilters was consulted', (tester) async {
+    const albumsRoot = r'L:\music (original structure)\albums';
+    const dir = 'Alina Baraz & Galimatias - Urban Flora';
+    Track urban(String id, String file, int n) => Track(
+          contentId: id,
+          relPath: '$dir/$file',
+          rootPath: albumsRoot,
+          dateAdded: DateTime.utc(2016, 3, 14),
+          title: file,
+          artist: 'Alina Baraz & Galimatias',
+          album: 'Urban Flora',
+          trackNumber: n,
+        );
+    final lib = LibraryModel();
+    lib.allTracks = [
+      // Deliberately out of track order in allTracks.
+      urban('u3', '03 Can I.mp3', 3),
+      urban('u1', '01 Show Me.mp3', 1),
+      urban('u8', '08 Unfold.mp3', 8),
+    ];
+    lib.status = 'ready';
+
+    // Navigate exactly as the user does: drill into the albums root, then
+    // into the album's folder. No Albums-pane selection ever happens.
+    lib.drillIntoFolder(albumsRoot);
+    lib.drillIntoFolder(dir);
+    expect(lib.albumFilters, isEmpty); // sanity: folder pane only
+
+    await pumpTrackList(tester, lib, PlayerService());
+
+    // Column visible, trackNumber the active ascending sort.
+    expect(find.text('# ▲'), findsOneWidget);
+    // Every tag track number rendered.
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('3'), findsOneWidget);
+    expect(find.text('8'), findsOneWidget);
+    // And in album track order, not date/insertion order.
+    expect(lib.visibleTracks.map((t) => t.trackNumber), [1, 3, 8]);
   });
 
   testWidgets(
