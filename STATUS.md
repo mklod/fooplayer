@@ -9,7 +9,7 @@
 | Core engine (`fooplayer_core`: content-ID hashing, manifests, scanner, seed, `foolib` CLI) | ✅ Stable, merged |
 | Library manifests | ✅ Five scoped roots seeded (monthly 1,844 / alt-times 2,398 / albums 685 / loose-2020 437 / loose-old 92); dates permanent, retag-proof |
 | Windows desktop app | ✅ Daily-drivable. iTunes-style light UI, sortable columns, folder drill-down, multi-select filters, search ✕, auto-rescan, on-play duration backfill, view-in-folder, select/double-click-play. 223/223 tests, whole-branch + adversarial reviews clean, merged to `main` |
-| Android | 🟡 APK builds, manifest pipeline proven on emulator; desktop-layout-squeezed UI only (phone-native drawer UI is next Android milestone) |
+| Android | ✅ Phone-native UI v1 shipped & verified live on the emulator: drawer shell, date feed, mini-player, Now Playing with metro transport, browse views, playlists, settings; playback + on-play duration backfill confirmed. Next: background audio (2c), real-device storage/sync (Plan 3) |
 | Android emulator | ✅ Verified under WHPX post-reboot (15s boots); AEHD permanently removed 
 | File-dates fix (foobar2000/Explorer sorting) | ⏸ ON HOLD by Mike's explicit instruction — see [music-library-dates-issue.md](docs/music-library-dates-issue.md) |
 | Repo migration to `L:\PROJECTS\fooplayer` | ⏸ Deferred — empty target dir created by Mike; plan: fresh clone from GitHub + re-point worktrees (worktree metadata makes in-place copies messy) |
