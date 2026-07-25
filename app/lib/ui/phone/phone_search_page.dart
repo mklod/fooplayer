@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 import 'package:flutter/material.dart';
 import '../../model/filtering.dart';
 import '../../model/library_model.dart';
@@ -18,7 +18,7 @@ class PhoneSearchPage extends StatefulWidget {
     super.key,
     required this.library,
     required this.onPlayTrack,
-    this.onTrackLongPress = showTrackContextSheet,
+    required this.onTrackLongPress,
   });
 
   @override

@@ -1,17 +1,19 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 //
 // Widget tests for the Plan 2b PhoneShell: drawer navigation + active
 // highlight, the feed view's newest-first rows (title / artist — album /
-// duration), tap-plays-immediately (phone idiom), the long-press context
-// sheet placeholder, and the two merge slots (miniPlayerBuilder /
-// viewBuilders) that the P2/P3 branches fill.
+// duration), tap-plays-immediately (phone idiom), long-press opening the
+// real context sheet through the injected callback, and the two wiring
+// slots (miniPlayerBuilder / viewBuilders) main.dart fills.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/phone/phone_shell.dart';
+import 'package:fooplayer_app/ui/phone/track_context_sheet.dart';
 
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
@@ -40,6 +42,7 @@ Future<void> pumpShell(
   WidgetTester tester, {
   required LibraryModel library,
   void Function(List<Track>, int)? onPlayTrack,
+  void Function(BuildContext, Track)? onTrackLongPress,
   WidgetBuilder? miniPlayerBuilder,
   Map<PhoneView, WidgetBuilder> viewBuilders = const {},
 }) {
@@ -51,6 +54,7 @@ Future<void> pumpShell(
       // Every test injects a spy (or discards) -- the default would build
       // a real media_kit Player, which has no natives under `flutter test`.
       onPlayTrack: onPlayTrack ?? (_, _) {},
+      onTrackLongPress: onTrackLongPress ?? (_, _) {},
       miniPlayerBuilder: miniPlayerBuilder,
       viewBuilders: viewBuilders,
     ),
@@ -98,17 +102,29 @@ void main() {
     expect(index, 1);
   });
 
-  testWidgets('long-press opens the context sheet placeholder',
-      (tester) async {
-    await pumpShell(tester, library: fixtureLibrary());
+  testWidgets(
+      'long-press on a feed row opens the real context sheet with both '
+      'plan actions (Add to playlist / View details)', (tester) async {
+    final library = fixtureLibrary();
+    final store = PlaylistStore(library: library);
+    // Production-shaped wiring (main.dart closes the real sheet over the
+    // library + store exactly like this).
+    await pumpShell(
+      tester,
+      library: library,
+      onTrackLongPress: (ctx, track) => showTrackContextSheet(
+        ctx,
+        track: track,
+        library: library,
+        store: store,
+      ),
+    );
     await tester.longPress(find.text('Newest Song'));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('phone-sheet-add-to-playlist')), findsOneWidget);
-    expect(find.byKey(const Key('phone-sheet-view-details')), findsOneWidget);
-    // Tapping an entry just dismisses (placeholder behavior).
-    await tester.tap(find.byKey(const Key('phone-sheet-add-to-playlist')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('phone-sheet-add-to-playlist')), findsNothing);
+    expect(find.byKey(const Key('sheet-add-to-playlist')), findsOneWidget);
+    expect(find.byKey(const Key('sheet-view-details')), findsOneWidget);
+    // No desktop explorer entry on phone.
+    expect(find.text('View in folder'), findsNothing);
   });
 
   testWidgets('drawer lists all entries and navigation switches the body',

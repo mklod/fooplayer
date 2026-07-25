@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 import 'package:flutter/material.dart';
 import '../../model/library_model.dart';
 import '../../player/player_service.dart';
@@ -6,9 +6,9 @@ import 'phone_feed.dart';
 import 'phone_search_page.dart';
 
 /// The phone shell's body views, one per Drawer entry. [library] is the
-/// feed (home); the browse views default to placeholders until the P3
-/// branch's real pages are wired in via [PhoneShell.viewBuilders] (see its
-/// doc), and Settings likewise awaits its page.
+/// feed (home, built in); production (main.dart) supplies every other
+/// view's body via [PhoneShell.viewBuilders] -- the P3 browse views plus
+/// the Settings page (`phone_settings_view.dart`).
 enum PhoneView { library, folders, artists, albums, playlists, settings }
 
 extension PhoneViewInfo on PhoneView {
@@ -38,18 +38,18 @@ extension PhoneViewInfo on PhoneView {
 /// bottom-of-screen mini-player slot. Reuses the desktop's
 /// [LibraryModel]/[PlayerService] unchanged.
 ///
-/// Two injectable builder slots exist so the parallel branches can fill
-/// them at merge without this file changing shape:
+/// Two injectable builder slots keep this file decoupled from the concrete
+/// view/player widgets (main.dart owns the production wiring):
 ///
 /// - [miniPlayerBuilder]: rendered as the Scaffold's bottomNavigationBar.
-///   Defaults to nothing ([SizedBox.shrink]); the P2 branch's MiniPlayer
-///   (which itself renders empty until a track is loaded, like the desktop
-///   NowPlayingBar) drops straight in.
-/// - [viewBuilders]: per-[PhoneView] body overrides. Any view without an
-///   entry uses the built-in body -- the live feed for [PhoneView.library],
-///   a "coming soon" placeholder for everything else. The P3 branch's
-///   Folders/Artists/Albums/Playlists pages (and a future Settings page)
-///   drop in as map entries.
+///   Defaults to nothing ([SizedBox.shrink]); production passes the P2
+///   MiniPlayer (which itself renders empty until a track is loaded, like
+///   the desktop NowPlayingBar).
+/// - [viewBuilders]: per-[PhoneView] body builders. Production fills EVERY
+///   non-library entry (P3's Folders/Artists/Albums/Playlists views and
+///   the Settings page); [PhoneView.library] always uses the built-in live
+///   feed. A view left without an entry (only possible in tests that
+///   construct a bare PhoneShell) falls back to a defensive placeholder.
 class PhoneShell extends StatefulWidget {
   final LibraryModel library;
   final PlayerService player;
@@ -59,8 +59,10 @@ class PhoneShell extends StatefulWidget {
   /// without constructing a real media_kit Player.
   final PlayTrackCallback? onPlayTrack;
 
-  /// Feed/search row long-press handler; defaults to the placeholder
-  /// context sheet ([showTrackContextSheet]) until P3's real one lands.
+  /// Feed/search row long-press handler; production wires the real track
+  /// context sheet (Add to playlist / View details -- see main.dart, which
+  /// closes it over the library's PlaylistStore). Required: there is no
+  /// meaningful default without a store to add to.
   final TrackLongPressCallback onTrackLongPress;
 
   /// Mini-player slot -- see the class doc.
@@ -74,7 +76,7 @@ class PhoneShell extends StatefulWidget {
     required this.library,
     required this.player,
     this.onPlayTrack,
-    this.onTrackLongPress = showTrackContextSheet,
+    required this.onTrackLongPress,
     this.miniPlayerBuilder,
     this.viewBuilders = const {},
   });
@@ -98,6 +100,9 @@ class _PhoneShellState extends State<PhoneShell> {
         onLongPress: widget.onTrackLongPress,
       );
     }
+    // Defensive fallback only: production (main.dart) supplies a builder
+    // for every non-library view, so this is reachable solely from tests
+    // that construct a bare PhoneShell.
     return const Center(child: Text('coming soon'));
   }
 

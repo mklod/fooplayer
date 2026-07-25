@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 //
 // Widget tests for PhoneSearchPage: opened from the shell's AppBar search
 // icon, its AppBar TextField live-filters the feed (title/artist/album
@@ -46,6 +46,7 @@ void main() {
         library: lib,
         player: PlayerService(),
         onPlayTrack: (tracks, index) => played.add((tracks, index)),
+        onTrackLongPress: (_, _) {},
       ),
     ));
 
@@ -87,6 +88,7 @@ void main() {
       home: PhoneSearchPage(
         library: fixtureLibrary(),
         onPlayTrack: (_, _) {},
+        onTrackLongPress: (_, _) {},
       ),
     ));
     await tester.enterText(

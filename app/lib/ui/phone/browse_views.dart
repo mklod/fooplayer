@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 //
 // Phone-shell browse views (Plan 2b, task P3): Folders / Artists / Albums /
 // Playlists -- the drawer destinations other than the Library feed. Each is
@@ -135,9 +135,18 @@ class FoldersView extends StatelessWidget {
   }
 }
 
-/// Artists view: alphabetical list from [LibraryModel.artists]; tapping an
-/// artist pushes a [TrackListPage] filtered to that artist (newest first,
-/// the library default).
+/// Artists view: alphabetical list of ALL artists in the library; tapping
+/// an artist pushes a [TrackListPage] filtered to that artist (newest
+/// first, the library default).
+///
+/// Deliberately derived from the UNSCOPED [LibraryModel.allTracks], not
+/// [LibraryModel.artists]: that getter is scoped by the Folder pane's
+/// cascade ([LibraryModel.folderScopes]), which is right for desktop --
+/// where the panels sit side by side and the breadcrumb shows the scope --
+/// but wrong for the phone drawer, where Artists is presented as an
+/// independent top-level destination. Without this, drilling into a folder
+/// in FoldersView would silently shrink the Artists list with zero UI
+/// indication of why.
 class ArtistsView extends StatelessWidget {
   final LibraryModel library;
   final PlaylistStore store;
@@ -155,7 +164,7 @@ class ArtistsView extends StatelessWidget {
     return AnimatedBuilder(
       animation: library,
       builder: (context, _) {
-        final artists = library.artists;
+        final artists = distinctValues(library.allTracks, (t) => t.artist);
         return ListView.builder(
           itemCount: artists.length,
           itemBuilder: (context, i) {
@@ -185,11 +194,16 @@ class ArtistsView extends StatelessWidget {
   }
 }
 
-/// Albums view: alphabetical list from [LibraryModel.albums]; tapping an
+/// Albums view: alphabetical list of ALL albums in the library; tapping an
 /// album pushes a [TrackListPage] filtered to that album in trackNumber
 /// order ascending -- the same album-view default the desktop's
 /// [LibraryModel.setAlbums] applies, via the same [sortTracks] logic
 /// (unknown track numbers sort last).
+///
+/// Like [ArtistsView], derived from the UNSCOPED [LibraryModel.allTracks]
+/// rather than [LibraryModel.albums] (which the desktop Folder/Artist
+/// cascade scopes) -- see ArtistsView's doc for why the phone drawer's
+/// independent-destination model requires this.
 class AlbumsView extends StatelessWidget {
   final LibraryModel library;
   final PlaylistStore store;
@@ -207,7 +221,7 @@ class AlbumsView extends StatelessWidget {
     return AnimatedBuilder(
       animation: library,
       builder: (context, _) {
-        final albums = library.albums;
+        final albums = distinctValues(library.allTracks, (t) => t.album);
         return ListView.builder(
           itemCount: albums.length,
           itemBuilder: (context, i) {

@@ -1,3 +1,4 @@
+// Last modified: 2026-07-24--1855
 // Phone browse views (Plan 2b, task P3):
 // - FoldersView: drill-down via folderEntries/drillIntoFolder, back
 //   affordance pops one level, breadcrumb text line tracks the path;
@@ -6,8 +7,9 @@
 // - AlbumsView: tap -> album page sorted by trackNumber ascending;
 // - PlaylistsView: create via dialog / long-press delete via confirm, both
 //   through a spied PlaylistStore; tap -> playlist tracks in playlist order;
-// - track long-press context sheet: Add to playlist -> store.addTrack, and
-//   NO explorer/"View in folder" entry on phone.
+// - track long-press context sheet: Add to playlist -> store.addTrack,
+//   View details -> read-only metadata dialog, and NO explorer/"View in
+//   folder" entry on phone.
 // All store writes are spied (SpyPlaylistStore) so no test touches disk;
 // playback is spied via onPlayTrack so no media_kit Player is constructed.
 import 'package:flutter/material.dart';
@@ -193,6 +195,26 @@ void main() {
       await tester.tap(find.text('First Song'));
       expect(played, ['a']);
     });
+
+    testWidgets(
+        'lists ALL artists even while a folder drill-down is active '
+        '(phone drawer views are independent -- no hidden folder scope)',
+        (tester) async {
+      final lib = fixtureLibrary();
+      final store = SpyPlaylistStore(lib);
+      // Simulate FoldersView drill-down into rock/ (only Muse lives there).
+      lib.drillIntoFolder(_root);
+      lib.drillIntoFolder('rock');
+      // Sanity: the desktop-scoped getter WOULD hide Feed Me here.
+      expect(lib.artists, ['Muse']);
+
+      await pumpView(tester,
+          ArtistsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+
+      // The phone Artists view must ignore that scope entirely.
+      expect(find.text('Feed Me'), findsOneWidget);
+      expect(find.text('Muse'), findsOneWidget);
+    });
   });
 
   group('AlbumsView', () {
@@ -212,6 +234,24 @@ void main() {
       // trackNumber order: First (1) above Second (2).
       expect(find.text('Jazz Tune'), findsNothing);
       expect(rowY(tester, 'First Song'), lessThan(rowY(tester, 'Second Song')));
+    });
+
+    testWidgets(
+        'lists ALL albums even while a folder drill-down is active',
+        (tester) async {
+      final lib = fixtureLibrary();
+      final store = SpyPlaylistStore(lib);
+      // Drill into jazz/ (only Album Y lives there).
+      lib.drillIntoFolder(_root);
+      lib.drillIntoFolder('jazz');
+      // Sanity: the desktop-scoped getter WOULD hide Album X here.
+      expect(lib.albums, ['Album Y']);
+
+      await pumpView(tester,
+          AlbumsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+
+      expect(find.text('Album X'), findsOneWidget);
+      expect(find.text('Album Y'), findsOneWidget);
     });
   });
 
@@ -326,6 +366,43 @@ void main() {
 
       expect(store.created, ['fresh']);
       expect(store.added, [('fresh', 'c')]);
+    });
+
+    testWidgets(
+        'View details opens the metadata dialog '
+        '(title / artist / album / duration / path)', (tester) async {
+      final lib = fixtureLibrary();
+      final store = SpyPlaylistStore(lib);
+      await pumpAllTracksPage(tester, lib, store);
+
+      await tester.longPress(find.text('First Song'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('sheet-view-details')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('sheet-view-details')));
+      await tester.pumpAndSettle();
+
+      final dialog = find.byKey(const Key('track-details-dialog'));
+      expect(dialog, findsOneWidget);
+      Finder inDialog(String text) =>
+          find.descendant(of: dialog, matching: find.text(text));
+      expect(inDialog('First Song'), findsOneWidget);
+      expect(inDialog('Muse'), findsOneWidget);
+      expect(inDialog('Album X'), findsOneWidget);
+      expect(inDialog('1:01'), findsOneWidget); // 61000ms
+      // Path = p.join(rootPath, relPath) -- assert on the stable relPath
+      // tail so the test doesn't depend on the host's path separator.
+      expect(
+          find.descendant(
+              of: dialog, matching: find.textContaining('01 First.mp3')),
+          findsOneWidget);
+
+      // Close returns to the page with no store writes.
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(dialog, findsNothing);
+      expect(store.added, isEmpty);
+      expect(store.created, isEmpty);
     });
 
     testWidgets('rows show duration right-aligned text', (tester) async {

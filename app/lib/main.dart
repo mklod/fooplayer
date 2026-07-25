@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1843
+// Last modified: 2026-07-24--1855
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -17,6 +17,7 @@ import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
 import 'ui/phone/browse_views.dart';
 import 'ui/phone/mini_player.dart';
+import 'ui/phone/phone_settings_view.dart';
 import 'ui/phone/phone_shell.dart';
 import 'ui/phone/track_context_sheet.dart';
 
@@ -206,10 +207,12 @@ class FooPlayerApp extends StatelessWidget {
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
           // the mini-player slot (it self-hides when no track is loaded),
-          // P3's browse views fill the viewBuilders map, and P3's real
-          // track context sheet replaces P1's placeholder for the feed and
-          // search rows. Same PlaylistStore-per-build pattern as
-          // HomeScreen (the store is a stateless facade over the library).
+          // P3's browse views plus the Settings page fill the viewBuilders
+          // map (every drawer destination has a real body -- no
+          // placeholders), and P3's real track context sheet (Add to
+          // playlist / View details) handles feed and search long-presses.
+          // Same PlaylistStore-per-build pattern as HomeScreen (the store
+          // is a stateless facade over the library).
           final store = PlaylistStore(library: library);
           return PhoneShell(
             library: library,
@@ -241,6 +244,14 @@ class FooPlayerApp extends StatelessWidget {
                     library: library,
                     store: store,
                     onPlayTrack: player.playFrom,
+                  ),
+              // Settings as a page (plan: "reuses existing SettingsDialog
+              // content"): same roots editor + prefs the desktop dialog
+              // uses, so add/remove triggers the same config write +
+              // library reload via libraryRootsPrefs' listener above.
+              PhoneView.settings: (_) => PhoneSettingsView(
+                    library: library,
+                    libraryRootsPrefs: libraryRootsPrefs,
                   ),
             },
           );

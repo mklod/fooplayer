@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-07-24--1855
 import 'package:flutter/material.dart';
 import '../../model/filtering.dart';
 import '../../model/library_model.dart';
@@ -12,8 +12,9 @@ import '../../model/track.dart';
 typedef PlayTrackCallback = void Function(List<Track> tracks, int index);
 
 /// Long-press on a feed/search row -- opens the track context sheet.
-/// Injectable so the P3 branch's real "Add to playlist / View details"
-/// sheet can replace the placeholder ([showTrackContextSheet]) at merge.
+/// Production wires the real "Add to playlist / View details" sheet
+/// (`track_context_sheet.dart`, closed over the library and its
+/// PlaylistStore in main.dart); widget tests inject a spy.
 typedef TrackLongPressCallback = void Function(
     BuildContext context, Track track);
 
@@ -26,50 +27,6 @@ String formatTrackDuration(int? ms) {
   final m = d.inMinutes;
   final s = (d.inSeconds % 60).toString().padLeft(2, '0');
   return '$m:$s';
-}
-
-/// Placeholder long-press context sheet (the default
-/// [TrackLongPressCallback]): a modal bottom sheet with the track header
-/// plus the two planned actions -- Add to playlist / View details -- as
-/// inert entries that just dismiss. The P3 browse-views branch owns the
-/// real implementations; this slot exists so P1's feed already has the
-/// phone idiom (long-press = context sheet, never a desktop right-click)
-/// and the merge only swaps the callback.
-void showTrackContextSheet(BuildContext context, Track track) {
-  final subtitle =
-      [track.artist, track.album].where((s) => s.isNotEmpty).join(' — ');
-  showModalBottomSheet<void>(
-    context: context,
-    builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            title: Text(track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(sheetContext).textTheme.titleSmall),
-            subtitle: subtitle.isEmpty
-                ? null
-                : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          const Divider(height: 1),
-          ListTile(
-            key: const Key('phone-sheet-add-to-playlist'),
-            leading: const Icon(Icons.playlist_add, size: 20),
-            title: const Text('Add to playlist'),
-            onTap: () => Navigator.of(sheetContext).pop(),
-          ),
-          ListTile(
-            key: const Key('phone-sheet-view-details'),
-            leading: const Icon(Icons.info_outline, size: 20),
-            title: const Text('View details'),
-            onTap: () => Navigator.of(sheetContext).pop(),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 /// One phone track row: title (13 ink) over "artist — album" (11.5
