@@ -3,10 +3,13 @@
 // selects a folder AND descends into it -- the pane's entries are replaced
 // by that folder's immediate subdirectories -- while Ctrl+click toggles
 // sibling folders at the current level without drilling (their tracks OR
-// together). The pinned header shows a "monthly / 2007-08" breadcrumb (or
-// "N selected"), and its X fully resets the pane back to the root list.
-// Every folder-selection change cascades: downstream artist/album filter
-// sets clear, and a stale trackNumber sort reverts.
+// together). The pinned header shows a step-wise "monthly / 2007-08"
+// breadcrumb (folderBreadcrumbs, one segment per level; a trailing sibling
+// or "N selected" segment when siblings are Ctrl-selected); clicking an
+// ancestor segment pops back to that level (popFolderTo), and the X fully
+// resets the pane back to the root list. Every folder-selection change
+// cascades: downstream artist/album filter sets clear, and a stale
+// trackNumber sort reverts.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
@@ -53,7 +56,7 @@ void main() {
   group('drill-down navigation', () {
     test('top level lists the roots; nothing selected -> no header, no filter', () {
       expect(lib.folderEntries, [albumsRoot, monthlyRoot]); // basename-sorted
-      expect(lib.folderHeaderText, isNull);
+      expect(lib.folderBreadcrumbs, isEmpty);
       expect(visibleIds(), hasLength(6));
     });
 
@@ -62,7 +65,7 @@ void main() {
       lib.drillIntoFolder(monthlyRoot);
       expect(lib.folderPath, [monthlyRoot]);
       expect(lib.folderEntries, ['2007-08', '2007-09', '2007-11']);
-      expect(lib.folderHeaderText, 'monthly');
+      expect(lib.folderBreadcrumbs, ['monthly']);
       expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
     });
 
@@ -72,7 +75,7 @@ void main() {
       lib.drillIntoFolder('2007-08');
       expect(lib.folderPath, [monthlyRoot, '2007-08']);
       expect(lib.folderEntries, isEmpty); // files only, no subdirectories
-      expect(lib.folderHeaderText, 'monthly / 2007-08');
+      expect(lib.folderBreadcrumbs, ['monthly', '2007-08']);
       expect(visibleIds(), {'a1', 'a2'});
     });
 
@@ -82,7 +85,7 @@ void main() {
       expect(lib.folderEntries, ['sub']);
       expect(visibleIds(), {'b1'});
       lib.drillIntoFolder('sub');
-      expect(lib.folderHeaderText, 'monthly / 2007-09 / sub');
+      expect(lib.folderBreadcrumbs, ['monthly', '2007-09', 'sub']);
       expect(visibleIds(), {'b1'});
     });
   });
@@ -93,7 +96,9 @@ void main() {
       lib.drillIntoFolder(monthlyRoot);
       lib.setFolderSiblings({'2007-08', '2007-11'});
       expect(lib.folderEntries, ['2007-08', '2007-09', '2007-11']); // no drill
-      expect(lib.folderHeaderText, '2 selected');
+      // The path prefix stays visible (and clickable, in the UI) ahead of
+      // the trailing count segment.
+      expect(lib.folderBreadcrumbs, ['monthly', '2 selected']);
       expect(visibleIds(), {'a1', 'a2', 'c1'});
     });
 
@@ -101,7 +106,7 @@ void main() {
         'narrows to just that sibling', () {
       lib.drillIntoFolder(monthlyRoot);
       lib.setFolderSiblings({'2007-08'});
-      expect(lib.folderHeaderText, 'monthly / 2007-08');
+      expect(lib.folderBreadcrumbs, ['monthly', '2007-08']);
       expect(visibleIds(), {'a1', 'a2'});
     });
 
@@ -110,7 +115,7 @@ void main() {
       lib.drillIntoFolder(monthlyRoot);
       lib.setFolderSiblings({'2007-08'});
       lib.setFolderSiblings({});
-      expect(lib.folderHeaderText, 'monthly');
+      expect(lib.folderBreadcrumbs, ['monthly']);
       expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
     });
 
@@ -118,10 +123,10 @@ void main() {
         'scopes) and a single one shows its basename in the header', () {
       lib.setFolderSiblings({monthlyRoot});
       expect(lib.folderPath, isEmpty); // still at the root list
-      expect(lib.folderHeaderText, 'monthly');
+      expect(lib.folderBreadcrumbs, ['monthly']);
       expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
       lib.setFolderSiblings({monthlyRoot, albumsRoot});
-      expect(lib.folderHeaderText, '2 selected');
+      expect(lib.folderBreadcrumbs, ['2 selected']);
       expect(visibleIds(), hasLength(6));
     });
 
@@ -136,6 +141,65 @@ void main() {
     });
   });
 
+  group('popFolderTo (breadcrumb step-wise up navigation)', () {
+    test('pops back to a mid-level: deeper segments dropped, that level\'s '
+        'entries listed again, shallower selection persists', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.drillIntoFolder('2007-09');
+      lib.drillIntoFolder('sub');
+      lib.popFolderTo(1); // click the 'monthly' segment
+      expect(lib.folderPath, [monthlyRoot]); // shallower selection kept
+      expect(lib.folderEntries, ['2007-08', '2007-09', '2007-11']);
+      expect(lib.folderBreadcrumbs, ['monthly']);
+      expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
+    });
+
+    test('popFolderTo(0) equals a full reset, same as the pinned X', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.drillIntoFolder('2007-08');
+      lib.popFolderTo(0); // click the leading 'All' segment
+      expect(lib.folderPath, isEmpty);
+      expect(lib.folderSiblings, isEmpty);
+      expect(lib.folderEntries, [albumsRoot, monthlyRoot]);
+      expect(visibleIds(), hasLength(6));
+    });
+
+    test('popping to the current depth drops a Ctrl-selected sibling set '
+        'but keeps the whole path (deepest clickable segment)', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setFolderSiblings({'2007-08', '2007-11'});
+      lib.popFolderTo(1); // click 'monthly', the deepest *path* segment
+      expect(lib.folderPath, [monthlyRoot]);
+      expect(lib.folderSiblings, isEmpty);
+      expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
+    });
+
+    test('cascade fires: downstream artist/album filters clear and a stale '
+        'trackNumber sort reverts, exactly like the other folder mutations', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.drillIntoFolder('2007-08');
+      lib.setArtists({'Muse'});
+      lib.setAlbums({'Origin'}); // single album -> trackNumber ascending
+      expect(lib.sortColumn, SortColumn.trackNumber);
+      lib.popFolderTo(1);
+      expect(lib.artistFilters, isEmpty);
+      expect(lib.albumFilters, isEmpty);
+      expect(lib.sortColumn, SortColumn.dateAdded);
+      expect(lib.sortAscending, isFalse);
+    });
+
+    test('no-ops (downstream picks preserved) when nothing would change: '
+        'depth at/beyond the current path with no siblings selected', () {
+      lib.drillIntoFolder(monthlyRoot);
+      lib.setArtists({'Muse'});
+      lib.popFolderTo(1); // already exactly at depth 1, no siblings
+      expect(lib.artistFilters, {'Muse'});
+      lib.popFolderTo(5); // beyond the path -- also nothing to do
+      expect(lib.artistFilters, {'Muse'});
+      expect(lib.folderPath, [monthlyRoot]);
+    });
+  });
+
   group('clear (the pinned X)', () {
     test('fully resets to the top-level root list from any depth', () {
       lib.drillIntoFolder(monthlyRoot);
@@ -144,7 +208,7 @@ void main() {
       lib.clearFolderSelection();
       expect(lib.folderPath, isEmpty);
       expect(lib.folderSiblings, isEmpty);
-      expect(lib.folderHeaderText, isNull);
+      expect(lib.folderBreadcrumbs, isEmpty);
       expect(lib.folderEntries, [albumsRoot, monthlyRoot]);
       expect(visibleIds(), hasLength(6));
     });

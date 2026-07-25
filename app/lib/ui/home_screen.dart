@@ -96,7 +96,27 @@ class HomeScreen extends StatelessWidget {
                                       selected: library.folderSiblings,
                                       onSelect: library.setFolderSiblings,
                                       onDrill: library.drillIntoFolder,
-                                      headerText: library.folderHeaderText,
+                                      // Step-wise breadcrumb: a leading
+                                      // 'All' segment (full reset) plus one
+                                      // segment per drill-down step, each
+                                      // ancestor clickable. The 'All'
+                                      // prepend keeps UI segment index ==
+                                      // popFolderTo depth (0 = roots); the
+                                      // trailing sibling/'N selected'
+                                      // segment, when present, is the
+                                      // non-clickable last one, so the
+                                      // deepest clickable index is at most
+                                      // folderPath.length -- which
+                                      // popFolderTo treats as "keep the
+                                      // path, drop the sibling selection".
+                                      headerSegments:
+                                          library.folderBreadcrumbs.isEmpty
+                                              ? null
+                                              : [
+                                                  'All',
+                                                  ...library.folderBreadcrumbs,
+                                                ],
+                                      onHeaderSegmentTap: library.popFolderTo,
                                       onClearHeader:
                                           library.clearFolderSelection,
                                       displayName: library.folderPath.isEmpty
