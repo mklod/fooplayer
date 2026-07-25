@@ -167,16 +167,20 @@ void main() {
             player: player,
             layoutPrefs: LayoutPrefs(),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
-    expect(find.byIcon(Icons.play_arrow), findsNothing); // no current track
+    Finder metroIcon(String asset) => find.byWidgetPredicate((w) =>
+        w is Image &&
+        w.image is AssetImage &&
+        (w.image as AssetImage).assetName == asset);
+    expect(metroIcon(kIconPlay), findsNothing); // no current track
     // Simulate a queue without touching media_kit natives; setVolume triggers
     // notifyListeners without creating the Player.
     player.queueController.setQueue(lib.allTracks, 0);
     await player.setVolume(1.0);
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
-    expect(find.byIcon(Icons.skip_next), findsOneWidget);
-    expect(find.byIcon(Icons.skip_previous), findsOneWidget);
-    expect(find.byIcon(Icons.shuffle), findsOneWidget);
+    expect(metroIcon(kIconPlay), findsOneWidget);
+    expect(metroIcon(kIconNext), findsOneWidget);
+    expect(metroIcon(kIconPrevious), findsOneWidget);
+    expect(metroIcon(kIconShuffleOff), findsOneWidget);
   });
 
   testWidgets('AlbumArt caches its future across rebuilds, only re-fetching on contentId change',
