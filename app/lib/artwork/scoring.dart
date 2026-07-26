@@ -5,143 +5,24 @@
 // unit-test exhaustively, which matters because the cost of a wrong cover
 // silently applied is much higher than the cost of no cover at all.
 //
-// Last modified: 2026-07-25--2113
+// Last modified: 2026-07-25--2214
 
+import 'album_key.dart';
 import 'art_candidate.dart';
+
+export 'album_key.dart' show artworkAlbumKey, artworkHash, normalizeArtworkText;
 
 // ---------------------------------------------------------------------------
 // Normalization
+//
+// THE normalizer lives in album_key.dart -- one implementation shared by the
+// scorer, the sidecar's album key and the picker (plan: the key must come
+// "from the same normalizer the scorer uses"). The names below are the
+// scorer-facing spellings; they are thin aliases, never a second algorithm.
 // ---------------------------------------------------------------------------
 
-/// Latin-1/Latin-Extended folding table. Deliberately explicit rather than
-/// Unicode-NFD-based: Dart's core libraries ship no normalization form, and a
-/// table keeps the transform auditable and identical on every platform.
-const Map<String, String> _diacritics = {
-  'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'ā': 'a',
-  'ă': 'a', 'ą': 'a', 'æ': 'ae',
-  'ç': 'c', 'ć': 'c', 'č': 'c', 'ĉ': 'c', 'ċ': 'c',
-  'ď': 'd', 'đ': 'd', 'ð': 'd',
-  'è': 'e', 'é': 'e', 'ê': 'e', 'ë': 'e', 'ē': 'e', 'ĕ': 'e', 'ė': 'e',
-  'ę': 'e', 'ě': 'e',
-  'ĝ': 'g', 'ğ': 'g', 'ġ': 'g', 'ģ': 'g',
-  'ĥ': 'h', 'ħ': 'h',
-  'ì': 'i', 'í': 'i', 'î': 'i', 'ï': 'i', 'ĩ': 'i', 'ī': 'i', 'ĭ': 'i',
-  'į': 'i', 'ı': 'i',
-  'ĵ': 'j', 'ķ': 'k',
-  'ĺ': 'l', 'ļ': 'l', 'ľ': 'l', 'ł': 'l',
-  'ñ': 'n', 'ń': 'n', 'ņ': 'n', 'ň': 'n',
-  'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'ō': 'o',
-  'ŏ': 'o', 'ő': 'o', 'œ': 'oe',
-  'ŕ': 'r', 'ŗ': 'r', 'ř': 'r',
-  'ś': 's', 'ŝ': 's', 'ş': 's', 'š': 's', 'ș': 's',
-  'ţ': 't', 'ť': 't', 'ŧ': 't', 'ț': 't', 'þ': 'th',
-  'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ũ': 'u', 'ū': 'u', 'ŭ': 'u',
-  'ů': 'u', 'ű': 'u', 'ų': 'u',
-  'ŵ': 'w',
-  'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
-  'ź': 'z', 'ż': 'z', 'ž': 'z',
-  'ß': 'ss',
-};
-
-/// Words that carry no identity of their own in an album title. A trailing
-/// `- <tail>` segment is dropped only when *every* token in the tail is one
-/// of these (or a bare number, e.g. a remaster year) -- so `- EP` and
-/// `- 2011 Remaster` go, while `Kid A - Part Two` survives intact.
-const Set<String> _noiseWords = {
-  'ep',
-  'lp',
-  'single',
-  'singles',
-  'deluxe',
-  'edition',
-  'editions',
-  'expanded',
-  'extended',
-  'remaster',
-  'remastered',
-  'remastering',
-  'remasters',
-  'special',
-  'anniversary',
-  'explicit',
-  'clean',
-  'bonus',
-  'track',
-  'tracks',
-  'version',
-  'reissue',
-  'mono',
-  'stereo',
-  'digital',
-  'digipak',
-  'import',
-  'th',
-  'nd',
-  'rd',
-  'st',
-  'and',
-};
-
-final RegExp _bracketGroup = RegExp(r'\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}');
-final RegExp _apostrophes = RegExp(r"['‘’ʼ`]");
-final RegExp _unicodeDashes = RegExp('[‐-―−]');
-final RegExp _nonAlnum = RegExp(r'[^a-z0-9\s]');
-final RegExp _whitespace = RegExp(r'\s+');
-final RegExp _dashTail = RegExp(r'^(.*\S)\s+-\s+(\S.*)$');
-final RegExp _digitsOnly = RegExp(r'^\d+$');
-
-/// Folds a free-text artist/album string down to a comparable form:
-/// lowercase, `&` -> `and`, bracketed groups removed (`(Deluxe Edition)`,
-/// `[Explicit]`, `{...}`, including nested ones), noise-only `- ` tails
-/// removed (`- EP`, `- 2011 Remaster`), diacritics folded, apostrophes
-/// elided (`don't` -> `dont`), remaining punctuation collapsed to spaces.
-///
-/// Applied to BOTH sides of every comparison, and it is the same function
-/// that builds the album key -- so a track and its artwork entry can never
-/// disagree about what "the same album" means.
-String normalizeText(String? input) {
-  var s = (input ?? '').toLowerCase();
-  if (s.isEmpty) return '';
-
-  s = s.replaceAll('&', ' and ');
-
-  // Remove bracketed groups repeatedly so nesting collapses fully.
-  while (true) {
-    final next = s.replaceAll(_bracketGroup, ' ');
-    if (next == s) break;
-    s = next;
-  }
-
-  s = s.replaceAll(_apostrophes, '');
-
-  // Fold diacritics before punctuation stripping (some fold to two letters).
-  final buf = StringBuffer();
-  for (final ch in s.split('')) {
-    buf.write(_diacritics[ch] ?? ch);
-  }
-  s = buf.toString();
-
-  // Unify dash variants, then drop noise-only ` - ` tails repeatedly
-  // ("Album - EP", "Album - 2011 Remaster - Deluxe Edition"). This has to
-  // happen BEFORE punctuation is flattened, or there is no dash left to
-  // anchor the tail on.
-  s = s.replaceAll(_unicodeDashes, '-');
-  while (true) {
-    final m = _dashTail.firstMatch(s);
-    if (m == null) break;
-    final tail = m
-        .group(2)!
-        .replaceAll(_nonAlnum, ' ')
-        .split(' ')
-        .where((t) => t.isNotEmpty);
-    final allNoise = tail.isNotEmpty &&
-        tail.every((t) => _noiseWords.contains(t) || _digitsOnly.hasMatch(t));
-    if (!allNoise) break;
-    s = m.group(1)!.trim();
-  }
-
-  return s.replaceAll(_nonAlnum, ' ').replaceAll(_whitespace, ' ').trim();
-}
+/// Alias of [normalizeArtworkText] -- see album_key.dart for the algorithm.
+String normalizeText(String? input) => normalizeArtworkText(input);
 
 /// The library-wide identity of an album: `normalizedArtist|normalizedAlbum`.
 ///
@@ -150,14 +31,14 @@ String normalizeText(String? input) {
 /// every other album-less track by the same artist.
 ///
 /// This is the key used by the `.artwork.json` sidecar and by the resolver's
-/// in-memory cache; it is defined here so it can never drift from the
-/// normalizer the scorer uses.
-String albumKey({String? artist, String? album, String? title}) {
-  final a = normalizeText(artist);
-  final b = normalizeText(album);
-  if (b.isNotEmpty) return '$a|$b';
-  return '$a|${normalizeText(title)}';
-}
+/// in-memory cache; it delegates to [artworkAlbumKey] so it can never drift
+/// from the normalizer the scorer uses.
+String albumKey({String? artist, String? album, String? title}) =>
+    artworkAlbumKey(
+      artist: artist ?? '',
+      album: album ?? '',
+      title: title ?? '',
+    );
 
 /// Album key for a provider candidate (its own `artist`/`title` fields).
 String candidateKey(ArtCandidate c) =>

@@ -2,6 +2,15 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-25 — Album artwork lookup (Plan 4, ultracode round)
+
+- **Every album can now get a cover.** Three keyless providers (iTunes Search, Deezer, Cover Art Archive via MusicBrainz — no API keys, no signup) are queried for albums that show no art, scored by a deterministic normalizer + similarity scorer, and the winner is applied automatically **only** when it scores ≥ 75 and beats the runner-up by ≥ 10. Anything ambiguous is left alone: a wrong cover silently applied is worse than none.
+- **Picker on both platforms** — desktop track right-click → "Album artwork…", phone long-press → "Album artwork": one shared grid (thumbnail, source, resolution, current selection marked) plus **Choose file…**, **Paste URL…**, **Search again** (bypasses *and* clears the negative cache) and **Remove artwork**.
+- **Sidecar storage** `.artwork.json` + `.artwork/` per library root, written atomically (tmp → `.bak` → rename, same discipline as the manifest), so artwork travels with the music folder. A read-only root falls back to the app data dir and flags the entry `external`. **Nothing is ever written inside an album directory** and `.library.json` is never touched.
+- **One resolution chain** for the desktop bar, phone mini-player and Now Playing: embedded tag art → sidecar choice → `folder/cover/front.jpg` beside the file → placeholder; async, album-keyed, bounded LRU, in-flight dedupe, and the existing stale-request/flicker guards kept intact. An explicit user pick outranks embedded art (otherwise the picker looks broken on well-tagged albums).
+- **Manners**: MusicBrainz rate-limited to 1 req/s with the project User-Agent, at most 3 concurrent album lookups and 4 concurrent image fetches, per-album in-flight guard, negative results cached for 14 days, whole pass cancellable and cancelled on reload/exit. Every provider failure mode degrades to "no candidates", never an exception to the UI.
+- Built as three parallel worktrees against injected seams, then merged and wired: one shared normalizer (the picker's placeholder and the scorer's copy were collapsed onto it), one `ArtworkQuery` type, and one `ArtworkWiring` object that is the only place the production HTTP implementations are selected. 536/536 tests, `flutter analyze` clean, Windows release build green — **and no test can open a socket**: every network path is an injected seam whose fakes are all the tests ever see.
+
 ## 2026-07-24 — late night: Android goes native (Plan 2b)
 
 - **Phone UI shipped and verified on the emulator**: hamburger drawer (Library / Folders / Artists / Albums / Playlists / Settings), date-feed home with tap-to-play, persistent mini-player, full Now Playing screen with the metro transport glyphs, drill-down folders, playlist management, settings page.

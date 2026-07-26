@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2214
 //
 // Display-side artwork resolution (Plan 4, task A2).
 //
@@ -25,7 +25,7 @@ import '../model/track.dart';
 import 'album_key.dart';
 import 'artwork_store.dart';
 
-export 'album_key.dart' show normalizeArtworkText, artworkAlbumKey;
+export 'album_key.dart' show ArtworkQuery, normalizeArtworkText, artworkAlbumKey;
 
 /// Reads embedded cover art out of an audio file. Defaults to
 /// [readArtSafe] -- the isolate-bounded, timeout-guarded reader; a
@@ -47,27 +47,9 @@ typedef ArtworkDownloader = Future<List<int>?> Function(String url);
 // file or the background pass ever inspects a candidate's fields.
 // ---------------------------------------------------------------------------
 
-/// What an online lookup is asked for.
-class ArtworkQuery {
-  final String artist;
-  final String album;
-
-  /// The album key these terms resolve to (see [artworkAlbumKey]) -- carried
-  /// along so callers don't have to recompute it.
-  final String albumKey;
-
-  const ArtworkQuery({
-    required this.artist,
-    required this.album,
-    required this.albumKey,
-  });
-
-  /// Human-readable form recorded in the sidecar's `query` field.
-  String get terms => [artist, album].where((s) => s.isNotEmpty).join(' ');
-
-  @override
-  String toString() => 'ArtworkQuery($terms)';
-}
+// [ArtworkQuery] -- what an online lookup is asked for -- lives in
+// album_key.dart, shared with the picker (A3). See the note on its
+// declaration: one query type, one album-key spelling.
 
 /// The one thing this half of the feature needs out of a candidate: where to
 /// download it from and which provider it came from. A1's `ArtCandidate`
@@ -360,6 +342,8 @@ class ArtworkResolver extends ChangeNotifier {
     List<int> bytes, {
     required String source,
     String query = '',
+    String origin = '',
+    String extension = '.jpg',
   }) async {
     final store = stores.forRoot(req.rootPath);
     final entry = await store.putImage(
@@ -367,6 +351,8 @@ class ArtworkResolver extends ChangeNotifier {
       bytes,
       source: source,
       query: query,
+      origin: origin,
+      extension: extension,
     );
     invalidate(req.albumKey);
     return entry;

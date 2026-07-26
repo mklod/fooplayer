@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2114
+// Last modified: 2026-07-25--2214
 //
 // Plan 4 (Album Artwork Lookup) task A3 -- ONE picker widget, two chromes.
 //
@@ -48,6 +48,12 @@ String artworkPickerLabelForTrack(Track track) {
 /// The shared picker body. Bounded by its parent (a sized [Dialog] on
 /// desktop, a [Scaffold] body on phone) -- it fills whatever box it gets.
 class ArtworkPicker extends StatefulWidget {
+  /// The track the picker was opened from. Handed to every service seam
+  /// because artwork storage is per LIBRARY ROOT: the album key alone can't
+  /// tell the wiring which root's `.artwork.json` a choice belongs in, and
+  /// two roots may legitimately hold the same album.
+  final Track track;
+
   /// Album key every store call is made against -- computed by the caller
   /// (via [ArtworkServices.albumKey]) so the picker never re-derives it.
   final String albumKey;
@@ -67,6 +73,7 @@ class ArtworkPicker extends StatefulWidget {
 
   const ArtworkPicker({
     super.key,
+    required this.track,
     required this.albumKey,
     required this.albumLabel,
     required this.query,
@@ -106,6 +113,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
     List<PickerCandidate> found;
     try {
       found = await widget.services.search(
+        widget.track,
         widget.query,
         forceRefresh: forceRefresh,
       );
@@ -145,7 +153,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       _error = null;
     });
     try {
-      await widget.services.apply(widget.albumKey, choice);
+      await widget.services.apply(widget.track, widget.albumKey, choice);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -166,7 +174,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       _error = null;
     });
     try {
-      await widget.services.remove(widget.albumKey);
+      await widget.services.remove(widget.track, widget.albumKey);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -196,7 +204,8 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
 
   @override
   Widget build(BuildContext context) {
-    final current = widget.services.currentSelectionId(widget.albumKey);
+    final current =
+        widget.services.currentSelectionId(widget.track, widget.albumKey);
     return Column(
       key: const Key('artwork-picker'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -529,6 +538,7 @@ Future<ArtworkPickerOutcome?> showArtworkPickerDialog(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
           child: ArtworkPicker(
+            track: track,
             albumKey: services.albumKey(track),
             albumLabel: artworkPickerLabelForTrack(track),
             query: artworkQueryForTrack(track),
@@ -565,6 +575,7 @@ class ArtworkPickerPage extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
           child: ArtworkPicker(
+            track: track,
             albumKey: services.albumKey(track),
             albumLabel: artworkPickerLabelForTrack(track),
             query: artworkQueryForTrack(track),

@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/artwork/artwork_picker.dart';
 import 'package:fooplayer_app/artwork/picker_seams.dart';
+import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 
 import 'support/artwork_fakes.dart';
@@ -22,6 +23,7 @@ import 'support/artwork_fakes.dart';
 Future<List<ArtworkPickerOutcome>> pumpPicker(
   WidgetTester tester, {
   required ArtworkServices svc,
+  Track? track,
   String albumKey = 'muse|absolution',
   ArtworkQuery query = const ArtworkQuery(artist: 'Muse', album: 'Absolution'),
   bool settle = true,
@@ -35,6 +37,7 @@ Future<List<ArtworkPickerOutcome>> pumpPicker(
           width: 560,
           height: 480,
           child: ArtworkPicker(
+            track: track ?? artworkFixtureTrack(),
             albumKey: albumKey,
             albumLabel: 'Muse — Absolution',
             query: query,
@@ -93,7 +96,7 @@ void main() {
       svc: fakeArtworkServices(
         search: search,
         store: store,
-        currentSelectionId: (key) =>
+        currentSelectionId: (_, key) =>
             key == 'muse|absolution' ? deezerCandidate.url : null,
       ),
     );
@@ -321,7 +324,7 @@ void main() {
       svc: fakeArtworkServices(
         search: search,
         store: store,
-        currentSelectionId: (_) => itunesCandidate.url,
+        currentSelectionId: (_, _) => itunesCandidate.url,
       ),
       albumKey: 'muse|absolution',
     );
@@ -365,7 +368,7 @@ void main() {
     await pumpPicker(
       tester,
       svc: ArtworkServices(
-        search: (q, {bool forceRefresh = false}) =>
+        search: (t, q, {bool forceRefresh = false}) =>
             Future<List<PickerCandidate>>.error(StateError('boom')),
         apply: store.apply,
         remove: store.remove,

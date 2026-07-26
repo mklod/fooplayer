@@ -1,48 +1,21 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2214
 //
-// Album-key normalization for the artwork subsystem (Plan 4, task A2).
+// Album-key normalization for the artwork subsystem (Plan 4).
 //
-// Deliberately dependency-free (no Flutter, no dart:io) so BOTH the pure
-// scoring code (task A1) and the storage/resolution code (this task) can
-// share exactly one normalizer -- the plan requires the album key to come
-// "from the same normalizer the scorer uses". Keeping it in its own file
-// means A1's `scoring.dart` can import it without dragging in the resolver,
-// the store, or any widget code.
+// **The single normalizer.** The plan requires the album key to come "from
+// the same normalizer the scorer uses", so this file is the one and only
+// implementation: `scoring.dart` (A1) re-exports it as `normalizeText`, and
+// `picker_seams.dart` (A3) builds its track key from it. Two normalizers
+// would let the picker file a cover under a key the background pass never
+// looks at -- exactly the drift the plan forbids.
+//
+// Deliberately dependency-free (no Flutter, no dart:io) so the pure scoring
+// code, the storage code and the widget layer can all share it.
 
-/// Bracketed suffixes/qualifiers that never belong in an album identity:
-/// `(Deluxe Edition)`, `[Explicit]`, `{2011 Remaster}`, ... Any bracketed
-/// run is dropped wholesale -- an album whose *real* title needs brackets is
-/// vanishingly rare compared with the edition noise this removes, and the
-/// key only has to be stable and collision-light, not reversible.
-final RegExp _bracketed = RegExp(r'[\(\[\{][^\)\]\}]*[\)\]\}]');
-
-/// Trailing dash-qualifiers iTunes/Deezer routinely append to album titles
-/// (`- EP`, `- Single`, `- Deluxe Edition`, `- 2011 Remaster`, ...).
-/// Anchored at the end and applied repeatedly so `Foo - EP - Remastered`
-/// collapses too.
-final RegExp _trailingQualifier = RegExp(
-  r'\s*[-–—]\s*('
-  r'ep|single|deluxe(\s+edition)?|deluxe\s+version|special\s+edition|'
-  r'expanded(\s+edition)?|anniversary\s+edition|'
-  r'(\d{4}\s+)?remaster(ed)?(\s+version)?(\s+\d{4})?|'
-  r'bonus\s+track\s+version|explicit(\s+version)?|clean(\s+version)?|'
-  r'original\s+motion\s+picture\s+soundtrack'
-  r')\s*$',
-  caseSensitive: false,
-);
-
-/// Anything that isn't a letter, digit or whitespace, once diacritics are
-/// folded. Punctuation differences ("Rock 'n' Roll" vs "Rock n Roll",
-/// "Vol. 2" vs "Vol 2") must not split one album into two keys.
-final RegExp _punctuation = RegExp(r'[^\p{L}\p{N}\s]', unicode: true);
-
-final RegExp _whitespaceRun = RegExp(r'\s+');
-
-/// Latin-1/Latin-Extended-A diacritic folding table. A lookup table rather
-/// than Unicode NFD decomposition because Dart's core libraries ship no
-/// normalizer, and the alternative (pulling in a package) is not worth it
-/// for the handful of scripts a Western music library actually contains.
-const Map<String, String> _foldings = {
+/// Latin-1/Latin-Extended folding table. Deliberately explicit rather than
+/// Unicode-NFD-based: Dart's core libraries ship no normalization form, and a
+/// table keeps the transform auditable and identical on every platform.
+const Map<String, String> _diacritics = {
   'à': 'a', 'á': 'a', 'â': 'a', 'ã': 'a', 'ä': 'a', 'å': 'a', 'ā': 'a',
   'ă': 'a', 'ą': 'a', 'æ': 'ae',
   'ç': 'c', 'ć': 'c', 'č': 'c', 'ĉ': 'c', 'ċ': 'c',
@@ -59,40 +32,123 @@ const Map<String, String> _foldings = {
   'ò': 'o', 'ó': 'o', 'ô': 'o', 'õ': 'o', 'ö': 'o', 'ø': 'o', 'ō': 'o',
   'ŏ': 'o', 'ő': 'o', 'œ': 'oe',
   'ŕ': 'r', 'ŗ': 'r', 'ř': 'r',
-  'ś': 's', 'ŝ': 's', 'ş': 's', 'š': 's', 'ß': 'ss',
-  'ţ': 't', 'ť': 't', 'ŧ': 't',
+  'ś': 's', 'ŝ': 's', 'ş': 's', 'š': 's', 'ș': 's',
+  'ţ': 't', 'ť': 't', 'ŧ': 't', 'ț': 't', 'þ': 'th',
   'ù': 'u', 'ú': 'u', 'û': 'u', 'ü': 'u', 'ũ': 'u', 'ū': 'u', 'ŭ': 'u',
   'ů': 'u', 'ű': 'u', 'ų': 'u',
-  'ŵ': 'w', 'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
-  'ź': 'z', 'ż': 'z', 'ž': 'z', 'þ': 'th',
+  'ŵ': 'w',
+  'ý': 'y', 'ÿ': 'y', 'ŷ': 'y',
+  'ź': 'z', 'ż': 'z', 'ž': 'z',
+  'ß': 'ss',
 };
 
-String _foldDiacritics(String s) {
-  final b = StringBuffer();
-  for (final rune in s.runes) {
-    final ch = String.fromCharCode(rune);
-    b.write(_foldings[ch] ?? ch);
-  }
-  return b.toString();
-}
+/// Words that carry no identity of their own in an album title. A trailing
+/// `- <tail>` segment is dropped only when *every* token in the tail is one
+/// of these (or a bare number, e.g. a remaster year) -- so `- EP` and
+/// `- 2011 Remaster` go, while `Kid A - Part Two` survives intact.
+const Set<String> _noiseWords = {
+  'ep',
+  'lp',
+  'single',
+  'singles',
+  'deluxe',
+  'edition',
+  'editions',
+  'expanded',
+  'extended',
+  'remaster',
+  'remastered',
+  'remastering',
+  'remasters',
+  'special',
+  'anniversary',
+  'explicit',
+  'clean',
+  'bonus',
+  'track',
+  'tracks',
+  'version',
+  'reissue',
+  'mono',
+  'stereo',
+  'digital',
+  'digipak',
+  'import',
+  'th',
+  'nd',
+  'rd',
+  'st',
+  'and',
+};
 
-/// The shared normalizer: lowercase → fold diacritics → drop bracketed
-/// suffixes → drop trailing dash-qualifiers → strip punctuation → collapse
-/// whitespace → trim.
+final RegExp _bracketGroup = RegExp(r'\([^()]*\)|\[[^\[\]]*\]|\{[^{}]*\}');
+final RegExp _apostrophes = RegExp(r"['‘’ʼ`]");
+final RegExp _unicodeDashes = RegExp('[‐-―−]');
+
+/// Anything that isn't a letter, digit or whitespace. Unicode-aware on
+/// purpose: a Cyrillic/CJK/Greek title must survive normalization as itself
+/// rather than being erased down to `''` (which would collapse every such
+/// album onto one shared key). Diacritics are folded *before* this runs, so
+/// Latin text still converges on its ASCII spelling.
+final RegExp _nonAlnum = RegExp(r'[^\p{L}\p{N}\s]', unicode: true);
+
+final RegExp _whitespace = RegExp(r'\s+');
+final RegExp _dashTail = RegExp(r'^(.*\S)\s+-\s+(\S.*)$');
+final RegExp _digitsOnly = RegExp(r'^\d+$');
+
+/// Folds a free-text artist/album string down to a comparable form:
+/// lowercase, `&` -> `and`, bracketed groups removed (`(Deluxe Edition)`,
+/// `[Explicit]`, `{...}`, including nested ones), noise-only `- ` tails
+/// removed (`- EP`, `- 2011 Remaster`), diacritics folded, apostrophes
+/// elided (`don't` -> `dont`), remaining punctuation collapsed to spaces.
 ///
-/// Pure and total: never throws, returns `''` for null-ish/blank input.
+/// Applied to BOTH sides of every comparison, and it is the same function
+/// that builds the album key -- so a track and its artwork entry can never
+/// disagree about what "the same album" means.
+///
+/// Pure, total and idempotent: never throws, returns `''` for null/blank.
 String normalizeArtworkText(String? input) {
-  if (input == null) return '';
-  var s = _foldDiacritics(input.toLowerCase());
-  s = s.replaceAll(_bracketed, ' ');
-  // Repeat: a title can carry more than one trailing qualifier.
-  for (var i = 0; i < 3; i++) {
-    final next = s.replaceFirst(_trailingQualifier, '');
+  var s = (input ?? '').toLowerCase();
+  if (s.isEmpty) return '';
+
+  s = s.replaceAll('&', ' and ');
+
+  // Remove bracketed groups repeatedly so nesting collapses fully.
+  while (true) {
+    final next = s.replaceAll(_bracketGroup, ' ');
     if (next == s) break;
     s = next;
   }
-  s = s.replaceAll(_punctuation, ' ');
-  return s.replaceAll(_whitespaceRun, ' ').trim();
+
+  s = s.replaceAll(_apostrophes, '');
+
+  // Fold diacritics before punctuation stripping (some fold to two letters).
+  final buf = StringBuffer();
+  for (final ch in s.split('')) {
+    buf.write(_diacritics[ch] ?? ch);
+  }
+  s = buf.toString();
+
+  // Unify dash variants, then drop noise-only ` - ` tails repeatedly
+  // ("Album - EP", "Album - 2011 Remaster - Deluxe Edition"). This has to
+  // happen BEFORE punctuation is flattened, or there is no dash left to
+  // anchor the tail on.
+  s = s.replaceAll(_unicodeDashes, '-');
+  while (true) {
+    final m = _dashTail.firstMatch(s);
+    if (m == null) break;
+    final tail = m
+        .group(2)!
+        .replaceAll(_nonAlnum, ' ')
+        .split(' ')
+        .where((t) => t.isNotEmpty);
+    final allNoise = tail.isNotEmpty &&
+        tail.every((t) => _noiseWords.contains(t) || _digitsOnly.hasMatch(t));
+    if (!allNoise) break;
+    s = m.group(1)!.trim();
+  }
+
+  return s.replaceAll(_nonAlnum, ' ').replaceAll(_whitespace, ' ').trim();
 }
 
 /// The artwork album key: `normalizedArtist|normalizedAlbum`, so every track
@@ -111,6 +167,60 @@ String artworkAlbumKey({
   final al = normalizeArtworkText(album);
   if (al.isNotEmpty) return '$a|$al';
   return '$a|${normalizeArtworkText(title)}';
+}
+
+/// What one album's artwork lookup is asked for.
+///
+/// **One declaration, deliberately.** A2 (background pass) and A3 (picker)
+/// each grew their own `ArtworkQuery` while building in parallel; they are
+/// the same concept, and two of them would mean two spellings of the album
+/// key travelling through the same feature. Both spellings of the search
+/// term ([term] / [terms]) are kept so neither branch's call sites had to be
+/// churned.
+class ArtworkQuery {
+  final String artist;
+  final String album;
+
+  /// Explicit album key, when the caller already computed one (A2 carries it
+  /// on [ArtworkRequest] so nothing downstream has to re-derive it). Null
+  /// means "derive it from artist/album", which is what the picker does.
+  final String? albumKeyOverride;
+
+  const ArtworkQuery({this.artist = '', this.album = '', String? albumKey})
+      : albumKeyOverride = albumKey;
+
+  /// The album key this query files its results under.
+  ///
+  /// The fallback passes [album] as the title too, so a query built for a
+  /// track with no album tag (where the caller puts the *title* in [album],
+  /// see `artworkQueryForTrack`) lands on the same `artist|title` key
+  /// [artworkAlbumKey] would produce for that track.
+  String get albumKey =>
+      albumKeyOverride ??
+      artworkAlbumKey(artist: artist, album: album, title: album);
+
+  /// The single free-text term the keyless providers take (`?term=`/`?q=`),
+  /// and what is recorded in the sidecar's `query` field.
+  String get terms =>
+      [artist, album].map((s) => s.trim()).where((s) => s.isNotEmpty).join(' ');
+
+  /// A3's spelling of [terms].
+  String get term => terms;
+
+  bool get isEmpty => terms.isEmpty;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ArtworkQuery &&
+      other.artist == artist &&
+      other.album == album &&
+      other.albumKeyOverride == albumKeyOverride;
+
+  @override
+  int get hashCode => Object.hash(artist, album, albumKeyOverride);
+
+  @override
+  String toString() => 'ArtworkQuery($terms)';
 }
 
 /// Stable 64-bit FNV-1a hash of [s], lowercase hex, zero-padded to 16 chars.

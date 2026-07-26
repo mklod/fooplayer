@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2114
+// Last modified: 2026-07-25--2214
 //
 // Plan 4 (Album Artwork Lookup) task A3 -- the *seams* the picker UI is
 // built on.
@@ -24,6 +24,9 @@ import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart' as file_selector;
 
 import '../model/track.dart';
+import 'album_key.dart';
+
+export 'album_key.dart' show ArtworkQuery, artworkAlbumKey, normalizeArtworkText;
 
 /// Sidecar `source` ids, per the plan's `.artwork.json` schema
 /// (`"itunes|deezer|caa|local|url|embedded"`). Deliberately plain strings
@@ -68,25 +71,8 @@ String artworkSourceLabel(String source) {
   }
 }
 
-/// What the picker searches for. Mirrors what A1's `ArtQuery` carries;
-/// MERGE: adapt with `ArtQuery(artist: q.artist, album: q.album)`.
-class ArtworkQuery {
-  final String artist;
-  final String album;
-
-  const ArtworkQuery({this.artist = '', this.album = ''});
-
-  /// The single search term the keyless providers take
-  /// (`?term=`/`?q=`), and the string recorded in the sidecar's `query`
-  /// field so a later session can see what produced a cover.
-  String get term =>
-      [artist, album].map((s) => s.trim()).where((s) => s.isNotEmpty).join(' ');
-
-  bool get isEmpty => term.isEmpty;
-
-  @override
-  String toString() => 'ArtworkQuery($term)';
-}
+// [ArtworkQuery] -- what the picker searches for -- is the shared type from
+// album_key.dart (re-exported below), the same one the background pass uses.
 
 /// One row of the candidate grid.
 ///
@@ -203,18 +189,21 @@ class ArtworkChoice {
 /// rather than crashing, but that path should stay unreachable.
 typedef ArtworkSearchFn =
     Future<List<PickerCandidate>> Function(
+      Track track,
       ArtworkQuery query, {
       bool forceRefresh,
     });
 
 /// Persists [choice] as the artwork for [albumKey].
-/// MERGE: A2's sidecar write (`ArtworkStore.setArt`).
+/// Wired to A2's `ArtworkResolver.applyImage` (sidecar write + cache
+/// invalidation, so every visible surface refreshes immediately).
 typedef ArtworkApplyFn =
-    Future<void> Function(String albumKey, ArtworkChoice choice);
+    Future<void> Function(Track track, String albumKey, ArtworkChoice choice);
 
 /// Clears any stored artwork for [albumKey] ("Remove artwork").
-/// MERGE: A2's `ArtworkStore.removeArt`.
-typedef ArtworkRemoveFn = Future<void> Function(String albumKey);
+/// Wired to A2's `ArtworkResolver.removeImage`. Idempotent: removing an
+/// album that has no entry is a no-op, not an error.
+typedef ArtworkRemoveFn = Future<void> Function(Track track, String albumKey);
 
 /// Opens the OS "choose an image" dialog; returns an absolute path, or
 /// null when the user cancelled. Injected so widget tests never open a
@@ -230,35 +219,31 @@ typedef ArtworkThumbLoadFn = Future<Uint8List?> Function(String url);
 /// [albumKey], or null when the album has no chosen artwork -- drives the
 /// "current selection marked" affordance.
 /// MERGE: A2's sidecar lookup.
-typedef ArtworkCurrentFn = String? Function(String albumKey);
+typedef ArtworkCurrentFn = String? Function(Track track, String albumKey);
 
 /// Maps a track to the album key all its artwork is filed under.
-/// MERGE: replace [albumKeyForTrack] with A1's normalizer-backed key so
-/// the picker, the scorer and the store agree byte-for-byte.
+/// Defaults to [albumKeyForTrack], which is the shared normalizer-backed
+/// key -- picker, scorer and store agree byte-for-byte.
 typedef AlbumKeyFn = String Function(Track track);
 
-/// Placeholder normalizer for [albumKeyForTrack] -- lowercase, drop
-/// bracketed suffixes (`(Deluxe Edition)`, `[Explicit]`), strip
-/// punctuation, collapse whitespace. Intentionally minimal: A1 owns the
-/// real one (including diacritic folding and `- EP` handling) and MERGE
-/// should delete this in favour of it.
-String normalizeArtworkKeyPart(String s) {
-  var out = s.toLowerCase();
-  out = out.replaceAll(RegExp(r'[\(\[][^\)\]]*[\)\]]'), ' ');
-  out = out.replaceAll(RegExp(r'[^a-z0-9 ]+'), ' ');
-  out = out.replaceAll(RegExp(r'\s+'), ' ').trim();
-  return out;
-}
+/// The shared normalizer (album_key.dart) -- the picker deliberately does
+/// NOT own one. A second implementation would let the picker file a cover
+/// under a slightly different key than the background best-guess pass
+/// records (diacritics, `- EP` tails, `&` vs `and`), which is exactly what
+/// the plan forbids.
+String normalizeArtworkKeyPart(String s) => normalizeArtworkText(s);
 
 /// The plan's album key: `normalizedArtist|normalizedAlbum`, falling back
 /// to `normalizedArtist|normalizedTitle` for a track with no album so
 /// singles still get their own entry instead of all sharing `artist|`.
-String albumKeyForTrack(Track track) {
-  final artist = normalizeArtworkKeyPart(track.artist);
-  final album = normalizeArtworkKeyPart(track.album);
-  if (album.isEmpty) return '$artist|${normalizeArtworkKeyPart(track.title)}';
-  return '$artist|$album';
-}
+///
+/// Delegates to [artworkAlbumKey] so the picker, the scorer and the store
+/// agree byte-for-byte.
+String albumKeyForTrack(Track track) => artworkAlbumKey(
+  artist: track.artist,
+  album: track.album,
+  title: track.title,
+);
 
 /// The query a track's picker opens with: artist + album, falling back to
 /// the title when the track has no album tag (same fallback shape as
@@ -284,7 +269,7 @@ Future<String?> defaultPickArtworkFile() async {
 /// MERGE points it at A2's downloader; tiles render their placeholder.
 Future<Uint8List?> noArtworkThumbnails(String url) async => null;
 
-String? _noCurrentArtwork(String albumKey) => null;
+String? _noCurrentArtwork(Track track, String albumKey) => null;
 
 /// Everything the picker (and the two entry points that open it) needs,
 /// bundled so wiring is a single constructor call at MERGE time instead of

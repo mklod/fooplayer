@@ -177,7 +177,7 @@ void main() {
         artwork: fakeArtworkServices(
           search: search,
           store: store,
-          currentSelectionId: (_) => itunesCandidate.url,
+          currentSelectionId: (_, _) => itunesCandidate.url,
         ),
       );
 

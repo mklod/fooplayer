@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_resolver.dart';
+import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../model/manifest_io.dart';
@@ -31,6 +32,10 @@ class HomeScreen extends StatelessWidget {
   /// tests that build the screen without an app-level resolver rely on.
   final ArtworkResolver? artworkResolver;
 
+  /// Artwork picker services (Plan 4 A3), forwarded to the track list so its
+  /// row context menu can offer "Album artwork...". Null hides the item.
+  final ArtworkServices? artworkServices;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -39,6 +44,7 @@ class HomeScreen extends StatelessWidget {
     required this.libraryRootsPrefs,
     this.playlistStore,
     this.artworkResolver,
+    this.artworkServices,
   });
 
   @override
@@ -178,7 +184,8 @@ class HomeScreen extends StatelessWidget {
                             child: TrackListView(
                                 library: library,
                                 player: player,
-                                playlistStore: store)),
+                                playlistStore: store,
+                                artwork: artworkServices)),
                         _StatusBar(library: library),
                       ],
                     ),

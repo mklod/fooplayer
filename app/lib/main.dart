@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2214
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -7,7 +7,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'artwork/artwork_backfill.dart';
 import 'artwork/artwork_resolver.dart';
-import 'artwork/artwork_store.dart';
+import 'artwork/artwork_wiring.dart';
+import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
@@ -128,31 +129,19 @@ void main() async {
   );
 
   // ---- Artwork (Plan 4) ---------------------------------------------------
-  // One store per library root (sidecar `.artwork.json` + `.artwork/` image
-  // cache inside the root; app-data fallback when the root is read-only),
-  // one resolver shared by every art surface, and the throttled background
-  // best-guess pass.
-  final artworkStores = ArtworkStoreRegistry(appDataDir: dataDir);
-  final artworkResolver = ArtworkResolver(stores: artworkStores);
-  final artworkBackfill = ArtworkBackfill(
-    resolver: artworkResolver,
-    // MERGE POINT (task A1 -- providers + scoring). `enabled: false` keeps
-    // the automatic pass switched OFF until the three seams below are real:
-    // with stub providers every album would come back "no confident match"
-    // and earn a 14-day negative-cache record, poisoning the sidecar before
-    // the real providers ever ran. It also means this build issues no
-    // network request whatsoever. Wiring is three one-liners plus flipping
-    // `enabled` to true:
-    //   search:     (q) => searchAll(ArtQuery(artist: q.artist, album: q.album))
-    //   autoPick:   (c, q) { final b = bestGuess(c.cast<ArtCandidate>());
-    //                        return b == null ? null
-    //                          : ArtworkPick(url: b.url, source: b.source); }
-    //   downloader: (url) => httpGetBytes(url)
-    enabled: false,
-    search: (_) async => const <dynamic>[],
-    autoPick: (_, _) => null,
-    downloader: (_) async => null,
-  );
+  // One wiring object joins the three halves of the feature: A1's keyless
+  // providers + scorer, A2's per-root sidecar store / display resolution
+  // chain / background pass, and A3's picker. Everything network-facing is
+  // an injected seam inside [ArtworkWiring]; this is the only place the
+  // production HTTP implementations are actually selected.
+  //
+  // The automatic best-guess pass is ON now that the providers behind it are
+  // real: with the stub seams it shipped with, every album would have come
+  // back "no confident match" and earned a 14-day negative-cache record.
+  final artwork = ArtworkWiring.production(appDataDir: dataDir);
+  final artworkResolver = artwork.resolver;
+  final artworkBackfill = artwork.backfill;
+  final artworkServices = artwork.services;
 
   final cacheFile = File(p.join(dataDir.path, 'meta_cache.json'));
   final libraryRootsPrefs = LibraryRootsPrefs(
@@ -224,6 +213,7 @@ void main() async {
     layoutPrefs: layoutPrefs,
     libraryRootsPrefs: libraryRootsPrefs,
     artworkResolver: artworkResolver,
+    artworkServices: artworkServices,
   ));
 }
 
@@ -238,6 +228,11 @@ class FooPlayerApp extends StatelessWidget {
   /// read from one cache and refresh together when a pick changes.
   final ArtworkResolver? artworkResolver;
 
+  /// Artwork picker services (Plan 4 A3) -- the desktop row context menu and
+  /// the phone long-press sheet both hide their "Album artwork" item when
+  /// this is null, so a build without artwork wiring simply has no picker.
+  final ArtworkServices? artworkServices;
+
   const FooPlayerApp({
     super.key,
     required this.library,
@@ -245,6 +240,7 @@ class FooPlayerApp extends StatelessWidget {
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
     this.artworkResolver,
+    this.artworkServices,
   });
 
   @override
@@ -266,6 +262,7 @@ class FooPlayerApp extends StatelessWidget {
               layoutPrefs: layoutPrefs,
               libraryRootsPrefs: libraryRootsPrefs,
               artworkResolver: artworkResolver,
+              artworkServices: artworkServices,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
@@ -285,6 +282,7 @@ class FooPlayerApp extends StatelessWidget {
               track: track,
               library: library,
               store: store,
+              artwork: artworkServices,
             ),
             miniPlayerBuilder: (_) =>
                 MiniPlayer(player: player, artworkResolver: artworkResolver),

@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2214
 //
 // Background best-guess artwork pass (Plan 4, task A2).
 //
@@ -258,6 +258,11 @@ class ArtworkBackfill {
       bytes,
       source: pick.source,
       query: query.terms,
+      // Recording the winning candidate's URL is what lets the picker mark
+      // the auto-applied cover as the current selection when the user opens
+      // it later.
+      origin: pick.url,
+      extension: artworkExtensionFor(pick.url),
     );
     if (entry == null) return ArtworkLookupResult.downloadFailed;
     _applied++;

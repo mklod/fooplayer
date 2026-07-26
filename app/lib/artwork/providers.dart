@@ -74,6 +74,43 @@ Future<ArtHttpResponse> httpArtFetch(
   return ArtHttpResponse(statusCode: res.statusCode, body: res.body);
 }
 
+/// Fetches raw image bytes for [url].
+///
+/// Injected everywhere it is used (the background pass's downloader, the
+/// picker's thumbnail loader) so **no test can reach the network**: this is
+/// the only function in the artwork subsystem that downloads an image, and
+/// nothing constructs it implicitly -- production wires it in `main.dart`.
+///
+/// Returns null for anything that isn't a usable image response (non-200,
+/// empty body, timeout, transport failure). A null is "candidate rejected",
+/// which matters for Cover Art Archive: its URLs are *derived* from a
+/// MusicBrainz release-group id without verifying an image was ever
+/// archived, so a 404 here is an expected outcome, not an error.
+typedef ArtBytesFetch = Future<List<int>?> Function(String url);
+
+Future<List<int>?> httpArtworkBytes(String url) async {
+  final Uri uri;
+  try {
+    uri = Uri.parse(url);
+  } catch (_) {
+    return null;
+  }
+  if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return null;
+  }
+  try {
+    final res = await http.get(
+      uri,
+      headers: const {'User-Agent': kArtworkUserAgent, 'Accept': 'image/*'},
+    ).timeout(kArtFetchTimeout);
+    if (res.statusCode != 200) return null;
+    final bytes = res.bodyBytes;
+    return bytes.isEmpty ? null : bytes;
+  } catch (_) {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rate limiting
 // ---------------------------------------------------------------------------

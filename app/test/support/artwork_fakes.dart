@@ -1,3 +1,5 @@
+// Last modified: 2026-07-25--2214
+//
 // Shared fakes for the Plan 4 task A3 (artwork picker) widget tests.
 //
 // The picker takes every service through [ArtworkServices], so these three
@@ -14,6 +16,7 @@ import 'package:fooplayer_app/model/track.dart';
 /// Records every store call the picker makes, so a test can assert on the
 /// album key AND on what was stored under it.
 class FakeArtworkStore {
+  final List<Track> appliedTracks = [];
   final List<String> appliedKeys = [];
   final List<ArtworkChoice> appliedChoices = [];
   final List<String> removedKeys = [];
@@ -22,13 +25,23 @@ class FakeArtworkStore {
   /// open" path.
   Object? applyError;
 
-  Future<void> apply(String albumKey, ArtworkChoice choice) async {
+  /// MERGE: the store seams carry the [Track] as well as the album key --
+  /// artwork is stored per LIBRARY ROOT, and the key alone can't say which
+  /// root a choice belongs to. The fakes ignore the track; the assertions
+  /// below still pin the key.
+  Future<void> apply(
+    Track track,
+    String albumKey,
+    ArtworkChoice choice,
+  ) async {
     if (applyError != null) throw applyError!;
+    appliedTracks.add(track);
     appliedKeys.add(albumKey);
     appliedChoices.add(choice);
   }
 
-  Future<void> remove(String albumKey) async => removedKeys.add(albumKey);
+  Future<void> remove(Track track, String albumKey) async =>
+      removedKeys.add(albumKey);
 }
 
 /// Fake [ArtworkSearchFn]: serves canned result batches in order (the last
@@ -48,6 +61,7 @@ class FakeArtworkSearch {
   int get calls => queries.length;
 
   Future<List<PickerCandidate>> call(
+    Track track,
     ArtworkQuery query, {
     bool forceRefresh = false,
   }) {
@@ -114,7 +128,7 @@ ArtworkServices fakeArtworkServices({
   remove: store.remove,
   pickFile: pickFile ?? () async => null,
   loadThumb: loadThumb ?? noArtworkThumbnails,
-  currentSelectionId: currentSelectionId ?? (_) => null,
+  currentSelectionId: currentSelectionId ?? (_, _) => null,
 );
 
 /// Smallest valid PNG (1x1, transparent) -- enough for `Image.memory` to

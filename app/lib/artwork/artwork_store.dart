@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2214
 //
 // Artwork sidecar storage (Plan 4, task A2).
 //
@@ -36,6 +36,23 @@ const artworkSidecarSchema = 1;
 /// provider gaining the release eventually gets noticed.
 const defaultArtworkNegativeTtl = Duration(days: 14);
 
+/// Image file extensions we are willing to reuse for the cached copy. The
+/// extension is cosmetic (`Image.memory` sniffs the real format), but keeping
+/// a PNG named `.png` makes the `.artwork/` dir legible to a human.
+const _knownImageExtensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'};
+
+/// Extension to store [urlOrPath]'s bytes under; `.jpg` when it isn't
+/// obvious (every provider we use serves JPEG).
+String artworkExtensionFor(String urlOrPath) {
+  var s = urlOrPath;
+  final q = s.indexOf('?');
+  if (q >= 0) s = s.substring(0, q);
+  final dot = s.lastIndexOf('.');
+  if (dot < 0 || dot < s.length - 6) return '.jpg';
+  final ext = s.substring(dot).toLowerCase();
+  return _knownImageExtensions.contains(ext) ? ext : '.jpg';
+}
+
 /// One recorded artwork choice -- auto-applied best guess, or a user pick.
 ///
 /// [file] is a path RELATIVE to the image cache directory (a bare filename
@@ -52,6 +69,17 @@ class ArtworkEntry {
   /// -- purely informational, surfaced by the picker.
   final String query;
 
+  /// Where the image came from: the provider candidate's full-size URL, the
+  /// URL the user pasted, or the absolute path of a file they chose.
+  ///
+  /// Additive to the plan's documented entry shape (like `external` and the
+  /// top-level `misses` map) and tolerated by older readers, which simply
+  /// ignore the key. It exists so the picker can mark the candidate that is
+  /// *currently* applied: the grid identifies candidates by URL, and without
+  /// this the sidecar records only the cached filename, which no candidate
+  /// can be compared against.
+  final String origin;
+
   /// True when the image lives in the app data dir instead of under the
   /// library root, because the root turned out not to be writable. The
   /// sidecar recording it is then also in the app data dir (see
@@ -63,6 +91,7 @@ class ArtworkEntry {
     required this.source,
     required this.pickedAt,
     this.query = '',
+    this.origin = '',
     this.external = false,
   });
 
@@ -71,6 +100,7 @@ class ArtworkEntry {
         'source': source,
         'pickedAt': pickedAt.toUtc().toIso8601String(),
         'query': query,
+        if (origin.isNotEmpty) 'origin': origin,
         if (external) 'external': true,
       };
 
@@ -87,6 +117,7 @@ class ArtworkEntry {
       source: source is String && source.isNotEmpty ? source : 'unknown',
       pickedAt: (pickedAt ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
       query: raw['query'] is String ? raw['query'] as String : '',
+      origin: raw['origin'] is String ? raw['origin'] as String : '',
       external: raw['external'] == true,
     );
   }
@@ -320,6 +351,7 @@ class ArtworkStore {
     List<int> bytes, {
     required String source,
     String query = '',
+    String origin = '',
     String extension = '.jpg',
   }) async {
     await ensureLoaded();
@@ -342,6 +374,7 @@ class ArtworkStore {
       source: source,
       pickedAt: now().toUtc(),
       query: query,
+      origin: origin,
       external: _external,
     );
     sidecar.art[albumKey] = entry;
