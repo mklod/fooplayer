@@ -1,0 +1,77 @@
+{
+  "data": [
+    {
+      "id": 302127,
+      "title": "Discovery",
+      "link": "https://www.deezer.com/album/302127",
+      "cover": "https://api.deezer.com/album/302127/image",
+      "cover_small": "https://e-cdns-images.dzcdn.net/images/cover/2e018122cb56986277102d2041a592c8/56x56-000000-80-0-0.jpg",
+      "cover_medium": "https://e-cdns-images.dzcdn.net/images/cover/2e018122cb56986277102d2041a592c8/250x250-000000-80-0-0.jpg",
+      "cover_big": "https://e-cdns-images.dzcdn.net/images/cover/2e018122cb56986277102d2041a592c8/500x500-000000-80-0-0.jpg",
+      "cover_xl": "https://e-cdns-images.dzcdn.net/images/cover/2e018122cb56986277102d2041a592c8/1000x1000-000000-80-0-0.jpg",
+      "md5_image": "2e018122cb56986277102d2041a592c8",
+      "genre_id": 113,
+      "nb_tracks": 14,
+      "record_type": "album",
+      "tracklist": "https://api.deezer.com/album/302127/tracks",
+      "explicit_lyrics": false,
+      "artist": {
+        "id": 27,
+        "name": "Daft Punk",
+        "picture": "https://api.deezer.com/artist/27/image",
+        "picture_small": "https://e-cdns-images.dzcdn.net/images/artist/f2bc007b13f0a3ed3e50219f9bb52bc4/56x56-000000-80-0-0.jpg",
+        "tracklist": "https://api.deezer.com/artist/27/top?limit=50",
+        "type": "artist"
+      },
+      "type": "album"
+    },
+    {
+      "id": 12345678,
+      "title": "Discovery (Remastered)",
+      "link": "https://www.deezer.com/album/12345678",
+      "cover": "https://api.deezer.com/album/12345678/image",
+      "cover_small": "https://e-cdns-images.dzcdn.net/images/cover/9a91e0f4b21f1e6c1c5f7b5a3d1c2b0e/56x56-000000-80-0-0.jpg",
+      "cover_medium": "https://e-cdns-images.dzcdn.net/images/cover/9a91e0f4b21f1e6c1c5f7b5a3d1c2b0e/250x250-000000-80-0-0.jpg",
+      "cover_big": "https://e-cdns-images.dzcdn.net/images/cover/9a91e0f4b21f1e6c1c5f7b5a3d1c2b0e/500x500-000000-80-0-0.jpg",
+      "cover_xl": "https://e-cdns-images.dzcdn.net/images/cover/9a91e0f4b21f1e6c1c5f7b5a3d1c2b0e/1000x1000-000000-80-0-0.jpg",
+      "md5_image": "9a91e0f4b21f1e6c1c5f7b5a3d1c2b0e",
+      "genre_id": 113,
+      "nb_tracks": 14,
+      "record_type": "album",
+      "tracklist": "https://api.deezer.com/album/12345678/tracks",
+      "explicit_lyrics": false,
+      "artist": {
+        "id": 27,
+        "name": "Daft Punk",
+        "picture": "https://api.deezer.com/artist/27/image",
+        "tracklist": "https://api.deezer.com/artist/27/top?limit=50",
+        "type": "artist"
+      },
+      "type": "album"
+    },
+    {
+      "id": 8901234,
+      "title": "Discovery",
+      "link": "https://www.deezer.com/album/8901234",
+      "cover": "https://api.deezer.com/album/8901234/image",
+      "cover_small": "https://e-cdns-images.dzcdn.net/images/cover/4f7c9a2b8d3e1f0a6b5c4d3e2f1a0b9c/56x56-000000-80-0-0.jpg",
+      "cover_medium": "https://e-cdns-images.dzcdn.net/images/cover/4f7c9a2b8d3e1f0a6b5c4d3e2f1a0b9c/250x250-000000-80-0-0.jpg",
+      "cover_big": "https://e-cdns-images.dzcdn.net/images/cover/4f7c9a2b8d3e1f0a6b5c4d3e2f1a0b9c/500x500-000000-80-0-0.jpg",
+      "md5_image": "4f7c9a2b8d3e1f0a6b5c4d3e2f1a0b9c",
+      "genre_id": 152,
+      "nb_tracks": 11,
+      "record_type": "album",
+      "tracklist": "https://api.deezer.com/album/8901234/tracks",
+      "explicit_lyrics": false,
+      "artist": {
+        "id": 4050205,
+        "name": "Pink Floyd Tribute Band",
+        "picture": "https://api.deezer.com/artist/4050205/image",
+        "tracklist": "https://api.deezer.com/artist/4050205/top?limit=50",
+        "type": "artist"
+      },
+      "type": "album"
+    }
+  ],
+  "total": 3
+}
