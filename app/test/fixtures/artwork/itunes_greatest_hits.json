@@ -1,0 +1,39 @@
+{
+  "resultCount": 2,
+  "results": [
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 3296287,
+      "collectionId": 1440650428,
+      "artistName": "Queen",
+      "collectionName": "Greatest Hits",
+      "collectionCensoredName": "Greatest Hits",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ab/cd/ef/abcdef01-1111-2222-3333-444455556666/source/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/ab/cd/ef/abcdef01-1111-2222-3333-444455556666/source/100x100bb.jpg",
+      "collectionPrice": 12.99,
+      "trackCount": 17,
+      "country": "USA",
+      "currency": "USD",
+      "releaseDate": "1981-10-26T08:00:00Z",
+      "primaryGenreName": "Rock"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 3296287,
+      "collectionId": 1440650999,
+      "artistName": "Queen",
+      "collectionName": "Greatest Hits II",
+      "collectionCensoredName": "Greatest Hits II",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/12/34/56/12345678-7777-8888-9999-aaaabbbbcccc/source/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/12/34/56/12345678-7777-8888-9999-aaaabbbbcccc/source/100x100bb.jpg",
+      "collectionPrice": 12.99,
+      "trackCount": 17,
+      "country": "USA",
+      "currency": "USD",
+      "releaseDate": "1991-10-28T08:00:00Z",
+      "primaryGenreName": "Rock"
+    }
+  ]
+}
