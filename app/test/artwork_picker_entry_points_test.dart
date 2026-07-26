@@ -15,10 +15,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/artwork/picker_seams.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/library_roots_prefs.dart';
 import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/home_screen.dart';
+import 'package:fooplayer_app/ui/layout_prefs.dart';
 import 'package:fooplayer_app/ui/phone/track_context_sheet.dart';
 import 'package:fooplayer_app/ui/track_list.dart';
 
@@ -87,7 +90,68 @@ Future<void> pumpSheetHost(
   ),
 );
 
+/// The real desktop shell, as `main.dart` builds it. This is the link the
+/// merge had to close: A3 shipped `TrackListView(artwork:)` but nothing
+/// passed anything to it, so the menu item was unreachable in a real build.
+Future<void> pumpHomeScreen(
+  WidgetTester tester, {
+  required LibraryModel library,
+  ArtworkServices? artwork,
+}) => tester.pumpWidget(
+  MaterialApp(
+    theme: buildAppTheme(),
+    home: HomeScreen(
+      library: library,
+      player: PlayerService(),
+      layoutPrefs: LayoutPrefs(),
+      libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+      artworkServices: artwork,
+    ),
+  ),
+);
+
 void main() {
+  group('MERGE: HomeScreen forwards the artwork services', () {
+    testWidgets('no services -> the shell offers no "Album artwork..." item', (
+      tester,
+    ) async {
+      await pumpHomeScreen(tester, library: fixtureLibrary());
+      await tester.tap(
+        find.text('Time Is Running Out'),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('View in folder'), findsOneWidget);
+      expect(find.text('Album artwork...'), findsNothing);
+    });
+
+    testWidgets('services reach the track list, so the picker is reachable '
+        'from the real shell', (tester) async {
+      final search = FakeArtworkSearch([
+        [itunesCandidate],
+      ]);
+      await pumpHomeScreen(
+        tester,
+        library: fixtureLibrary(),
+        artwork: fakeArtworkServices(
+          search: search,
+          store: FakeArtworkStore(),
+        ),
+      );
+      await tester.tap(
+        find.text('Time Is Running Out'),
+        buttons: kSecondaryButton,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Album artwork...'), findsOneWidget);
+
+      await tester.tap(find.text('Album artwork...'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('artwork-picker-dialog')), findsOneWidget);
+      expect(search.calls, 1);
+    });
+  });
+
   group('desktop: track context menu', () {
     testWidgets('no artwork services -> no "Album artwork..." item', (
       tester,
