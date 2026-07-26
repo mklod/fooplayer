@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/artwork_resolver.dart';
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../model/manifest_io.dart';
@@ -25,6 +26,11 @@ class HomeScreen extends StatelessWidget {
   /// so widget tests can substitute a spy that never touches disk.
   final PlaylistStore? playlistStore;
 
+  /// Artwork resolution chain (Plan 4), forwarded to [NowPlayingBar]. Null
+  /// keeps the pre-Plan-4 embedded-art-only behavior, which is what widget
+  /// tests that build the screen without an app-level resolver rely on.
+  final ArtworkResolver? artworkResolver;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -32,6 +38,7 @@ class HomeScreen extends StatelessWidget {
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
     this.playlistStore,
+    this.artworkResolver,
   });
 
   @override
@@ -180,7 +187,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          NowPlayingBar(player: player),
+          NowPlayingBar(player: player, artworkResolver: artworkResolver),
         ],
       ),
     );

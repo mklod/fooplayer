@@ -1,10 +1,13 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-07-25--2115
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
+import 'artwork/artwork_backfill.dart';
+import 'artwork/artwork_resolver.dart';
+import 'artwork/artwork_store.dart';
 import 'model/app_config.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
@@ -62,12 +65,19 @@ class _LifecycleFlusher with WidgetsBindingObserver {
   final LayoutPrefs layoutPrefs;
   final Timer? rescanTimer;
 
-  _LifecycleFlusher(this.layoutPrefs, {this.rescanTimer}) {
+  /// Cancelled on shutdown too: the background artwork pass must not keep
+  /// issuing provider requests (or writing sidecars) while the process is
+  /// tearing down. [ArtworkBackfill.cancel] is synchronous and never waits
+  /// on in-flight I/O, so this can't delay exit.
+  final ArtworkBackfill? artworkBackfill;
+
+  _LifecycleFlusher(this.layoutPrefs, {this.rescanTimer, this.artworkBackfill}) {
     WidgetsBinding.instance.addObserver(this);
     AppLifecycleListener(
       onExitRequested: () async {
         layoutPrefs.flush();
         rescanTimer?.cancel();
+        artworkBackfill?.cancel();
         return AppExitResponse.exit;
       },
     );
@@ -78,6 +88,7 @@ class _LifecycleFlusher with WidgetsBindingObserver {
     if (state == AppLifecycleState.detached) {
       layoutPrefs.flush();
       rescanTimer?.cancel();
+      artworkBackfill?.cancel();
     }
   }
 }
@@ -116,6 +127,33 @@ void main() async {
     },
   );
 
+  // ---- Artwork (Plan 4) ---------------------------------------------------
+  // One store per library root (sidecar `.artwork.json` + `.artwork/` image
+  // cache inside the root; app-data fallback when the root is read-only),
+  // one resolver shared by every art surface, and the throttled background
+  // best-guess pass.
+  final artworkStores = ArtworkStoreRegistry(appDataDir: dataDir);
+  final artworkResolver = ArtworkResolver(stores: artworkStores);
+  final artworkBackfill = ArtworkBackfill(
+    resolver: artworkResolver,
+    // MERGE POINT (task A1 -- providers + scoring). `enabled: false` keeps
+    // the automatic pass switched OFF until the three seams below are real:
+    // with stub providers every album would come back "no confident match"
+    // and earn a 14-day negative-cache record, poisoning the sidecar before
+    // the real providers ever ran. It also means this build issues no
+    // network request whatsoever. Wiring is three one-liners plus flipping
+    // `enabled` to true:
+    //   search:     (q) => searchAll(ArtQuery(artist: q.artist, album: q.album))
+    //   autoPick:   (c, q) { final b = bestGuess(c.cast<ArtCandidate>());
+    //                        return b == null ? null
+    //                          : ArtworkPick(url: b.url, source: b.source); }
+    //   downloader: (url) => httpGetBytes(url)
+    enabled: false,
+    search: (_) async => const <dynamic>[],
+    autoPick: (_, _) => null,
+    downloader: (_) async => null,
+  );
+
   final cacheFile = File(p.join(dataDir.path, 'meta_cache.json'));
   final libraryRootsPrefs = LibraryRootsPrefs(
     roots: appConfig.libraryRoots,
@@ -141,6 +179,10 @@ void main() async {
   // off a rescan here -- the periodic timer and Refresh button already
   // cover ongoing discovery of new files.
   Future<void> reloadLibrary({bool triggerLaunchRescan = false}) async {
+    // Supersede any pass still sweeping the previous root set. cancel() is
+    // synchronous and run() serializes behind it, so this can't delay the
+    // reload or double up on provider traffic.
+    artworkBackfill.cancel();
     await library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,
@@ -148,6 +190,14 @@ void main() async {
     if (triggerLaunchRescan) {
       library.rescan();
     }
+    // Background best-guess pass, queued once load() has fully settled
+    // (feed rendered AND tag enrichment finished -- artist/album tags are
+    // what the album key is built from, so running earlier would key off
+    // filename guesses). Fire-and-forget: never awaited on any UI path, and
+    // it never writes LibraryModel.status.
+    unawaited(
+      artworkBackfill.run(artworkBackfillRequests(library.allTracks)),
+    );
   }
 
   // Settings-dialog add/remove calls writer() above then notifies -- react
@@ -161,7 +211,11 @@ void main() async {
   // -- just skips that tick rather than piling up concurrent scans.
   final rescanTimer = Timer.periodic(_rescanInterval, (_) => library.rescan());
 
-  _LifecycleFlusher(layoutPrefs, rescanTimer: rescanTimer);
+  _LifecycleFlusher(
+    layoutPrefs,
+    rescanTimer: rescanTimer,
+    artworkBackfill: artworkBackfill,
+  );
   WidgetsBinding.instance
       .addPostFrameCallback((_) => reloadLibrary(triggerLaunchRescan: true));
   runApp(FooPlayerApp(
@@ -169,6 +223,7 @@ void main() async {
     player: player,
     layoutPrefs: layoutPrefs,
     libraryRootsPrefs: libraryRootsPrefs,
+    artworkResolver: artworkResolver,
   ));
 }
 
@@ -177,12 +232,19 @@ class FooPlayerApp extends StatelessWidget {
   final PlayerService player;
   final LayoutPrefs layoutPrefs;
   final LibraryRootsPrefs libraryRootsPrefs;
+
+  /// Shared artwork resolution chain (Plan 4) -- handed to every art
+  /// surface so desktop bar, phone mini-player and phone Now Playing all
+  /// read from one cache and refresh together when a pick changes.
+  final ArtworkResolver? artworkResolver;
+
   const FooPlayerApp({
     super.key,
     required this.library,
     required this.player,
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
+    this.artworkResolver,
   });
 
   @override
@@ -203,6 +265,7 @@ class FooPlayerApp extends StatelessWidget {
               player: player,
               layoutPrefs: layoutPrefs,
               libraryRootsPrefs: libraryRootsPrefs,
+              artworkResolver: artworkResolver,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
@@ -223,7 +286,8 @@ class FooPlayerApp extends StatelessWidget {
               library: library,
               store: store,
             ),
-            miniPlayerBuilder: (_) => MiniPlayer(player: player),
+            miniPlayerBuilder: (_) =>
+                MiniPlayer(player: player, artworkResolver: artworkResolver),
             viewBuilders: {
               PhoneView.folders: (_) => FoldersView(
                     library: library,
