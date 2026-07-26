@@ -278,6 +278,36 @@ class ArtworkBackfill {
   }
 }
 
+/// Rescans (via [rescan]) then queues a background best-guess backfill pass
+/// over whatever [tracks] returns afterward.
+///
+/// Shared by every trigger that calls `LibraryModel.rescan` -- app launch's
+/// post-load rescan, main.dart's periodic timer, and the Refresh button in
+/// `ui/home_screen.dart` -- so an album added to a watched folder after
+/// launch, or one that missed the launch-time pass to a transient network
+/// failure, still gets automatic artwork on the very next rescan instead of
+/// only on an app restart.
+///
+/// [rescan] and [tracks] are function seams rather than a `LibraryModel`
+/// parameter, so this file keeps its existing "no dependency on the rest of
+/// the app" shape (see the file doc) and this helper stays unit-testable
+/// with plain fakes. [tracks] is deliberately called only AFTER [rescan]
+/// completes, so a rescan that discovers new tracks queues a backfill pass
+/// that actually covers them.
+///
+/// Fire-and-forget by every caller (never awaited on a UI path) -- the
+/// returned future exists so a caller that DOES want to know when the whole
+/// thing (rescan + backfill pass) has settled -- e.g. a test -- can await
+/// it.
+Future<void> rescanThenBackfill({
+  required Future<void> Function() rescan,
+  required ArtworkBackfill backfill,
+  required List<Track> Function() tracks,
+}) async {
+  await rescan();
+  await backfill.run(artworkBackfillRequests(tracks()));
+}
+
 /// One [ArtworkRequest] per album across [tracks] -- what [ArtworkBackfill.run]
 /// wants. First track of each album key wins (that's the file whose embedded
 /// art / sibling folder image gets checked).

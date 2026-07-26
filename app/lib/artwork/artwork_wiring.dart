@@ -191,6 +191,14 @@ class ArtworkWiring {
   /// Provider JSON transport (A1's seam). Injected; defaults to HTTP.
   final ArtFetch fetch;
 
+  /// Rate limiter for the MusicBrainz-backed Cover Art Archive lookup that
+  /// both the background pass and the picker's search share (adversarial
+  /// review finding 2 -- see [RateLimitPriority]). Injected so a test can
+  /// substitute an instant, private one instead of exercising the
+  /// process-wide [musicBrainzLimiter] (shared global state every other
+  /// caller in the same isolate would also see).
+  final RateLimiter caaLimiter;
+
   late final ArtworkBackfill backfill;
 
   ArtworkWiring({
@@ -201,11 +209,13 @@ class ArtworkWiring {
     this.fetch = httpArtFetch,
     ArtBytesFetch imageFetch = httpArtworkBytes,
     this.readLocal = readLocalArtworkFile,
+    RateLimiter? caaLimiter,
     bool backfillEnabled = true,
     int maxConcurrent = 3,
     Duration gap = defaultArtworkBackfillGap,
   })  : images = images ?? ArtworkImageCache(fetch: imageFetch),
-        candidates = candidates ?? ArtworkCandidateCache() {
+        candidates = candidates ?? ArtworkCandidateCache(),
+        caaLimiter = caaLimiter ?? musicBrainzLimiter {
     backfill = ArtworkBackfill(
       resolver: resolver,
       search: searchForBackfill,
@@ -255,11 +265,18 @@ class ArtworkWiring {
       searchCandidates(query.artist, query.album, albumKey: query.albumKey);
 
   /// Runs the three keyless providers for an album and caches the result.
+  ///
+  /// [priority] and [caaBudget] (adversarial review finding 2) are forwarded
+  /// verbatim to [searchAll] -- see its doc. Every caller in this file other
+  /// than [_pickerSearch] uses the defaults (background priority, no CAA
+  /// budget), which is exactly the pre-fix behavior for the automatic pass.
   Future<List<ArtCandidate>> searchCandidates(
     String artist,
     String album, {
     String? albumKey,
     bool forceRefresh = false,
+    RateLimitPriority priority = RateLimitPriority.background,
+    Duration? caaBudget,
   }) async {
     final key = albumKey ??
         artworkAlbumKey(artist: artist, album: album, title: album);
@@ -269,8 +286,13 @@ class ArtworkWiring {
     }
     List<ArtCandidate> found;
     try {
-      found = await searchAll(ArtQuery(artist: artist, album: album),
-          fetch: fetch);
+      found = await searchAll(
+        ArtQuery(artist: artist, album: album),
+        fetch: fetch,
+        limiter: caaLimiter,
+        priority: priority,
+        caaBudget: caaBudget,
+      );
     } catch (_) {
       return const <ArtCandidate>[];
     }
@@ -319,6 +341,12 @@ class ArtworkWiring {
     currentSelectionId: _currentSelectionId,
   );
 
+  /// The picker's search -- ALWAYS [RateLimitPriority.interactive] (jumps
+  /// any currently-queued background backfill lookups on the shared
+  /// MusicBrainz limiter) and bounded by [kInteractiveCaaBudget] (proceeds
+  /// with whatever iTunes/Deezer already found rather than making the
+  /// picker's spinner wait on a slow Cover Art Archive). Adversarial review
+  /// finding 2 -- see [RateLimitPriority] and [searchAll]'s doc.
   Future<List<PickerCandidate>> _pickerSearch(
     Track track,
     ArtworkQuery query, {
@@ -346,6 +374,8 @@ class ArtworkWiring {
       query.album,
       albumKey: req.albumKey,
       forceRefresh: forceRefresh,
+      priority: RateLimitPriority.interactive,
+      caaBudget: kInteractiveCaaBudget,
     );
     return [for (final c in found) toPickerCandidate(c)];
   }

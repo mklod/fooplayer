@@ -177,7 +177,14 @@ void main() async {
       cacheFile: cacheFile,
     );
     if (triggerLaunchRescan) {
-      library.rescan();
+      // Once the launch rescan itself settles, queue a FOLLOW-UP backfill
+      // pass covering whatever it discovered -- see [rescanThenBackfill]'s
+      // doc for why every rescan trigger (not just load()) needs this.
+      unawaited(rescanThenBackfill(
+        rescan: library.rescan,
+        backfill: artworkBackfill,
+        tracks: () => library.allTracks,
+      ));
     }
     // Background best-guess pass, queued once load() has fully settled
     // (feed rendered AND tag enrichment finished -- artist/album tags are
@@ -198,7 +205,19 @@ void main() async {
   // whenever a load()/rescan() is already in flight, so an overlap here --
   // e.g. a slow SMB rescan still running when the next 5-minute tick fires
   // -- just skips that tick rather than piling up concurrent scans.
-  final rescanTimer = Timer.periodic(_rescanInterval, (_) => library.rescan());
+  //
+  // Chained through [rescanThenBackfill] (not a bare `library.rescan()`) so
+  // albums this tick discovers get an automatic artwork pass too -- without
+  // it, only the very first load() ever queued a backfill and everything
+  // found afterward sat un-arted until the app restarted.
+  final rescanTimer = Timer.periodic(
+    _rescanInterval,
+    (_) => unawaited(rescanThenBackfill(
+      rescan: library.rescan,
+      backfill: artworkBackfill,
+      tracks: () => library.allTracks,
+    )),
+  );
 
   _LifecycleFlusher(
     layoutPrefs,
@@ -214,6 +233,7 @@ void main() async {
     libraryRootsPrefs: libraryRootsPrefs,
     artworkResolver: artworkResolver,
     artworkServices: artworkServices,
+    artworkBackfill: artworkBackfill,
   ));
 }
 
@@ -233,6 +253,13 @@ class FooPlayerApp extends StatelessWidget {
   /// this is null, so a build without artwork wiring simply has no picker.
   final ArtworkServices? artworkServices;
 
+  /// Background best-guess artwork pass -- forwarded to [HomeScreen] so its
+  /// Refresh button can queue a pass after a manual rescan (see
+  /// [rescanThenBackfill]). Null keeps the pre-fix behavior (plain rescan,
+  /// no backfill queued), which is what widget tests building this app
+  /// without the artwork feature wired rely on.
+  final ArtworkBackfill? artworkBackfill;
+
   const FooPlayerApp({
     super.key,
     required this.library,
@@ -241,6 +268,7 @@ class FooPlayerApp extends StatelessWidget {
     required this.libraryRootsPrefs,
     this.artworkResolver,
     this.artworkServices,
+    this.artworkBackfill,
   });
 
   @override
@@ -263,6 +291,7 @@ class FooPlayerApp extends StatelessWidget {
               libraryRootsPrefs: libraryRootsPrefs,
               artworkResolver: artworkResolver,
               artworkServices: artworkServices,
+              artworkBackfill: artworkBackfill,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills

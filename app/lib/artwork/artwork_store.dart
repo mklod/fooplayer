@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'album_key.dart';
+import 'image_sniff.dart';
 
 /// The per-root sidecar and its atomic-write companions -- same
 /// tmp/`.bak` discipline (and the same names-next-to-each-other layout) as
@@ -381,10 +382,13 @@ class ArtworkStore {
 
   /// Records [bytes] as [albumKey]'s artwork and persists the sidecar.
   ///
-  /// Returns the written entry, or null when even the fallback location
-  /// couldn't be written (no art recorded -- callers just keep showing the
-  /// placeholder). Writing an entry clears any negative-cache record for
-  /// the same key.
+  /// Returns the written entry, or null when [bytes] isn't a recognized
+  /// image (adversarial review finding 6 -- see [looksLikeImage]'s doc: a
+  /// backstop against a caller that skipped/lost its own validation, e.g. a
+  /// non-image local file picked with the wrong extension) or when even the
+  /// fallback location couldn't be written (no art recorded -- callers just
+  /// keep showing the placeholder). Writing an entry clears any
+  /// negative-cache record for the same key.
   Future<ArtworkEntry?> putImage(
     String albumKey,
     List<int> bytes, {
@@ -393,20 +397,42 @@ class ArtworkStore {
     String origin = '',
     String extension = '.jpg',
   }) async {
+    if (!looksLikeImage(bytes)) return null;
     await ensureLoaded();
     final dir = await _resolveWriteDir();
     if (dir == null) return null;
     final name = '${artworkHash(albumKey)}$extension';
+    final target = File(p.join(dir.path, name));
+    // Captured BEFORE the sidecar entry below is overwritten -- imageFileFor
+    // reads the CURRENT entry, so this is the file (if any) this pick is
+    // about to replace.
+    final previousFile = imageFileFor(albumKey);
     try {
       // tmp-then-rename for the image too: a half-written jpg that a later
       // launch happily "finds" would be worse than no art at all.
       final tmp = File(p.join(dir.path, '$name.tmp'));
       await tmp.writeAsBytes(bytes, flush: true);
-      final target = File(p.join(dir.path, name));
       if (await target.exists()) await target.delete();
       await tmp.rename(target.path);
     } catch (_) {
       return null;
+    }
+    // Best-effort cleanup of the PRIOR pick's file when this one lands
+    // under a different name -- e.g. a .jpg replaced by a .png/.webp pick
+    // (same hash, different extension), or a switch between the root cache
+    // and the external fallback. Without this, [name] only ever matched
+    // the exact-same-extension case, so a different-extension replace left
+    // the old file behind forever: nothing else ever revisits a filename
+    // the current sidecar entry no longer points to. Leaving an orphan
+    // behind on a failed delete is harmless; failing the pick that just
+    // landed is not.
+    if (previousFile != null &&
+        p.normalize(previousFile.path) != p.normalize(target.path)) {
+      try {
+        if (await previousFile.exists()) await previousFile.delete();
+      } catch (_) {
+        // Same reasoning as [remove]'s own best-effort delete.
+      }
     }
     final entry = ArtworkEntry(
       file: name,

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
@@ -36,6 +39,14 @@ class HomeScreen extends StatelessWidget {
   /// row context menu can offer "Album artwork...". Null hides the item.
   final ArtworkServices? artworkServices;
 
+  /// Background best-guess artwork pass -- the Refresh button below queues a
+  /// pass over any newly-discovered tracks once its manual rescan settles
+  /// (mirroring what main.dart's periodic timer and launch-time rescan
+  /// already do; see [rescanThenBackfill]). Null falls back to a plain
+  /// `library.rescan()` with no backfill queued, which is what widget tests
+  /// building this screen without the artwork feature wired rely on.
+  final ArtworkBackfill? artworkBackfill;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -45,6 +56,7 @@ class HomeScreen extends StatelessWidget {
     this.playlistStore,
     this.artworkResolver,
     this.artworkServices,
+    this.artworkBackfill,
   });
 
   @override
@@ -88,7 +100,10 @@ class HomeScreen extends StatelessWidget {
                             children: [
                               Expanded(child: _SearchField(library: library)),
                               const SizedBox(width: 4),
-                              _RefreshButton(library: library),
+                              _RefreshButton(
+                                library: library,
+                                artworkBackfill: artworkBackfill,
+                              ),
                             ],
                           ),
                         ),
@@ -416,9 +431,16 @@ class _SearchFieldState extends State<_SearchField> {
 /// overlapping rescan; [LibraryModel.rescan] itself would just no-op it
 /// anyway, but disabling communicates that visually instead of silently
 /// swallowing the tap.
+///
+/// When [artworkBackfill] is supplied, the rescan is chained through
+/// [rescanThenBackfill] so any newly-discovered tracks get an automatic
+/// artwork pass queued once the rescan settles -- without this, a manual
+/// refresh (like the periodic timer) never triggered a backfill at all, so
+/// an album added after launch showed no art until the app was restarted.
 class _RefreshButton extends StatelessWidget {
   final LibraryModel library;
-  const _RefreshButton({required this.library});
+  final ArtworkBackfill? artworkBackfill;
+  const _RefreshButton({required this.library, this.artworkBackfill});
 
   @override
   Widget build(BuildContext context) {
@@ -428,7 +450,20 @@ class _RefreshButton extends StatelessWidget {
         key: const Key('refresh-library'),
         icon: const Icon(Icons.refresh),
         tooltip: 'Rescan library folders',
-        onPressed: library.busy ? null : () => library.rescan(),
+        onPressed: library.busy
+            ? null
+            : () {
+                final backfill = artworkBackfill;
+                if (backfill == null) {
+                  library.rescan();
+                } else {
+                  unawaited(rescanThenBackfill(
+                    rescan: library.rescan,
+                    backfill: backfill,
+                    tracks: () => library.allTracks,
+                  ));
+                }
+              },
       ),
     );
   }

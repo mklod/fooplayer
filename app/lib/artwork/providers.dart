@@ -13,11 +13,14 @@
 // Last modified: 2026-07-25--2113
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'art_candidate.dart';
+import 'image_sniff.dart';
 
 export 'art_candidate.dart' show ArtQuery, ArtCandidate, ArtSource;
 
@@ -74,6 +77,19 @@ Future<ArtHttpResponse> httpArtFetch(
   return ArtHttpResponse(statusCode: res.statusCode, body: res.body);
 }
 
+/// Fetches raw image bytes for [url]. See [httpArtworkBytes] for the
+/// production implementation this typedef is injected with.
+typedef ArtBytesFetch = Future<List<int>?> Function(String url);
+
+/// Hard ceiling on a single downloaded image, in bytes. Artwork is a nicety
+/// -- nothing in the app needs a multi-megabyte image, and "Paste URL..."
+/// accepts arbitrary user input, so a URL serving something huge (by
+/// accident or on purpose) must not be allowed to buffer unbounded memory
+/// or spend unbounded bandwidth/time. 12 MB is comfortably above any real
+/// album cover (even a lossless 3000x3000 PNG is a few MB) while still
+/// catching a truly oversized response quickly.
+const int kArtworkMaxBytes = 12 * 1024 * 1024;
+
 /// Fetches raw image bytes for [url].
 ///
 /// Injected everywhere it is used (the background pass's downloader, the
@@ -82,13 +98,36 @@ Future<ArtHttpResponse> httpArtFetch(
 /// nothing constructs it implicitly -- production wires it in `main.dart`.
 ///
 /// Returns null for anything that isn't a usable image response (non-200,
-/// empty body, timeout, transport failure). A null is "candidate rejected",
-/// which matters for Cover Art Archive: its URLs are *derived* from a
-/// MusicBrainz release-group id without verifying an image was ever
-/// archived, so a 404 here is an expected outcome, not an error.
-typedef ArtBytesFetch = Future<List<int>?> Function(String url);
-
-Future<List<int>?> httpArtworkBytes(String url) async {
+/// empty body, not a recognized image format, over [kArtworkMaxBytes],
+/// timeout, transport failure). A null is "candidate rejected", which
+/// matters for Cover Art Archive: its URLs are *derived* from a MusicBrainz
+/// release-group id without verifying an image was ever archived, so a 404
+/// here is an expected outcome, not an error.
+///
+/// **Streamed, not buffered whole.** Reads the response in chunks and
+/// aborts (cancelling the connection) the instant the running total passes
+/// [kArtworkMaxBytes], rather than the old `http.get()` convenience call
+/// that always buffered the ENTIRE body into memory first and only checked
+/// its size afterward -- against an arbitrary user-pasted URL, that meant an
+/// oversized (or endless) response could exhaust memory before this
+/// function ever got a chance to reject it.
+///
+/// **Magic-byte validated** (adversarial review finding 6): a 200 response
+/// with a non-image body (an HTML error/redirect page is the common case
+/// for a URL that isn't a direct image link) is rejected here rather than
+/// stored as a "successful" pick that's never retried.
+///
+/// [clientFactory] builds the (single-use, closed at the end of this call)
+/// [http.Client] -- defaults to a real one, injectable so tests can hand it
+/// a `package:http/testing.dart` `MockClient` and exercise the streaming
+/// cap/validation without a socket. Still satisfies the plain
+/// `Future<List<int>?> Function(String)` shape [ArtBytesFetch] expects
+/// (an optional named parameter doesn't change the call sites that omit
+/// it), so production wiring in `artwork_wiring.dart` needs no changes.
+Future<List<int>?> httpArtworkBytes(
+  String url, {
+  http.Client Function() clientFactory = http.Client.new,
+}) async {
   final Uri uri;
   try {
     uri = Uri.parse(url);
@@ -98,16 +137,38 @@ Future<List<int>?> httpArtworkBytes(String url) async {
   if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
     return null;
   }
+  final client = clientFactory();
   try {
-    final res = await http.get(
-      uri,
-      headers: const {'User-Agent': kArtworkUserAgent, 'Accept': 'image/*'},
-    ).timeout(kArtFetchTimeout);
-    if (res.statusCode != 200) return null;
-    final bytes = res.bodyBytes;
-    return bytes.isEmpty ? null : bytes;
+    final request = http.Request('GET', uri)
+      ..headers['User-Agent'] = kArtworkUserAgent
+      ..headers['Accept'] = 'image/*';
+    final streamed = await client.send(request).timeout(kArtFetchTimeout);
+    if (streamed.statusCode != 200) return null;
+    // A declared size already over the cap: don't read a single byte.
+    final declaredLength = streamed.contentLength;
+    if (declaredLength != null && declaredLength > kArtworkMaxBytes) {
+      return null;
+    }
+
+    final builder = BytesBuilder(copy: false);
+    var oversize = false;
+    await for (final chunk in streamed.stream.timeout(kArtFetchTimeout)) {
+      builder.add(chunk);
+      if (builder.length > kArtworkMaxBytes) {
+        oversize = true;
+        break; // cancels the stream subscription -- no more bytes read
+      }
+    }
+    if (oversize) return null;
+
+    final bytes = builder.takeBytes();
+    if (bytes.isEmpty) return null;
+    if (!looksLikeImage(bytes)) return null;
+    return bytes;
   } catch (_) {
     return null;
+  } finally {
+    client.close();
   }
 }
 
@@ -115,8 +176,34 @@ Future<List<int>?> httpArtworkBytes(String url) async {
 // Rate limiting
 // ---------------------------------------------------------------------------
 
+/// Where a [RateLimiter.schedule] request sits in the queue (adversarial
+/// review finding 2).
+///
+/// The picker's search (and "Search again") and the background best-guess
+/// pass share ONE process-wide MusicBrainz limiter -- that's the whole
+/// point, since MusicBrainz's <=1 req/sec rule is per-CLIENT, not
+/// per-caller. But a strict FIFO queue meant an interactive request that
+/// landed behind a few hundred queued background lookups could sit in the
+/// picker's spinner for minutes. [interactive] requests jump every
+/// currently-queued [background] one (see [RateLimiter]'s doc for exactly
+/// how); the overall pacing -- still at most one dispatch every
+/// [RateLimiter.minInterval], no matter the mix -- is never relaxed for
+/// either lane, so MusicBrainz's rate limit is honoured exactly as before.
+enum RateLimitPriority { interactive, background }
+
 /// Serializes work and enforces a minimum gap between the *starts* of
-/// consecutive actions.
+/// consecutive actions -- with a priority lane (adversarial review
+/// finding 2): [RateLimitPriority.interactive] requests are always
+/// dispatched before any currently-queued [RateLimitPriority.background]
+/// one, without loosening [minInterval] for either.
+///
+/// **Where priority is decided.** [schedule] appends to one of two FIFO
+/// queues by [RateLimitPriority]; the pump loop only picks WHICH queue's
+/// head runs next AFTER waiting out the pacing gap (never before) -- so an
+/// interactive request that arrives WHILE the limiter is already waiting on
+/// the gap still gets to cut in front of every background request queued
+/// before it. Within one priority tier, order is plain FIFO (unchanged from
+/// before this queue existed).
 ///
 /// The clock and the sleep are injected so tests can prove the spacing
 /// without actually spending wall-clock seconds (see `providers_test.dart`).
@@ -126,7 +213,9 @@ class RateLimiter {
   final DateTime Function() _now;
 
   DateTime? _lastStart;
-  Future<void> _chain = Future<void>.value();
+  final Queue<_LimiterTask> _interactive = Queue();
+  final Queue<_LimiterTask> _background = Queue();
+  bool _pumping = false;
 
   RateLimiter({
     required this.minInterval,
@@ -136,31 +225,63 @@ class RateLimiter {
         _now = now ?? DateTime.now;
 
   /// Runs [action] no sooner than [minInterval] after the previous action
-  /// started. Failures propagate to the caller but never poison the queue.
-  Future<T> schedule<T>(Future<T> Function() action) {
+  /// (of either priority) started. Failures propagate to the caller but
+  /// never poison the queue -- a failed action doesn't stop later ones,
+  /// queued or not-yet-arrived, from running on schedule.
+  Future<T> schedule<T>(
+    Future<T> Function() action, {
+    RateLimitPriority priority = RateLimitPriority.background,
+  }) {
     final completer = Completer<T>();
-    _chain = _chain.then((_) async {
-      final last = _lastStart;
-      if (last != null) {
-        final wait = minInterval - _now().difference(last);
-        if (wait > Duration.zero) await _sleep(wait);
-      }
-      _lastStart = _now();
+    final task = _LimiterTask(() async {
       try {
         completer.complete(await action());
       } catch (e, st) {
-        // Completed as an error for the caller; the chain itself stays
-        // healthy so a single failed request can't wedge the limiter.
         completer.completeError(e, st);
       }
     });
+    (priority == RateLimitPriority.interactive ? _interactive : _background)
+        .add(task);
+    _pump();
     return completer.future;
   }
+
+  /// Drains both queues one task at a time. Idempotent to call while
+  /// already running (guarded by [_pumping]) -- every [schedule] call
+  /// invokes this, but only the first live one actually starts a loop; the
+  /// rest just make sure their task is in a queue the running loop will see.
+  void _pump() {
+    if (_pumping) return;
+    _pumping = true;
+    () async {
+      while (_interactive.isNotEmpty || _background.isNotEmpty) {
+        final last = _lastStart;
+        if (last != null) {
+          final wait = minInterval - _now().difference(last);
+          if (wait > Duration.zero) await _sleep(wait);
+        }
+        // Decided AFTER the wait, not before: an interactive request that
+        // arrived during the wait above still wins over a background one
+        // that was already queued -- see the class doc.
+        final next =
+            _interactive.isNotEmpty ? _interactive.removeFirst() : _background.removeFirst();
+        _lastStart = _now();
+        await next.run();
+      }
+      _pumping = false;
+    }();
+  }
+}
+
+class _LimiterTask {
+  final Future<void> Function() run;
+  _LimiterTask(this.run);
 }
 
 /// Process-wide MusicBrainz limiter. Every un-injected CAA lookup shares it,
 /// which is the whole point: three albums looked up "concurrently" still hit
-/// MusicBrainz one request per second.
+/// MusicBrainz one request per second -- across BOTH priority lanes (see
+/// [RateLimitPriority]).
 final RateLimiter musicBrainzLimiter =
     RateLimiter(minInterval: kMusicBrainzMinInterval);
 
@@ -396,12 +517,15 @@ String musicBrainzArtistCredit(Object? credit) {
 ///
 /// Rate-limited through [limiter] (defaults to the process-wide
 /// [musicBrainzLimiter]) and always sends [kArtworkUserAgent] -- both are
-/// conditions of MusicBrainz's terms of use, not optimizations.
+/// conditions of MusicBrainz's terms of use, not optimizations. [priority]
+/// (adversarial review finding 2) is forwarded verbatim to the limiter --
+/// see [RateLimitPriority]'s doc.
 Future<List<ArtCandidate>> searchCoverArtArchive(
   ArtQuery q, {
   ArtFetch fetch = httpArtFetch,
   int limit = 10,
   RateLimiter? limiter,
+  RateLimitPriority priority = RateLimitPriority.background,
 }) =>
     _guarded(() async {
       if (q.isEmpty) return const <ArtCandidate>[];
@@ -413,6 +537,7 @@ Future<List<ArtCandidate>> searchCoverArtArchive(
             'Accept': 'application/json',
           },
         ),
+        priority: priority,
       );
       final json = _decodeObject(res);
       if (json == null) return const <ArtCandidate>[];
@@ -439,6 +564,17 @@ Future<List<ArtCandidate>> searchCoverArtArchive(
 // All providers
 // ---------------------------------------------------------------------------
 
+/// How long [searchAll] waits on Cover Art Archive specifically before
+/// proceeding without it, when a [searchAll] caller opts in via
+/// [searchAll]'s `caaBudget` (adversarial review finding 2). iTunes and
+/// Deezer typically answer in well under a second; MusicBrainz (behind CAA)
+/// is the slowest and the only rate-limited leg of the three, so an
+/// interactive caller that already has the other two providers' results in
+/// hand must not sit spinning on it. Not applied unless a caller asks for
+/// it -- the background pass has nobody waiting on it and always wants
+/// CAA's answer if one is coming, however long that takes.
+const Duration kInteractiveCaaBudget = Duration(seconds: 3);
+
 /// Queries every provider and returns the union of their candidates, in
 /// provider order (iTunes, Deezer, Cover Art Archive).
 ///
@@ -446,22 +582,38 @@ Future<List<ArtCandidate>> searchCoverArtArchive(
 /// concurrent provider fetches" ceiling -- and each one is independently
 /// error-isolated, so one provider being down or slow costs nothing but its
 /// own results. Ranking/deduping is `scoring.dart`'s job, not this one's.
+///
+/// [priority] is forwarded to the MusicBrainz [limiter] (see
+/// [RateLimitPriority]). [caaBudget], when non-null, caps how long this call
+/// waits on Cover Art Archive: past that budget CAA is treated exactly like
+/// any other "no candidates" outcome (same as a provider that legitimately
+/// returned nothing) -- iTunes/Deezer's results are returned regardless.
+/// CAA's own request is NOT cancelled when the budget expires (it keeps its
+/// place in the rate limiter and completes on its own schedule); its result
+/// is simply not waited on by this call. Adversarial review finding 2.
 Future<List<ArtCandidate>> searchAll(
   ArtQuery q, {
   ArtFetch fetch = httpArtFetch,
   int limitPerProvider = 10,
   RateLimiter? limiter,
+  RateLimitPriority priority = RateLimitPriority.background,
+  Duration? caaBudget,
 }) async {
   if (q.isEmpty) return const <ArtCandidate>[];
+  Future<List<ArtCandidate>> caa = _guarded(() => searchCoverArtArchive(
+        q,
+        fetch: fetch,
+        limit: limitPerProvider,
+        limiter: limiter,
+        priority: priority,
+      ));
+  if (caaBudget != null) {
+    caa = caa.timeout(caaBudget, onTimeout: () => const <ArtCandidate>[]);
+  }
   final results = await Future.wait<List<ArtCandidate>>([
     _guarded(() => searchItunes(q, fetch: fetch, limit: limitPerProvider)),
     _guarded(() => searchDeezer(q, fetch: fetch, limit: limitPerProvider)),
-    _guarded(() => searchCoverArtArchive(
-          q,
-          fetch: fetch,
-          limit: limitPerProvider,
-          limiter: limiter,
-        )),
+    caa,
   ]);
   return [for (final r in results) ...r];
 }

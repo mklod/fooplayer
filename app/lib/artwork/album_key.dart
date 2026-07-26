@@ -158,14 +158,38 @@ String normalizeArtworkText(String? input) {
 /// `normalizedArtist|normalizedTitle` -- a single-track key, so loose files
 /// don't all collapse onto one shared `artist|` bucket and inherit each
 /// other's covers.
+///
+/// **Fully-untagged fallback.** When artist AND album are BOTH blank (a bare
+/// filename rip like `01.mp3` with no tags at all), the title alone is not a
+/// safe discriminator either: filename-derived fallback titles ("01", "02",
+/// "Track 1", ...) repeat across every untagged album in the library, so
+/// keying on title would collapse unrelated albums -- even unrelated
+/// folders -- onto one shared artwork entry (adversarial review finding 7).
+/// [rootPath]/[relPath] (when a caller has a real file to key off -- see
+/// `ArtworkRequest` and `albumKeyForTrack`) make that case unique PER FILE
+/// instead: every artist/album-less track gets its own artwork slot, same
+/// as if it were tagged with a unique title. A caller with no file identity
+/// at all (e.g. a bare artist/album/title lookup) keeps the old
+/// `artist|title` fallback, which is the best available discriminator when
+/// there is no file to fall back to.
 String artworkAlbumKey({
   required String artist,
   required String album,
   String title = '',
+  String rootPath = '',
+  String relPath = '',
 }) {
   final a = normalizeArtworkText(artist);
   final al = normalizeArtworkText(album);
   if (al.isNotEmpty) return '$a|$al';
+  if (a.isNotEmpty) return '$a|${normalizeArtworkText(title)}';
+  if (rootPath.isNotEmpty || relPath.isNotEmpty) {
+    // '\x01' can never appear in a normalized artist/album/title string
+    // (normalizeArtworkText strips every non-letter/digit/space character),
+    // so this can't collide with a legitimate `artist|title` key -- it is
+    // always recognizable as the fully-untagged, per-file fallback.
+    return '|\x01$rootPath\x01$relPath';
+  }
   return '$a|${normalizeArtworkText(title)}';
 }
 

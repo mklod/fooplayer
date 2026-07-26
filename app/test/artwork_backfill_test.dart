@@ -11,6 +11,7 @@
 //
 // Every provider/download call is an injected fake -- no test here opens a
 // socket.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,7 +21,11 @@ import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:path/path.dart' as p;
 
-final downloadedBytes = [7, 7, 7, 7];
+// putImage() now validates magic bytes (adversarial review finding 6), and
+// this fixture flows all the way through applyImage -> putImage in every
+// test that exercises a full "applied" pick, so it needs a real PNG
+// signature prefix.
+final downloadedBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 7, 7, 7, 7];
 
 void main() {
   late Directory tmp;
@@ -45,6 +50,19 @@ void main() {
     return ArtworkRequest(
       rootPath: r.path,
       file: File(p.join(r.path, '$album.mp3')),
+      artist: 'Artist',
+      album: album,
+    );
+  }
+
+  Track trackFor(String album, {Directory? inRoot}) {
+    final r = inRoot ?? root;
+    return Track(
+      contentId: album,
+      relPath: '$album.mp3',
+      rootPath: r.path,
+      dateAdded: DateTime.utc(2026),
+      title: album,
       artist: 'Artist',
       album: album,
     );
@@ -576,5 +594,99 @@ void main() {
     final requests = artworkBackfillRequests(tracks);
     expect(requests.map((r) => r.albumKey).toList(),
         ['daft punk|discovery', 'daft punk|homework']);
+  });
+
+  group('rescanThenBackfill (Fix 1: backfill after rescan)', () {
+    test(
+        'queues a pass over the tracks() snapshot taken AFTER rescan '
+        'completes -- so newly-discovered albums are covered', () async {
+      final r = makeResolver();
+      final searched = <String>[];
+      final backfill = ArtworkBackfill(
+        resolver: r.resolver,
+        gap: Duration.zero,
+        search: (q) async {
+          searched.add(q.terms);
+          return const [];
+        },
+        autoPick: (_, _) => null,
+        downloader: (_) async => null,
+      );
+
+      // A rescan that "discovers" a new track: empty until it completes,
+      // exactly like LibraryModel.rescan() mutating allTracks.
+      var tracks = <Track>[];
+      Future<void> rescan() async {
+        await Future<void>.delayed(Duration.zero);
+        tracks = [trackFor('Discovery')];
+      }
+
+      await rescanThenBackfill(
+        rescan: rescan,
+        backfill: backfill,
+        tracks: () => tracks,
+      );
+
+      expect(searched, ['Artist Discovery']);
+    });
+
+    test('awaits rescan in full before starting the backfill pass', () async {
+      final r = makeResolver();
+      final events = <String>[];
+      final backfill = ArtworkBackfill(
+        resolver: r.resolver,
+        gap: Duration.zero,
+        search: (q) async {
+          events.add('search');
+          return const [];
+        },
+        autoPick: (_, _) => null,
+        downloader: (_) async => null,
+      );
+
+      final gate = Completer<void>();
+      Future<void> rescan() async {
+        events.add('rescan-start');
+        await gate.future;
+        events.add('rescan-end');
+      }
+
+      final future = rescanThenBackfill(
+        rescan: rescan,
+        backfill: backfill,
+        tracks: () => [trackFor('Discovery')],
+      );
+
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(events, ['rescan-start'],
+          reason: 'the backfill pass must not start until rescan settles');
+
+      gate.complete();
+      await future;
+      expect(events, ['rescan-start', 'rescan-end', 'search']);
+    });
+
+    test('an empty post-rescan track list is a harmless no-op', () async {
+      final r = makeResolver();
+      var searches = 0;
+      final backfill = ArtworkBackfill(
+        resolver: r.resolver,
+        gap: Duration.zero,
+        search: (q) async {
+          searches++;
+          return const [];
+        },
+        autoPick: (_, _) => null,
+        downloader: (_) async => null,
+      );
+
+      await rescanThenBackfill(
+        rescan: () async {},
+        backfill: backfill,
+        tracks: () => const [],
+      );
+
+      expect(searches, 0);
+    });
   });
 }

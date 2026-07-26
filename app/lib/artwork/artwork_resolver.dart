@@ -96,7 +96,23 @@ class ArtworkRequest {
     this.artist = '',
     this.album = '',
     this.title = '',
-  }) : albumKey = artworkAlbumKey(artist: artist, album: album, title: title);
+    // Only consulted by [artworkAlbumKey]'s fully-untagged fallback (see its
+    // doc) -- defaults to the file's own path, so even a caller that skips
+    // this (mostly tests, and any other direct construction) still gets a
+    // per-file-unique key rather than colliding with every other blank
+    // artist/album/title request. [ArtworkRequest.forTrack] overrides it
+    // with the track's raw [Track.relPath] so this matches byte-for-byte
+    // with [albumKeyForTrack] (picker_seams.dart) for the SAME track --
+    // that agreement is what lets the picker's "current selection" lookup
+    // find what the resolver actually stored.
+    String? relPath,
+  }) : albumKey = artworkAlbumKey(
+          artist: artist,
+          album: album,
+          title: title,
+          rootPath: rootPath,
+          relPath: relPath ?? file.path,
+        );
 
   factory ArtworkRequest.forTrack(Track t) => ArtworkRequest(
         rootPath: t.rootPath,
@@ -104,6 +120,7 @@ class ArtworkRequest {
         artist: t.artist,
         album: t.album,
         title: t.title,
+        relPath: t.relPath,
       );
 
   ArtworkQuery get query =>
@@ -196,8 +213,19 @@ class ArtworkResolver extends ChangeNotifier {
     if (existing != null) return existing;
 
     final gen = _generation[req.albumKey] ?? 0;
-    final future = _safeResolve(req).then((bytes) {
-      _inFlight.remove(key);
+    // `late final` so the closure below can reference [future] to check
+    // it's still the slot's current occupant before clearing it -- see the
+    // identity check's doc.
+    late final Future<Uint8List?> future;
+    future = _safeResolve(req).then((bytes) {
+      // Only clear OUR slot: [invalidate] may have already dropped this
+      // key (see its doc) and a newer [resolve] call may have since
+      // installed its own future there. Removing unconditionally would let
+      // this now-stale completion evict that newer in-flight future,
+      // defeating its dedupe for whoever is awaiting it.
+      if (identical(_inFlight[key], future)) {
+        _inFlight.remove(key);
+      }
       if (_disposed) return bytes;
       // Only cache if nothing invalidated this album while we were working.
       if ((_generation[req.albumKey] ?? 0) == gen) {
@@ -314,9 +342,21 @@ class ArtworkResolver extends ChangeNotifier {
   /// Drops every cached/in-flight result for [albumKey] (all roots) and
   /// notifies listeners so visible surfaces re-resolve. Called after a
   /// picker choice or a background best guess lands.
+  ///
+  /// The [_inFlight] eviction matters as much as the [_cache] one: without
+  /// it, a [resolve] call issued right after this one (e.g. a widget
+  /// forcing a refresh off the bumped [revision]) would find the OLD,
+  /// pre-invalidation future still parked at this album's key and simply
+  /// await it instead of starting a fresh resolution -- so the caller could
+  /// be handed stale (pre-pick) bytes despite the invalidation having
+  /// already landed. The future itself is left to finish on its own (see
+  /// [resolve]'s identity check on completion); only the *slot* is cleared,
+  /// so a still-running resolution can't be observed as "in flight" for a
+  /// generation it no longer belongs to.
   void invalidate(String albumKey) {
     _generation[albumKey] = (_generation[albumKey] ?? 0) + 1;
     _cache.removeWhere((k, _) => k.endsWith('\u0000$albumKey'));
+    _inFlight.removeWhere((k, _) => k.endsWith('\u0000$albumKey'));
     _bumpRevision();
   }
 
@@ -326,7 +366,14 @@ class ArtworkResolver extends ChangeNotifier {
       final albumKey = key.substring(key.indexOf('\u0000') + 1);
       _generation[albumKey] = (_generation[albumKey] ?? 0) + 1;
     }
+    // Also bump generation for albums that are ONLY in flight (not yet
+    // cached) -- same reasoning as [invalidate] above.
+    for (final key in _inFlight.keys.toList()) {
+      final albumKey = key.substring(key.indexOf('\u0000') + 1);
+      _generation[albumKey] = (_generation[albumKey] ?? 0) + 1;
+    }
     _cache.clear();
+    _inFlight.clear();
     _bumpRevision();
   }
 

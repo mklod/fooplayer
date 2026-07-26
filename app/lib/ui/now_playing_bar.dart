@@ -170,6 +170,18 @@ class _AlbumArtState extends State<AlbumArt> {
               height: widget.size,
               fit: BoxFit.cover,
               gaplessPlayback: true,
+              // Adversarial review finding 6: bytes that made it this far
+              // (an embedded tag, a sidecar file, or a sibling image on
+              // disk -- any of which could be corrupt or non-image content
+              // that slipped past the store's write-time validation, e.g.
+              // one written before that check existed) must fall back to
+              // the placeholder on a decode failure, not Flutter's red
+              // error box.
+              errorBuilder: (context, error, stackTrace) => SizedBox(
+                width: widget.size,
+                height: widget.size,
+                child: Icon(Icons.album, size: widget.size * 0.7),
+              ),
             ),
     );
   }

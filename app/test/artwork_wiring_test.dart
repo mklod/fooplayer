@@ -14,22 +14,27 @@
 // with a fake [ArtFetch] (provider JSON) and a fake image fetch, and file
 // I/O only ever touches a temp dir the test creates and deletes. L:\music is
 // never touched.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fooplayer_app/artwork/art_candidate.dart';
 import 'package:fooplayer_app/artwork/artwork_backfill.dart';
 import 'package:fooplayer_app/artwork/artwork_resolver.dart';
 import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:fooplayer_app/artwork/artwork_wiring.dart';
 import 'package:fooplayer_app/artwork/picker_seams.dart';
+import 'package:fooplayer_app/artwork/providers.dart';
 import 'package:fooplayer_app/artwork/scoring.dart' as scoring;
 import 'package:fooplayer_app/model/track.dart';
 import 'package:path/path.dart' as p;
 
 import 'support/artwork_fixtures.dart';
+
+const itunesHost = 'itunes.apple.com';
+const deezerHost = 'api.deezer.com';
+const mbHost = 'musicbrainz.org';
 
 /// Records every image URL asked for, and answers from a canned map.
 /// Anything not in the map is "no bytes", i.e. a rejected candidate.
@@ -105,6 +110,7 @@ void main() {
     ArtworkLocalReader? readLocal,
     bool preferSidecar = true,
     ArtworkEmbeddedLoader? embeddedLoader,
+    RateLimiter? caaLimiter,
   }) {
     final stores = ArtworkStoreRegistry(appDataDir: appData);
     return ArtworkWiring(
@@ -117,6 +123,7 @@ void main() {
       fetch: (provider ?? FakeArtFetch({})).fetch,
       imageFetch: (imageFetch ?? FakeImageFetch({})).call,
       readLocal: readLocal ?? (_) async => null,
+      caaLimiter: caaLimiter,
       backfillEnabled: backfillEnabled,
       gap: Duration.zero,
     );
@@ -142,6 +149,29 @@ void main() {
       expect(fromPicker, fromResolver);
       expect(fromPicker, fromScorer);
       expect(fromPicker, 'sigur ros|agaetis byrjun');
+    });
+
+    test(
+        'picker and resolver still agree for a fully-untagged track '
+        '(adversarial review finding 7 -- the per-file fallback key)', () {
+      // Two untagged rips, same filename-derived title ("01" from
+      // "01.mp3"), in two different folders under the same root.
+      final a = trackAt(root, 'Album A/01.mp3',
+          artist: '', album: '', title: '01', contentId: 'a');
+      final b = trackAt(root, 'Album B/01.mp3',
+          artist: '', album: '', title: '01', contentId: 'b');
+
+      // [ArtworkServices.albumKey] (what the picker displays/looks up) and
+      // [ArtworkRequest.forTrack] (what the resolver/store actually key
+      // off) MUST still agree for each track -- a mismatch here would make
+      // the picker's "current selection" lookup miss what was really
+      // stored.
+      expect(albumKeyForTrack(a), ArtworkRequest.forTrack(a).albumKey);
+      expect(albumKeyForTrack(b), ArtworkRequest.forTrack(b).albumKey);
+
+      // And the actual point of the fix: the two different files no longer
+      // collapse onto the same key.
+      expect(albumKeyForTrack(a), isNot(albumKeyForTrack(b)));
     });
 
     test('the picker no longer carries its own placeholder normalizer', () {
@@ -268,6 +298,120 @@ void main() {
         imageFetch: (_) async => null,
       );
       expect(await w.searchCandidates('A', 'B'), isEmpty);
+    });
+
+    group(
+        'picker priority + CAA budget through the real seam '
+        '(adversarial review finding 2)', () {
+      test(
+          "the picker's search jumps a queue of background backfill "
+          'lookups on the shared CAA limiter', () async {
+        final clock = FakeClock();
+        final limiter = RateLimiter(
+          minInterval: kMusicBrainzMinInterval,
+          sleep: clock.sleep,
+          now: clock.now,
+        );
+        final provider = FakeArtFetch.bodies({
+          itunesHost: '{"results": []}',
+          deezerHost: '{"data": []}',
+          mbHost: loadArtFixture('musicbrainz_ok_computer.json'),
+        });
+        final w = buildWiring(provider: provider, caaLimiter: limiter);
+        final order = <String>[];
+
+        // A handful of queued background lookups, exactly what
+        // ArtworkBackfill's own workers would be doing via searchForBackfill.
+        for (var i = 0; i < 5; i++) {
+          unawaited(w
+              .searchForBackfill(ArtworkQuery(artist: 'Bg', album: 'Album $i'))
+              .then((_) => order.add('background-$i')));
+        }
+
+        // The user opens the picker for a DIFFERENT album right after.
+        unawaited(w
+            .searchCandidates('Radiohead', 'OK Computer',
+                priority: RateLimitPriority.interactive)
+            .then((_) => order.add('interactive')));
+
+        while (order.length < 6) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // 'background-0' was already dispatched (t=0, nothing queued yet)
+        // by the time the interactive request arrived -- everything queued
+        // BEHIND it must yield.
+        expect(order.first, 'background-0');
+        expect(order[1], 'interactive',
+            reason: "the picker's search must not sit behind several "
+                "already-queued background lookups on MusicBrainz -- "
+                "that's the 'spinner waits minutes' bug this fixes");
+      });
+
+      test(
+          'a picker search proceeds with iTunes/Deezer results when CAA '
+          'never answers, instead of hanging', () async {
+        final caaGate = Completer<void>(); // never completed in this test
+        Future<ArtHttpResponse> fetch(Uri url,
+            {Map<String, String>? headers}) async {
+          if (url.host == mbHost) {
+            await caaGate.future;
+            return const ArtHttpResponse(statusCode: 200, body: '{}');
+          }
+          if (url.host == itunesHost) {
+            return ArtHttpResponse(
+                statusCode: 200, body: loadArtFixture('itunes_dark_side.json'));
+          }
+          return const ArtHttpResponse(statusCode: 200, body: '{"data": []}');
+        }
+        final stores = ArtworkStoreRegistry(appDataDir: appData);
+        final w = ArtworkWiring(
+          stores: stores,
+          resolver: ArtworkResolver(stores: stores),
+          fetch: fetch,
+          imageFetch: (_) async => null,
+          caaLimiter:
+              RateLimiter(minInterval: Duration.zero, sleep: (_) async {}),
+          gap: Duration.zero,
+        );
+
+        final sw = Stopwatch()..start();
+        final found = await w.searchCandidates(
+          'Pink Floyd',
+          'The Dark Side of the Moon',
+          priority: RateLimitPriority.interactive,
+          caaBudget: const Duration(milliseconds: 100),
+        );
+        sw.stop();
+
+        expect(found.any((c) => c.source == ArtSource.itunes), isTrue);
+        expect(found.any((c) => c.source == ArtSource.caa), isFalse);
+        expect(sw.elapsed, lessThan(const Duration(seconds: 2)),
+            reason: 'a picker search must return once its budget for CAA '
+                'expires, not hang on a slow/stuck provider');
+      });
+
+      test(
+          'searchForBackfill (the automatic pass) keeps waiting for CAA -- '
+          'no budget applied to the background path', () async {
+        final provider = FakeArtFetch.bodies({
+          itunesHost: '{"results": []}',
+          deezerHost: '{"data": []}',
+          mbHost: loadArtFixture('musicbrainz_ok_computer.json'),
+        });
+        final w = buildWiring(
+          provider: provider,
+          caaLimiter:
+              RateLimiter(minInterval: Duration.zero, sleep: (_) async {}),
+        );
+        final found = await w.searchForBackfill(
+          const ArtworkQuery(artist: 'Radiohead', album: 'OK Computer'),
+        );
+        expect(found.whereType<ArtCandidate>().any((c) => c.source == ArtSource.caa),
+            isTrue,
+            reason: 'the background pass has nobody waiting on it and must '
+                'still get a CAA answer that arrives promptly');
+      });
     });
   });
 

@@ -17,7 +17,13 @@ import 'package:fooplayer_app/model/track.dart';
 import 'package:path/path.dart' as p;
 
 final embeddedBytes = [1, 1, 1];
-final sidecarBytes = [2, 2, 2];
+// putImage() now validates magic bytes (adversarial review finding 6), and
+// sidecarBytes is the only one of these five fixtures that ever flows
+// through it (the others stand in for embedded-tag reads or sibling files
+// on disk, neither of which putImage sees) -- so it alone needs a real PNG
+// signature prefix. The distinguishing [2, 2, 2] tail is kept so it still
+// reads as "the sidecar one" and stays distinct from every other fixture.
+final sidecarBytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 2, 2, 2, 2];
 final folderBytes = [3, 3, 3];
 final coverBytes = [4, 4, 4];
 final frontBytes = [5, 5, 5];
@@ -288,17 +294,135 @@ void main() {
       expect(calls, 4);
     });
 
+    test(
+        'invalidate() drops the matching in-flight future too, so a '
+        'resolve() issued right after does not get handed stale bytes '
+        '(adversarial review finding 3)', () async {
+      // Exact interleave the reviewer's probe script demonstrated:
+      // preferSidecar: true (production's default), a slow embedded read
+      // still in flight when applyImage() writes a brand-new sidecar entry
+      // and calls invalidate(), then a SECOND resolve() call for the same
+      // request -- exactly what AlbumArt's _onArtworkChanged does when it
+      // sees the resolver's revision bump.
+      final reg = registry();
+      final store = reg.forRoot(root.path);
+      final slowGate = Completer<void>();
+      var embeddedCalls = 0;
+
+      final resolver = ArtworkResolver(
+        stores: reg,
+        preferSidecar: true,
+        embeddedLoader: (_) async {
+          embeddedCalls++;
+          await slowGate.future;
+          return null; // no embedded art
+        },
+      );
+      addTearDown(resolver.dispose);
+
+      final req = request();
+
+      // Step 1: first resolve() -- falls through preferSidecar (no entry
+      // yet) into the slow embedded read.
+      final first = resolver.resolve(req);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // Step 2: a pick lands WHILE step 1 is still stuck in the slow read.
+      await resolver.applyImage(req, sidecarBytes, source: 'itunes');
+      expect(store.entryFor(req.albumKey), isNotNull);
+
+      // Step 3: a forced re-resolve for the SAME request, right after the
+      // pick -- must NOT be handed the stale pre-invalidation future.
+      final second = resolver.resolve(req);
+      expect(identical(first, second), isFalse,
+          reason: 'invalidate() must evict the in-flight slot so a '
+              'post-invalidation resolve() starts fresh');
+
+      slowGate.complete();
+      final firstResult = await first;
+      final secondResult = await second;
+
+      // The original in-flight caller still gets its own (now-stale)
+      // answer -- that future was already running and can't be cancelled.
+      expect(firstResult, isNull);
+      // But the NEW request, issued after the pick landed, must see the
+      // freshly-applied cover, not old/placeholder art.
+      expect(secondResult, sidecarBytes,
+          reason: 'a widget re-resolving immediately after a pick must see '
+              'the new cover, not be stuck on stale/placeholder art');
+      expect(embeddedCalls, 1,
+          reason: 'the second resolve found the sidecar entry via '
+              'preferSidecar and never needed a second embedded read');
+
+      // Sanity: a third resolve() once everything has settled also sees
+      // the correct art -- confirms this was purely an in-flight-dedupe
+      // staleness bug, not a data bug.
+      expect(await resolver.resolve(req), sidecarBytes);
+    });
+
+    test(
+        'a stale in-flight completion does not evict a NEWER in-flight '
+        'future for the same key', () async {
+      // Guards the identity check in resolve(): if invalidate() dropped the
+      // slot and a fresh resolve() installed its own future there, the OLD
+      // future's completion must not blow away the NEW one before it's had
+      // a chance to be awaited/cached.
+      final reg = registry();
+      var calls = 0;
+      final gates = <Completer<List<int>?>>[];
+      final resolver = ArtworkResolver(
+        stores: reg,
+        embeddedLoader: (_) {
+          final gate = Completer<List<int>?>();
+          gates.add(gate);
+          calls++;
+          return gate.future;
+        },
+      );
+      addTearDown(resolver.dispose);
+
+      final req = request();
+      final first = resolver.resolve(req); // installs gates[0]
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      resolver.invalidate(req.albumKey); // drops the slot
+      final second = resolver.resolve(req); // installs gates[1]
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(calls, 2);
+
+      // The OLD resolution finishes now, AFTER the new one is in flight.
+      gates[0].complete(embeddedBytes);
+      await first;
+      // The new in-flight future must still be findable at [key] -- a
+      // third resolve() right now must share it, not start a THIRD read.
+      final third = resolver.resolve(req);
+      expect(identical(second, third), isTrue,
+          reason: 'the stale completion must not have evicted the newer '
+              'in-flight future');
+
+      gates[1].complete(sidecarBytes);
+      expect(await second, sidecarBytes);
+      expect(await third, sidecarBytes);
+      expect(calls, 2, reason: 'no spurious third resolution');
+    });
+
     test('the same album key under two roots does not share a cached image',
         () async {
       final otherRoot = Directory(p.join(tmp.path, 'root2'))
         ..createSync(recursive: true);
       final reg = registry();
+      // A putImage() payload (unlike folderBytes' usual role as a raw
+      // sibling-file write below, which never goes through the magic-byte
+      // check) needs a real image signature.
+      final otherRootBytes = [
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 3, 3, 3, 3, //
+      ];
       await reg
           .forRoot(root.path)
           .putImage('daft punk|discovery', sidecarBytes, source: 'itunes');
       await reg
           .forRoot(otherRoot.path)
-          .putImage('daft punk|discovery', folderBytes, source: 'deezer');
+          .putImage('daft punk|discovery', otherRootBytes, source: 'deezer');
 
       final resolver = ArtworkResolver(
         stores: reg,
@@ -317,7 +441,7 @@ void main() {
           artist: 'Daft Punk',
           album: 'Discovery'));
       expect(a, sidecarBytes);
-      expect(b, folderBytes);
+      expect(b, otherRootBytes);
     });
   });
 

@@ -83,6 +83,120 @@ void main() {
             artist: 'Aphex Twin', album: '', title: 'Xtal')),
       );
     });
+
+    group('fully-untagged fallback (adversarial review finding 7)', () {
+      test(
+          'artist AND album both blank: two different files with the SAME '
+          'filename-derived title in DIFFERENT folders no longer collide',
+          () {
+        // Exactly the reported scenario: two untagged rips, each named
+        // "01.mp3", in two different album folders. Before the fix both
+        // produced the identical key '|01' and shared one artwork entry.
+        final a = artworkAlbumKey(
+          artist: '',
+          album: '',
+          title: '01',
+          rootPath: r'L:\music',
+          relPath: r'Album A\01.mp3',
+        );
+        final b = artworkAlbumKey(
+          artist: '',
+          album: '',
+          title: '01',
+          rootPath: r'L:\music',
+          relPath: r'Album B\01.mp3',
+        );
+        expect(a, isNot(b));
+      });
+
+      test('the OLD title-collapsed key is what the pre-fix code produced',
+          () {
+        // Documents the exact regression: with no rootPath/relPath at all
+        // (the pre-fix call shape), both untagged "01.mp3" files really did
+        // collapse onto the same key -- this is the bug, pinned so the fix
+        // above is legible against it.
+        final withoutFileIdentity = artworkAlbumKey(
+          artist: '', album: '', title: '01',
+        );
+        expect(withoutFileIdentity, '|01');
+      });
+
+      test('same file, same call, is idempotent (stable across resolves)',
+          () {
+        String key() => artworkAlbumKey(
+              artist: '',
+              album: '',
+              title: '01',
+              rootPath: r'L:\music',
+              relPath: r'Album A\01.mp3',
+            );
+        expect(key(), key());
+      });
+
+      test('different tracks of the SAME untagged file (rootPath+relPath) '
+          'still key identically, so re-resolving the same file is a cache '
+          'hit', () {
+        final first = artworkAlbumKey(
+          artist: '',
+          album: '',
+          title: '01',
+          rootPath: r'L:\music',
+          relPath: r'Album A\01.mp3',
+        );
+        final second = artworkAlbumKey(
+          artist: '',
+          album: '',
+          title: '01',
+          rootPath: r'L:\music',
+          relPath: r'Album A\01.mp3',
+        );
+        expect(first, second);
+      });
+
+      test('a blank title does not change the outcome -- rootPath/relPath '
+          'alone is enough to disambiguate', () {
+        final a = artworkAlbumKey(
+          artist: '',
+          album: '',
+          rootPath: r'L:\music',
+          relPath: r'Album A\01.mp3',
+        );
+        final b = artworkAlbumKey(
+          artist: '',
+          album: '',
+          rootPath: r'L:\music',
+          relPath: r'Album B\01.mp3',
+        );
+        expect(a, isNot(b));
+      });
+
+      test('artist present but album blank is UNAFFECTED (only the fully '
+          'blank case changes)', () {
+        // A track with a real artist tag already disambiguates well enough
+        // via artist|title -- this finding is scoped to artist AND album
+        // both being blank, so this case's behavior must not change even
+        // when rootPath/relPath are supplied.
+        expect(
+          artworkAlbumKey(
+            artist: 'Aphex Twin',
+            album: '',
+            title: 'Avril 14th',
+            rootPath: r'L:\music',
+            relPath: r'Selected Ambient Works\01.mp3',
+          ),
+          'aphex twin|avril 14th',
+        );
+      });
+
+      test('no rootPath/relPath given (e.g. a file-less ArtworkQuery '
+          'lookup) keeps the old artist|title fallback -- nothing to key '
+          'the file identity off of', () {
+        expect(
+          artworkAlbumKey(artist: '', album: '', title: 'Untitled'),
+          '|untitled',
+        );
+      });
+    });
   });
 
   group('artworkHash', () {

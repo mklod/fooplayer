@@ -16,7 +16,16 @@ import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:path/path.dart' as p;
 
 const _key = 'daft punk|discovery';
-final _bytes = List<int>.generate(64, (i) => i);
+
+/// PNG magic number -- putImage() now validates magic bytes (adversarial
+/// review finding 6), so every fixture standing in for "some image bytes"
+/// in this file needs a real signature prefix. The distinguishing tail is
+/// kept so byte-for-byte equality assertions (`expect(x, _bytes)`) still
+/// tell fixtures apart from one another.
+const _pngMagic = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+List<int> _pngFixture(List<int> tail) => [..._pngMagic, ...tail];
+
+final _bytes = _pngFixture(List<int>.generate(64, (i) => i));
 
 void main() {
   late Directory tmp;
@@ -86,6 +95,91 @@ void main() {
       expect(await reopened.readImage(_key), _bytes);
       expect(reopened.entryFor('nobody|nothing'), isNull);
       expect(await reopened.readImage('nobody|nothing'), isNull);
+    });
+
+    test(
+        'putImage rejects bytes that are not a recognized image, as a '
+        'backstop against a caller that skipped/lost its own validation '
+        '(adversarial review finding 6)', () async {
+      final store = newStore();
+      final html = utf8.encode('<html><body>Not an image</body></html>');
+
+      final entry = await store.putImage(_key, html, source: 'url');
+
+      expect(entry, isNull,
+          reason: 'a non-image payload must never be stored as a '
+              '"successful" pick');
+      expect(store.entryFor(_key), isNull);
+      final cacheDir = Directory(p.join(root.path, artworkCacheDirName));
+      expect(cacheDir.existsSync(), isFalse,
+          reason: 'nothing should even be written to disk for rejected bytes');
+    });
+
+    test('putImage still accepts a real image after a rejected attempt',
+        () async {
+      final store = newStore();
+      final html = utf8.encode('<html>nope</html>');
+      expect(await store.putImage(_key, html, source: 'url'), isNull);
+
+      final entry = await store.putImage(_key, _bytes, source: 'itunes');
+      expect(entry, isNotNull);
+      expect(await store.readImage(_key), _bytes);
+    });
+
+    test(
+        'replacing a pick with a DIFFERENT extension deletes the prior '
+        'file (adversarial review finding 4)', () async {
+      final store = newStore();
+      final first =
+          await store.putImage(_key, _bytes, source: 'itunes', extension: '.jpg');
+      final firstImg = File(p.join(root.path, artworkCacheDirName, first!.file));
+      expect(firstImg.existsSync(), isTrue);
+      expect(first.file, '${artworkHash(_key)}.jpg');
+
+      final pngBytes = _pngFixture(List<int>.generate(32, (i) => 255 - i));
+      final second = await store.putImage(_key, pngBytes,
+          source: 'local', extension: '.png');
+      expect(second, isNotNull);
+      expect(second!.file, '${artworkHash(_key)}.png');
+
+      // The NEW file exists with the NEW bytes...
+      final secondImg =
+          File(p.join(root.path, artworkCacheDirName, second.file));
+      expect(secondImg.existsSync(), isTrue);
+      expect(secondImg.readAsBytesSync(), pngBytes);
+      // ...and the OLD .jpg is gone, not left behind as an orphan.
+      expect(firstImg.existsSync(), isFalse,
+          reason: 'a replace with a different extension must not leave '
+              'the prior pick\'s file behind forever');
+
+      // The .artwork/ dir holds exactly the current pick's file.
+      final cacheDir = Directory(p.join(root.path, artworkCacheDirName));
+      final names = cacheDir
+          .listSync()
+          .map((e) => p.basename(e.path))
+          .where((n) => !n.endsWith('.tmp'))
+          .toList();
+      expect(names, [second.file]);
+    });
+
+    test(
+        'replacing a pick with the SAME extension still works (no crash, '
+        'no orphan of itself)', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes', extension: '.jpg');
+      final replaced = _pngFixture(List<int>.generate(64, (i) => 63 - i));
+      final second =
+          await store.putImage(_key, replaced, source: 'local', extension: '.jpg');
+      expect(second, isNotNull);
+      expect(await store.readImage(_key), replaced);
+
+      final cacheDir = Directory(p.join(root.path, artworkCacheDirName));
+      final names = cacheDir
+          .listSync()
+          .map((e) => p.basename(e.path))
+          .where((n) => !n.endsWith('.tmp'))
+          .toList();
+      expect(names, [second!.file]);
     });
 
     test('remove() drops the entry, deletes the image and persists', () async {
@@ -246,12 +340,13 @@ void main() {
       final a = roStore();
       expect(a.externalDir.path, isNot(other.externalDir.path));
 
+      final otherBytes = _pngFixture(const [9, 9, 9, 9]);
       await a.putImage(_key, _bytes, source: 'itunes');
-      await other.putImage(_key, [9, 9, 9], source: 'deezer');
+      await other.putImage(_key, otherBytes, source: 'deezer');
 
       // Same album key, two roots -- no collision.
       expect(await a.readImage(_key), _bytes);
-      expect(await other.readImage(_key), [9, 9, 9]);
+      expect(await other.readImage(_key), otherBytes);
     });
   });
 
@@ -352,7 +447,7 @@ void main() {
       final store = newStore();
       await store.putImage(_key, _bytes, source: 'itunes');
       await store.remove(_key);
-      await store.putImage(_key, [1, 2, 3], source: 'local');
+      await store.putImage(_key, _pngFixture(const [1, 2, 3, 4]), source: 'local');
       expect(store.isSuppressed(_key), isFalse);
       expect(store.isNegative(_key), isFalse);
       expect(store.entryFor(_key)?.source, 'local');

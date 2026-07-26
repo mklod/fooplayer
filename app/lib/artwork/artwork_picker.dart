@@ -457,7 +457,18 @@ class _CandidateThumbState extends State<_CandidateThumb> {
         child: Icon(Icons.album, size: 28, color: AppColors.inkSecondary),
       );
     }
-    return Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true);
+    return Image.memory(
+      bytes,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      // Adversarial review finding 6: a thumbnail that failed to decode
+      // (e.g. a non-image response the loader's own validation missed)
+      // must fall back to the placeholder, not Flutter's red error box --
+      // the candidate stays pickable either way.
+      errorBuilder: (context, error, stackTrace) => const Center(
+        child: Icon(Icons.album, size: 28, color: AppColors.inkSecondary),
+      ),
+    );
   }
 }
 

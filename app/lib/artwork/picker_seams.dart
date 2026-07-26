@@ -238,11 +238,18 @@ String normalizeArtworkKeyPart(String s) => normalizeArtworkText(s);
 /// singles still get their own entry instead of all sharing `artist|`.
 ///
 /// Delegates to [artworkAlbumKey] so the picker, the scorer and the store
-/// agree byte-for-byte.
+/// agree byte-for-byte -- including [artworkAlbumKey]'s fully-untagged
+/// fallback (rootPath/relPath), which MUST be passed exactly like A2's
+/// `ArtworkRequest.forTrack` passes them for the same track: this is what
+/// [ArtworkServices.currentSelectionId] looks the picker's "current
+/// selection" up under, so a mismatch here would make it look up the wrong
+/// key and never find what the resolver actually stored.
 String albumKeyForTrack(Track track) => artworkAlbumKey(
   artist: track.artist,
   album: track.album,
   title: track.title,
+  rootPath: track.rootPath,
+  relPath: track.relPath,
 );
 
 /// The query a track's picker opens with: artist + album, falling back to

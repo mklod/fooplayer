@@ -140,6 +140,36 @@ void main() {
           reason: 'gapless keeps the old cover up while the next one loads');
       expect(find.byIcon(Icons.album), findsNothing);
     });
+
+    testWidgets(
+        'bytes that fail to decode fall back to the placeholder icon, not '
+        'an unhandled error (adversarial review finding 6)', (tester) async {
+      // Not any recognized image format -- something that made it through
+      // resolution (an already-on-disk sidecar/embedded/sibling file from
+      // before the store's write-time validation existed, or any other way
+      // bad bytes could reach this widget) but can't actually be decoded.
+      final resolver = FakeResolver()..bytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      final t = track();
+      await tester.pumpWidget(MaterialApp(
+        home: AlbumArt(
+          contentId: t.contentId,
+          file: File('unused.mp3'),
+          resolver: resolver,
+          track: t,
+        ),
+      ));
+      // The resolve() future, then the async image decode failure.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(tester.takeException(), isNull,
+          reason: 'a decode failure must be caught by errorBuilder, never '
+              'surface as an unhandled framework error');
+      expect(find.byIcon(Icons.album), findsOneWidget,
+          reason: 'errorBuilder must render the same placeholder the '
+              '"no art yet" state uses');
+    });
   });
 
   group('stale-request / caching guards survive the resolver wiring', () {

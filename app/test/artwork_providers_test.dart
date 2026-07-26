@@ -3,12 +3,30 @@
 //
 // Last modified: 2026-07-25--2113
 
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/artwork/providers.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 import 'support/artwork_fixtures.dart';
+
+/// 1x1 transparent PNG -- real magic bytes for the tests that need
+/// [httpArtworkBytes] to accept the response.
+final onePixelPng = Uint8List.fromList(const [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+  0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+]);
 
 const q = ArtQuery(artist: 'Pink Floyd', album: 'The Dark Side of the Moon');
 const okComputer = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
@@ -206,6 +224,129 @@ void main() {
           limiter.schedule(() async => throw StateError('boom')), throwsA(isA<StateError>()));
       expect(await limiter.schedule(() async => 42), 42);
     });
+
+    group('priority lane (adversarial review finding 2)', () {
+      test(
+          'an interactive request queued BEHIND several background ones '
+          'still jumps to the front', () async {
+        final clock = FakeClock();
+        final limiter = RateLimiter(
+          minInterval: kMusicBrainzMinInterval,
+          sleep: clock.sleep,
+          now: clock.now,
+        );
+        final order = <String>[];
+
+        // Simulates ~a few of the "700 albums queued" background pass
+        // lookups already sitting in the limiter...
+        for (var i = 0; i < 5; i++) {
+          unawaited(limiter.schedule(() async {
+            order.add('background-$i');
+          }));
+        }
+        // ...then the picker's interactive search arrives.
+        unawaited(limiter.schedule(
+          () async => order.add('interactive'),
+          priority: RateLimitPriority.interactive,
+        ));
+
+        // Let the whole queue drain (fake clock, so this doesn't take real
+        // wall-clock seconds).
+        while (order.length < 6) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        // The first dispatch (t=0, no wait yet) had ALREADY started before
+        // the interactive request was even scheduled -- that one can't be
+        // preempted (it's not "queued", it's already running). Every
+        // request queued behind it, though, must yield to the interactive
+        // one.
+        expect(order.first, 'background-0');
+        expect(order[1], 'interactive',
+            reason: 'the interactive request must cut in front of every '
+                'still-QUEUED background request, even though it arrived '
+                'last');
+      });
+
+      test(
+          'the pacing gap is identical for both lanes -- priority reorders '
+          'the queue, it does not relax the 1 req/sec ceiling', () async {
+        final clock = FakeClock();
+        final limiter = RateLimiter(
+          minInterval: kMusicBrainzMinInterval,
+          sleep: clock.sleep,
+          now: clock.now,
+        );
+        unawaited(limiter.schedule(() async {}));
+        unawaited(limiter.schedule(() async {},
+            priority: RateLimitPriority.interactive));
+        unawaited(limiter.schedule(() async {}));
+
+        while (clock.waits.length < 2) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(clock.waits, [kMusicBrainzMinInterval, kMusicBrainzMinInterval],
+            reason: 'three dispatches, still spaced a full interval apart '
+                'regardless of the priority mix');
+      });
+
+      test(
+          'an interactive request that arrives WHILE the limiter is mid-wait '
+          'still cuts in front of an already-queued background one',
+          () async {
+        final clock = FakeClock();
+        final order = <String>[];
+        var injected = false;
+        late final RateLimiter limiter;
+        limiter = RateLimiter(
+          minInterval: kMusicBrainzMinInterval,
+          sleep: (d) async {
+            // Fires while the limiter is waiting out the pacing gap AFTER
+            // dispatching 'first' -- 'background-1' is already queued at
+            // this point. The interactive request injected here must still
+            // beat it: WHICH item runs next is decided AFTER this wait
+            // returns, not before -- exactly the race the fix targets.
+            if (!injected) {
+              injected = true;
+              unawaited(limiter.schedule(
+                () async => order.add('interactive'),
+                priority: RateLimitPriority.interactive,
+              ));
+            }
+            await clock.sleep(d);
+          },
+          now: clock.now,
+        );
+
+        unawaited(limiter.schedule(() async => order.add('first')));
+        unawaited(limiter.schedule(() async => order.add('background-1')));
+
+        while (order.length < 3) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(order, ['first', 'interactive', 'background-1']);
+      });
+
+      test('within one priority tier, order is plain FIFO', () async {
+        final clock = FakeClock();
+        final limiter = RateLimiter(
+          minInterval: Duration.zero,
+          sleep: clock.sleep,
+          now: clock.now,
+        );
+        final order = <int>[];
+        for (var i = 0; i < 4; i++) {
+          unawaited(limiter.schedule(
+            () async => order.add(i),
+            priority: RateLimitPriority.interactive,
+          ));
+        }
+        while (order.length < 4) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(order, [0, 1, 2, 3]);
+      });
+    });
   });
 
   group('error isolation (rule: never throw, always [])', () {
@@ -336,6 +477,207 @@ void main() {
       final out = await searchAll(q, fetch: fake.fetch, limiter: instantLimiter());
       expect(out.length, 3);
       expect(out.every((c) => c.source == ArtSource.itunes), isTrue);
+    });
+
+    group('caaBudget (adversarial review finding 2)', () {
+      test(
+          'iTunes/Deezer results are returned without waiting on a slow '
+          'CAA past the budget', () async {
+        final caaGate = Completer<ArtHttpResponse>(); // never completes here
+        Future<ArtHttpResponse> fetch(Uri url,
+            {Map<String, String>? headers}) async {
+          if (url.host == mbHost) return caaGate.future;
+          if (url.host == itunesHost) {
+            return ArtHttpResponse(
+                statusCode: 200, body: loadArtFixture('itunes_dark_side.json'));
+          }
+          if (url.host == deezerHost) {
+            return ArtHttpResponse(
+                statusCode: 200, body: loadArtFixture('deezer_discovery.json'));
+          }
+          return const ArtHttpResponse(statusCode: 404, body: '');
+        }
+
+        final sw = Stopwatch()..start();
+        final out = await searchAll(
+          q,
+          fetch: fetch,
+          limiter: instantLimiter(),
+          caaBudget: const Duration(milliseconds: 50),
+        );
+        sw.stop();
+
+        expect(out.any((c) => c.source == ArtSource.itunes), isTrue);
+        expect(out.any((c) => c.source == ArtSource.deezer), isTrue);
+        expect(out.any((c) => c.source == ArtSource.caa), isFalse,
+            reason: 'CAA never answered within the budget');
+        expect(sw.elapsed, lessThan(const Duration(seconds: 2)),
+            reason: 'must not have waited anywhere near a full provider '
+                'timeout for CAA -- that is exactly what starved the '
+                "picker's spinner before this fix");
+      });
+
+      test('CAA that answers WITHIN the budget is still included', () async {
+        final fake = FakeArtFetch.bodies({
+          itunesHost: loadArtFixture('itunes_dark_side.json'),
+          deezerHost: loadArtFixture('deezer_discovery.json'),
+          mbHost: loadArtFixture('musicbrainz_ok_computer.json'),
+        });
+        final out = await searchAll(
+          q,
+          fetch: fake.fetch,
+          limiter: instantLimiter(),
+          caaBudget: const Duration(seconds: 3),
+        );
+        expect(out.any((c) => c.source == ArtSource.caa), isTrue,
+            reason: 'a budget is a ceiling, not a reason to drop a fast '
+                'CAA answer');
+      });
+
+      test(
+          'no caaBudget (the automatic/background pass default) waits for '
+          'CAA exactly as before this fix', () async {
+        final fake = FakeArtFetch.bodies({
+          itunesHost: loadArtFixture('itunes_dark_side.json'),
+          deezerHost: loadArtFixture('deezer_discovery.json'),
+          mbHost: loadArtFixture('musicbrainz_ok_computer.json'),
+        });
+        final out =
+            await searchAll(q, fetch: fake.fetch, limiter: instantLimiter());
+        expect(out.any((c) => c.source == ArtSource.caa), isTrue);
+      });
+    });
+  });
+
+  group('httpArtworkBytes (streamed download, cap + validation)', () {
+    // [MockClient.streaming] hands back whatever [http.StreamedResponse] the
+    // handler returns, so unlike the basic (Response-based) MockClient this
+    // lets a test control the response's stream directly -- including
+    // feeding it in multiple discrete chunks, which is what proves the
+    // early-abort behavior below rather than just its end result.
+    Future<List<int>?> download(
+      Future<http.StreamedResponse> Function(
+        http.BaseRequest request,
+        http.ByteStream bodyStream,
+      ) handler,
+    ) =>
+        httpArtworkBytes(
+          'https://example.test/cover.jpg',
+          clientFactory: () => MockClient.streaming(handler),
+        );
+
+    test('a valid image under the cap is returned', () async {
+      final result = await download(
+        (request, body) async =>
+            http.StreamedResponse(Stream.value(onePixelPng), 200),
+      );
+      expect(result, onePixelPng);
+    });
+
+    test('a non-200 status is rejected', () async {
+      final result = await download(
+        (request, body) async =>
+            http.StreamedResponse(Stream.value(onePixelPng), 404),
+      );
+      expect(result, isNull);
+    });
+
+    test('an empty body is rejected', () async {
+      final result = await download(
+        (request, body) async => http.StreamedResponse(const Stream.empty(), 200),
+      );
+      expect(result, isNull);
+    });
+
+    test(
+        'an HTML body served with a 200 (e.g. a redirect/error landing page '
+        'for a URL that is not a direct image link) is rejected -- never '
+        'stored as a "successful" pick (adversarial review finding 6)',
+        () async {
+      final html = utf8.encode(
+          '<!doctype html><html><body>Not Found</body></html>' * 5);
+      final result = await download(
+        (request, body) async => http.StreamedResponse(
+          Stream.value(html),
+          200,
+          headers: const {'content-type': 'text/html'},
+        ),
+      );
+      expect(result, isNull);
+    });
+
+    test('a truncated/non-image binary blob is also rejected', () async {
+      final junk = List<int>.generate(64, (i) => i * 7 % 256);
+      final result = await download(
+        (request, body) async => http.StreamedResponse(Stream.value(junk), 200),
+      );
+      expect(result, isNull);
+    });
+
+    group('byte cap (adversarial review finding 5)', () {
+      test(
+          'a declared Content-Length already over the cap is rejected '
+          'WITHOUT ever subscribing to the body stream', () async {
+        var subscribed = false;
+        Stream<List<int>> body() async* {
+          subscribed = true;
+          yield onePixelPng;
+        }
+
+        final result = await download(
+          (request, bodyStream) async => http.StreamedResponse(
+            body(),
+            200,
+            contentLength: kArtworkMaxBytes + 1,
+          ),
+        );
+
+        expect(result, isNull);
+        expect(subscribed, isFalse,
+            reason: 'an already-oversize declared length must short-circuit '
+                'before reading a single byte of the body');
+      });
+
+      test(
+          'a response with no declared length that trickles past the cap '
+          'is aborted early -- not every chunk is pulled from the stream',
+          () async {
+        final chunk = Uint8List(1024 * 1024); // 1 MB, all zero
+        // Deliberately far more chunks than needed to cross the cap, so a
+        // failure to abort early is obvious (pulled would equal this).
+        const totalChunksOffered = 40; // 40 MB offered, cap is 12 MB
+        var pulled = 0;
+        Stream<List<int>> chunks() async* {
+          for (var i = 0; i < totalChunksOffered; i++) {
+            pulled++;
+            yield chunk;
+          }
+        }
+
+        final result = await download(
+          (request, bodyStream) async =>
+              http.StreamedResponse(chunks(), 200),
+        );
+
+        expect(result, isNull);
+        expect(pulled, lessThan(totalChunksOffered),
+            reason: 'the download must abort the instant the running total '
+                'passes the cap, not after consuming the whole (deliberately '
+                'oversized) stream');
+        expect(pulled, lessThanOrEqualTo(kArtworkMaxBytes ~/ chunk.length + 1));
+      });
+
+      test(
+          'a real-world-sized cover well under the cap is still accepted '
+          '(the cap does not clip legitimate large art)', () async {
+        final big = Uint8List(500 * 1024) // 500 KB
+          ..setRange(0, onePixelPng.length, onePixelPng);
+        final result = await download(
+          (request, bodyStream) async =>
+              http.StreamedResponse(Stream.value(big), 200),
+        );
+        expect(result, big);
+      });
     });
   });
 }
