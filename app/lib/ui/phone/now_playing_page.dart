@@ -189,7 +189,12 @@ class NowPlayingPage extends StatelessWidget {
                             ],
                           ),
                           const SizedBox(height: 8),
+                          // No volume control on phone: Android routes the
+                          // hardware volume keys to the media stream, which is
+                          // the idiom users expect. Shuffle stands alone,
+                          // centred under the transport row.
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               IconButton(
                                 tooltip: 'Shuffle',
@@ -201,20 +206,6 @@ class NowPlayingPage extends StatelessWidget {
                                   size: 24,
                                 ),
                                 onPressed: player.toggleShuffle,
-                              ),
-                              const SizedBox(width: 8),
-                              const Icon(
-                                Icons.volume_up,
-                                size: 16,
-                                color: AppColors.inkSecondary,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Slider(
-                                  key: const Key('np-volume'),
-                                  value: player.volume,
-                                  onChanged: player.setVolume,
-                                ),
                               ),
                             ],
                           ),
