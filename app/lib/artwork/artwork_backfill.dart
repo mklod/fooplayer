@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-07-25--2208
 //
 // Background best-guess artwork pass (Plan 4, task A2).
 //
@@ -162,7 +162,15 @@ class ArtworkBackfill {
       final seen = <String>{};
       final queue = Queue<ArtworkRequest>();
       for (final r in requests) {
-        if (seen.add(r.albumKey)) queue.add(r);
+        // ROOT-QUALIFIED, exactly like [artworkBackfillRequests], the
+        // resolver's cache key and the store registry. Deduping on the album
+        // key alone would give a multi-root library (e.g. `L:\music` plus a
+        // reorganized copy of the same albums) ONE lookup for an album that
+        // exists under two roots: the second root's `.artwork.json` would
+        // never get an entry, its tracks would show the placeholder forever,
+        // and -- because no miss is recorded either -- nothing would ever
+        // mark it unresolved.
+        if (seen.add('${r.rootPath}\u0000${r.albumKey}')) queue.add(r);
       }
       final workers =
           queue.length < maxConcurrent ? queue.length : maxConcurrent;

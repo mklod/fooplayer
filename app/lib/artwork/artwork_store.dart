@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-07-25--2208
 //
 // Artwork sidecar storage (Plan 4, task A2).
 //
@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import 'album_key.dart';
@@ -129,10 +130,34 @@ class ArtworkEntry {
 class ArtworkMiss {
   final DateTime at;
   final String query;
-  const ArtworkMiss({required this.at, this.query = ''});
 
-  Map<String, dynamic> toJson() =>
-      {'at': at.toUtc().toIso8601String(), 'query': query};
+  /// True when the user explicitly said "no art for this album" -- i.e. the
+  /// picker's **"Remove artwork"**, as opposed to an automatic lookup that
+  /// came up empty.
+  ///
+  /// Deliberately a DISTINCT marker rather than a plain miss, and one that
+  /// [ArtworkStore.isNegative] honours **without a TTL**: an automatic miss
+  /// should be retried once a fortnight (a provider may gain the release),
+  /// but a cover the user deleted must never come back on its own. Without
+  /// it, "Remove artwork" was not durable at all -- the next launch found no
+  /// entry and no miss, re-queried the same providers, got the same
+  /// candidates and silently re-applied the very cover the user rejected.
+  /// Only an explicit "Search again" (or picking a new image) clears it.
+  final bool suppressed;
+
+  const ArtworkMiss({
+    required this.at,
+    this.query = '',
+    this.suppressed = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'at': at.toUtc().toIso8601String(),
+        'query': query,
+        // Additive, like `misses` itself: an older reader ignores the key
+        // (and simply expires the record after the TTL).
+        if (suppressed) 'suppressed': true,
+      };
 
   static ArtworkMiss? fromJson(Object? raw) {
     if (raw is! Map) return null;
@@ -141,6 +166,7 @@ class ArtworkMiss {
     return ArtworkMiss(
       at: at.toUtc(),
       query: raw['query'] is String ? raw['query'] as String : '',
+      suppressed: raw['suppressed'] == true,
     );
   }
 }
@@ -241,10 +267,23 @@ class ArtworkStore {
   ArtworkSidecar _sidecar = ArtworkSidecar();
   bool _loaded = false;
   Future<void>? _loading;
-  Directory? _writeDir;
+
+  /// Memoized write-location probe. A *future* (not a `Directory?`) so that
+  /// (a) the probe never runs synchronous filesystem I/O on the UI isolate,
+  /// (b) concurrent callers share one probe instead of each hammering the
+  /// share, and (c) the "neither location is writable" outcome is memoized
+  /// too -- otherwise every recorded miss during a full-library pass would
+  /// re-probe an unreachable SMB root.
+  Future<Directory?>? _writeDirProbe;
+  int _writeDirProbes = 0;
   bool _external = false;
   Future<void> _writeChain = Future<void>.value();
   Future<void>? _pendingSave;
+
+  /// How many times the write-location probe actually ran. Must stay 1 (or
+  /// 0) for the lifetime of a store -- see [_resolveWriteDir].
+  @visibleForTesting
+  int get writeDirProbeCount => _writeDirProbes;
 
   /// True once a write has been attempted and the library root turned out
   /// not to be writable, so images + sidecar live under [appDataDir].
@@ -355,7 +394,7 @@ class ArtworkStore {
     String extension = '.jpg',
   }) async {
     await ensureLoaded();
-    final dir = _resolveWriteDir();
+    final dir = await _resolveWriteDir();
     if (dir == null) return null;
     final name = '${artworkHash(albumKey)}$extension';
     try {
@@ -385,10 +424,17 @@ class ArtworkStore {
 
   /// Drops [albumKey]'s recorded choice (and its cached image file, best
   /// effort) and persists. Used by the picker's "Remove artwork".
-  Future<void> remove(String albumKey) async {
+  ///
+  /// [suppress] (the default, because the only caller is the user pressing
+  /// "Remove artwork") also records a [ArtworkMiss.suppressed] marker, which
+  /// is what makes the removal DURABLE: without it the next launch sees no
+  /// entry and no miss, re-runs the same providers, and silently re-applies
+  /// the cover the user just rejected. Pass `false` for a purely mechanical
+  /// removal that should not express user intent.
+  Future<void> remove(String albumKey, {bool suppress = true}) async {
     await ensureLoaded();
     final f = imageFileFor(albumKey);
-    sidecar.art.remove(albumKey);
+    final previous = sidecar.art.remove(albumKey);
     if (f != null) {
       try {
         if (await f.exists()) await f.delete();
@@ -396,6 +442,13 @@ class ArtworkStore {
         // Leaving an orphan image behind is harmless; failing the removal
         // the user asked for is not.
       }
+    }
+    if (suppress) {
+      sidecar.misses[albumKey] = ArtworkMiss(
+        at: now().toUtc(),
+        query: previous?.query ?? sidecar.misses[albumKey]?.query ?? '',
+        suppressed: true,
+      );
     }
     await save();
   }
@@ -416,12 +469,19 @@ class ArtworkStore {
   }
 
   /// True when [albumKey] has a *fresh* negative result: an automatic
-  /// lookup should be skipped. Expires after [negativeTtl].
+  /// lookup should be skipped. Expires after [negativeTtl] -- EXCEPT for a
+  /// user suppression ("Remove artwork"), which never expires on its own.
   bool isNegative(String albumKey) {
     final m = sidecar.misses[albumKey];
     if (m == null) return false;
+    if (m.suppressed) return true;
     return now().toUtc().difference(m.at) < negativeTtl;
   }
+
+  /// True when the user explicitly removed this album's artwork. Distinct
+  /// from a plain automatic miss (see [ArtworkMiss.suppressed]).
+  bool isSuppressed(String albumKey) =>
+      sidecar.misses[albumKey]?.suppressed == true;
 
   /// Persists the sidecar atomically.
   ///
@@ -435,9 +495,9 @@ class ArtworkStore {
   /// 10k-album library would rewrite a steadily-growing JSON file once per
   /// album (quadratic I/O on an SMB share). The returned future still only
   /// completes once a write that INCLUDES the caller's mutation has landed:
-  /// [_pendingSave] is cleared synchronously just before [_saveNow]
-  /// snapshots the sidecar, so a mutation made after that point always
-  /// queues a fresh write.
+  /// [_pendingSave] is cleared synchronously when [_saveNow] is entered, and
+  /// [_saveNow] only snapshots the sidecar *after* that point, so a mutation
+  /// made once the clear has happened always queues a fresh write.
   Future<void> save() {
     final pending = _pendingSave;
     if (pending != null) return pending;
@@ -453,7 +513,7 @@ class ArtworkStore {
   }
 
   Future<void> _saveNow() async {
-    final dir = _resolveWriteDir();
+    final dir = await _resolveWriteDir();
     if (dir == null) return;
     final target = _external ? _externalSidecarFile : _rootSidecarFile;
     final json = const JsonEncoder.withIndent('  ').convert(sidecar.toJson());
@@ -477,34 +537,44 @@ class ArtworkStore {
 
   /// Picks (and memoizes) the directory writes go to: `<root>/.artwork/`
   /// when the root is writable, else `<appDataDir>/artwork/<rootHash>/`.
-  /// Returns null only when NEITHER is writable, in which case artwork is
-  /// simply not persisted this session.
-  Directory? _resolveWriteDir() {
-    final cached = _writeDir;
-    if (cached != null) return cached;
-    if (!_hasRoot) return _resolveExternalWriteDir();
-    final rootCache = Directory(p.join(root.path, artworkCacheDirName));
-    try {
-      rootCache.createSync(recursive: true);
-      // createSync alone doesn't prove writability on a read-only share
-      // that already has the dir -- probe with a real file.
-      final probe = File(p.join(rootCache.path, '.probe'));
-      probe.writeAsStringSync('');
-      probe.deleteSync();
-      _external = false;
-      return _writeDir = rootCache;
-    } catch (_) {
-      // Falls through to the app-data fallback below.
-    }
-    return _resolveExternalWriteDir();
-  }
+  /// Completes with null only when NEITHER is writable, in which case
+  /// artwork is simply not persisted this session.
+  ///
+  /// **Fully async, and memoized as a FUTURE.** The probe is real
+  /// filesystem work (create dir + write a file + delete it) against a
+  /// library root that in production is an SMB share, and it is reached
+  /// from [putImage] / [_saveNow] -- i.e. from the picker's apply path and
+  /// from every background-pass apply, both of which run on the UI isolate.
+  /// Doing it synchronously froze the platform thread for a network
+  /// round trip (multiple seconds on a stalled share), which the plan's
+  /// Global Constraints forbid ("never blocks the UI"). Memoizing the
+  /// in-flight future also means concurrent callers share ONE probe, and
+  /// memoizing the null outcome means a doubly-unwritable store probes once
+  /// per lifetime instead of once per recorded miss.
+  Future<Directory?> _resolveWriteDir() => _writeDirProbe ??= _probeWriteDir();
 
-  Directory? _resolveExternalWriteDir() {
+  Future<Directory?> _probeWriteDir() async {
+    _writeDirProbes++;
+    if (_hasRoot) {
+      final rootCache = Directory(p.join(root.path, artworkCacheDirName));
+      try {
+        await rootCache.create(recursive: true);
+        // create() alone doesn't prove writability on a read-only share
+        // that already has the dir -- probe with a real file.
+        final probe = File(p.join(rootCache.path, '.probe'));
+        await probe.writeAsString('');
+        await probe.delete();
+        _external = false;
+        return rootCache;
+      } catch (_) {
+        // Falls through to the app-data fallback below.
+      }
+    }
     try {
       final ext = externalDir;
-      ext.createSync(recursive: true);
+      await ext.create(recursive: true);
       _external = true;
-      return _writeDir = ext;
+      return ext;
     } catch (_) {
       return null;
     }

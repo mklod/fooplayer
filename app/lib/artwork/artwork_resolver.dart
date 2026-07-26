@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-07-25--2208
 //
 // Display-side artwork resolution (Plan 4, task A2).
 //
@@ -359,8 +359,13 @@ class ArtworkResolver extends ChangeNotifier {
   }
 
   /// Clears [req]'s recorded artwork ("Remove artwork" in the picker).
+  ///
+  /// `suppress: true` persists the user's intent alongside the removal, so
+  /// the background best-guess pass does not re-apply the same auto-guess on
+  /// the next launch. Only picking a new image or an explicit "Search again"
+  /// lifts it (both clear the marker).
   Future<void> removeImage(ArtworkRequest req) async {
-    await stores.forRoot(req.rootPath).remove(req.albumKey);
+    await stores.forRoot(req.rootPath).remove(req.albumKey, suppress: true);
     invalidate(req.albumKey);
   }
 

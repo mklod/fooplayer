@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2208
 //
 // Plan 4 / A2: `.artwork.json` sidecar storage.
 //
@@ -298,6 +298,139 @@ void main() {
       await store.recordMiss(_key);
       await store.putImage(_key, _bytes, source: 'itunes');
       expect(store.isNegative(_key), isFalse);
+    });
+  });
+
+  group('user suppression ("Remove artwork" is durable)', () {
+    test('remove() records a suppression that survives a reopen', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes', query: 'daft punk');
+      await store.remove(_key);
+
+      expect(store.entryFor(_key), isNull);
+      expect(store.isSuppressed(_key), isTrue);
+      expect(store.isNegative(_key), isTrue);
+
+      final reopened = newStore();
+      await reopened.ensureLoaded();
+      expect(reopened.entryFor(_key), isNull);
+      expect(reopened.isSuppressed(_key), isTrue);
+      expect(reopened.isNegative(_key), isTrue,
+          reason: 'the auto pass must not re-apply a rejected cover');
+      expect(reopened.sidecar.misses[_key]!.query, 'daft punk',
+          reason: 'keeps what was searched, for the picker');
+    });
+
+    test('a suppression never expires, unlike an automatic miss', () async {
+      var clock = DateTime.utc(2026, 1, 1);
+      final store = newStore(now: () => clock, ttl: const Duration(days: 14));
+      await store.putImage(_key, _bytes, source: 'itunes');
+      await store.recordMiss('auto|miss');
+      await store.remove(_key);
+
+      clock = clock.add(const Duration(days: 400));
+      expect(store.isNegative('auto|miss'), isFalse,
+          reason: 'an automatic miss still expires');
+      expect(store.isNegative(_key), isTrue);
+      expect(store.isSuppressed(_key), isTrue);
+    });
+
+    test('clearMiss (manual "Search again") lifts it', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes');
+      await store.remove(_key);
+      await store.clearMiss(_key);
+      expect(store.isSuppressed(_key), isFalse);
+      expect(store.isNegative(_key), isFalse);
+
+      final reopened = newStore();
+      await reopened.ensureLoaded();
+      expect(reopened.isNegative(_key), isFalse);
+    });
+
+    test('picking a new image lifts it', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes');
+      await store.remove(_key);
+      await store.putImage(_key, [1, 2, 3], source: 'local');
+      expect(store.isSuppressed(_key), isFalse);
+      expect(store.isNegative(_key), isFalse);
+      expect(store.entryFor(_key)?.source, 'local');
+    });
+
+    test('remove(suppress: false) stays a plain mechanical removal', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes');
+      await store.remove(_key, suppress: false);
+      expect(store.entryFor(_key), isNull);
+      expect(store.isSuppressed(_key), isFalse);
+      expect(store.isNegative(_key), isFalse);
+    });
+
+    test('the suppressed flag round-trips through the sidecar JSON', () async {
+      final store = newStore();
+      await store.putImage(_key, _bytes, source: 'itunes');
+      await store.remove(_key);
+
+      final json = jsonDecode(
+        File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
+      ) as Map;
+      expect(((json['misses'] as Map)[_key] as Map)['suppressed'], isTrue);
+
+      // An automatic miss must NOT carry the flag.
+      await store.recordMiss('auto|miss');
+      final json2 = jsonDecode(
+        File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
+      ) as Map;
+      expect((json2['misses'] as Map)['auto|miss'],
+          isNot(contains('suppressed')));
+    });
+  });
+
+  group('write-location probe (must never block the UI isolate)', () {
+    test('probes once for the whole lifetime of a store', () async {
+      final store = newStore();
+      expect(store.writeDirProbeCount, 0,
+          reason: 'nothing probed until something is actually written');
+
+      await store.putImage(_key, _bytes, source: 'itunes');
+      expect(store.writeDirProbeCount, 1);
+
+      for (var i = 0; i < 10; i++) {
+        await store.recordMiss('miss|$i');
+      }
+      await store.putImage('another|album', _bytes, source: 'deezer');
+      expect(store.writeDirProbeCount, 1,
+          reason: 'the probe is memoized, not re-run per save');
+    });
+
+    test('concurrent first writes share ONE probe', () async {
+      final store = newStore();
+      await Future.wait([
+        for (var i = 0; i < 6; i++)
+          store.putImage('burst|$i', _bytes, source: 'itunes'),
+      ]);
+      expect(store.writeDirProbeCount, 1);
+      expect(store.sidecar.art.length, 6);
+    });
+
+    test('a store with NO writable location memoizes that outcome too',
+        () async {
+      // Both the root AND the app data dir sit under a regular file, so
+      // neither can ever be created: the "nothing is writable" branch.
+      final blocker = File(p.join(tmp.path, 'blocker-all'))
+        ..writeAsStringSync('not a directory');
+      final store = ArtworkStore(
+        root: Directory(p.join(blocker.path, 'music')),
+        appDataDir: Directory(p.join(blocker.path, 'appdata')),
+      );
+
+      expect(await store.putImage(_key, _bytes, source: 'itunes'), isNull);
+      for (var i = 0; i < 10; i++) {
+        await store.recordMiss('miss|$i');
+      }
+      expect(store.writeDirProbeCount, 1,
+          reason: 'a failed probe must not be retried once per save');
     });
   });
 

@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-07-25--2208
 //
 // Plan 4 / A2: the throttled background best-guess pass.
 //
@@ -40,12 +40,15 @@ void main() {
     } catch (_) {}
   });
 
-  ArtworkRequest req(String album) => ArtworkRequest(
-        rootPath: root.path,
-        file: File(p.join(root.path, '$album.mp3')),
-        artist: 'Artist',
-        album: album,
-      );
+  ArtworkRequest req(String album, {Directory? inRoot}) {
+    final r = inRoot ?? root;
+    return ArtworkRequest(
+      rootPath: r.path,
+      file: File(p.join(r.path, '$album.mp3')),
+      artist: 'Artist',
+      album: album,
+    );
+  }
 
   ({
     ArtworkResolver resolver,
@@ -248,6 +251,169 @@ void main() {
     await backfill.run([req('Discovery'), req('Discovery'), req('Discovery')]);
     expect(searches, 1);
     expect(backfill.consideredCount, 1);
+  });
+
+  test('the SAME album under two roots is looked up once PER ROOT', () async {
+    // The user's own library is exactly this shape: `L:\music` plus a
+    // reorganized copy of the same albums under a second root. Deduping the
+    // pass on the album key alone gave the album one lookup total, so the
+    // second root's `.artwork.json` never got an entry (and no miss either,
+    // so nothing ever marked it unresolved).
+    final otherRoot = Directory(p.join(tmp.path, 'root2'))
+      ..createSync(recursive: true);
+    final r = makeResolver();
+    final searched = <String>[];
+    final backfill = ArtworkBackfill(
+      resolver: r.resolver,
+      gap: Duration.zero,
+      maxConcurrent: 1,
+      search: (q) async {
+        searched.add(q.terms);
+        return ['candidate'];
+      },
+      autoPick: (_, _) => const ArtworkPick(
+        url: 'https://example.invalid/a.jpg',
+        source: 'itunes',
+      ),
+      downloader: (_) async => downloadedBytes,
+    );
+
+    await backfill.run([
+      req('Discovery'),
+      req('Discovery', inRoot: otherRoot),
+    ]);
+
+    expect(searched.length, 2, reason: 'one lookup per (root, album)');
+    expect(backfill.consideredCount, 2);
+    expect(backfill.appliedCount, 2);
+
+    for (final dir in [root, otherRoot]) {
+      final store = r.stores.forRoot(dir.path);
+      expect(store.entryFor('artist|discovery'), isNotNull,
+          reason: '${dir.path} must get its own sidecar entry');
+      expect(await store.readImage('artist|discovery'), downloadedBytes);
+      expect(File(p.join(dir.path, artworkSidecarName)).existsSync(), isTrue);
+    }
+  });
+
+  test('two roots are still deduped WITHIN each root', () async {
+    final otherRoot = Directory(p.join(tmp.path, 'root2'))
+      ..createSync(recursive: true);
+    final r = makeResolver();
+    var searches = 0;
+    final backfill = ArtworkBackfill(
+      resolver: r.resolver,
+      gap: Duration.zero,
+      maxConcurrent: 1,
+      search: (_) async {
+        searches++;
+        return const [];
+      },
+      autoPick: (_, _) => null,
+      downloader: (_) async => null,
+    );
+
+    await backfill.run([
+      req('Discovery'),
+      req('Discovery'),
+      req('Discovery', inRoot: otherRoot),
+      req('Discovery', inRoot: otherRoot),
+    ]);
+    expect(searches, 2);
+    expect(backfill.consideredCount, 2);
+  });
+
+  test('artworkBackfillRequests keeps the same album under two roots', () {
+    Track at(String rootPath, String rel) => Track(
+          contentId: '$rootPath/$rel',
+          relPath: rel,
+          rootPath: rootPath,
+          dateAdded: DateTime.utc(2026),
+          title: 'One',
+          artist: 'Daft Punk',
+          album: 'Discovery',
+        );
+    final requests = artworkBackfillRequests([
+      at(root.path, 'a/1.mp3'),
+      at(root.path, 'a/2.mp3'),
+      at(p.join(tmp.path, 'root2'), 'Daft Punk/Discovery/1.mp3'),
+    ]);
+    expect(requests.length, 2);
+    expect(requests.map((r) => r.rootPath).toSet().length, 2);
+    expect(requests.map((r) => r.albumKey).toSet(), {'daft punk|discovery'});
+  });
+
+  group('"Remove artwork" is durable', () {
+    ArtworkBackfill confidentBackfill(ArtworkResolver resolver, List<String> log) =>
+        ArtworkBackfill(
+          resolver: resolver,
+          gap: Duration.zero,
+          search: (q) async {
+            log.add(q.terms);
+            return ['candidate'];
+          },
+          autoPick: (_, _) => const ArtworkPick(
+            url: 'https://example.invalid/auto.jpg',
+            source: 'itunes',
+          ),
+          downloader: (_) async => downloadedBytes,
+        );
+
+    test('a removed cover is NOT silently re-applied by the next pass',
+        () async {
+      final r = makeResolver();
+      final log = <String>[];
+      final backfill = confidentBackfill(r.resolver, log);
+
+      expect(await backfill.lookupOne(req('Discovery')),
+          ArtworkLookupResult.applied);
+
+      // The user rejects the auto-applied guess.
+      await r.resolver.removeImage(req('Discovery'));
+      final store = r.stores.forRoot(root.path);
+      expect(store.entryFor('artist|discovery'), isNull);
+      expect(store.isSuppressed('artist|discovery'), isTrue);
+
+      // Next launch: a fresh pass must leave it alone.
+      await backfill.run([req('Discovery')]);
+      expect(log.length, 1, reason: 'no second query for a rejected album');
+      expect(store.entryFor('artist|discovery'), isNull);
+    });
+
+    test('the suppression survives a restart and does not expire', () async {
+      final r = makeResolver();
+      final backfill = confidentBackfill(r.resolver, <String>[]);
+      await backfill.lookupOne(req('Discovery'));
+      await r.resolver.removeImage(req('Discovery'));
+
+      // Reopen the sidecar from disk, well past the automatic-miss TTL.
+      final reopened = ArtworkStore(
+        root: root,
+        appDataDir: appData,
+        now: () => DateTime.now().toUtc().add(const Duration(days: 400)),
+      );
+      await reopened.ensureLoaded();
+      expect(reopened.entryFor('artist|discovery'), isNull);
+      expect(reopened.isSuppressed('artist|discovery'), isTrue);
+      expect(reopened.isNegative('artist|discovery'), isTrue,
+          reason: 'a user suppression has no TTL');
+    });
+
+    test('manual "Search again" lifts the suppression', () async {
+      final r = makeResolver();
+      final log = <String>[];
+      final backfill = confidentBackfill(r.resolver, log);
+      await backfill.lookupOne(req('Discovery'));
+      await r.resolver.removeImage(req('Discovery'));
+
+      final result =
+          await backfill.lookupOne(req('Discovery'), bypassNegativeCache: true);
+      expect(result, ArtworkLookupResult.applied);
+      expect(log.length, 2);
+      final store = r.stores.forRoot(root.path);
+      expect(store.isSuppressed('artist|discovery'), isFalse);
+      expect(store.entryFor('artist|discovery')?.source, 'itunes');
+    });
   });
 
   test('never runs more than maxConcurrent lookups at once', () async {
