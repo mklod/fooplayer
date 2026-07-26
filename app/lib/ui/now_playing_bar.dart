@@ -122,8 +122,10 @@ class _MetroIcon extends StatelessWidget {
       asset,
       width: size,
       height: size,
-      color: AppColors.ink,
-      colorBlendMode: BlendMode.srcIn,
+      // No runtime color/colorBlendMode: srcIn forces a saveLayer, whose
+      // bounds SwiftShader (the Android emulator's software renderer)
+      // paints as a faint hairline box around every glyph. The ink color
+      // is baked into the PNGs instead (assets/icons/*.png).
       filterQuality: FilterQuality.medium,
     );
   }

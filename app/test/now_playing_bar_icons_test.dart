@@ -126,15 +126,19 @@ void main() {
     expect(metroIcon(kIconShuffleOff), findsOneWidget);
   });
 
-  testWidgets('metro glyphs are tinted AppColors.ink (source PNGs are white)',
+  testWidgets('metro glyphs carry no runtime tint (ink is baked into the PNGs)',
       (tester) async {
     await pumpBar(tester);
 
+    // A runtime `color` + `BlendMode.srcIn` forces a saveLayer, and the
+    // Android emulator's software renderer (SwiftShader) paints that layer's
+    // bounds as a faint hairline box around every glyph. The ink color is
+    // baked into assets/icons/*.png instead, so no blend is needed here.
     for (final asset in [kIconPrevious, kIconPlay, kIconNext, kIconShuffleOff]) {
       final img = tester.widget<Image>(metroIcon(asset));
-      expect(img.color, AppColors.ink,
-          reason: '$asset must be tinted ink to be visible on barBg');
-      expect(img.colorBlendMode, BlendMode.srcIn);
+      expect(img.color, isNull,
+          reason: '$asset must not force a saveLayer via a runtime tint');
+      expect(img.colorBlendMode, isNull);
     }
   });
 }
