@@ -143,6 +143,27 @@ class FilterPanel extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 0, 6, 4),
             child: Row(
               children: [
+                // Explicit "up one level" affordance. The breadcrumb segments
+                // are clickable too, but they read as plain text and a deep
+                // path scrolls its tail out of view -- so going up must not
+                // depend on spotting (or reaching) the right segment.
+                if (headerSegments != null &&
+                    headerSegments!.length > 1 &&
+                    onHeaderSegmentTap != null)
+                  Tooltip(
+                    message: 'Up one level',
+                    child: InkWell(
+                      key: const Key('folder-up'),
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () =>
+                          onHeaderSegmentTap!(headerSegments!.length - 2),
+                      child: const Padding(
+                        padding: EdgeInsets.only(right: 4),
+                        child: Icon(Icons.arrow_upward,
+                            size: 15, color: AppColors.inkSecondary),
+                      ),
+                    ),
+                  ),
                 Expanded(
                   child: headerSegments != null
                       ? _BreadcrumbRow(
@@ -270,12 +291,16 @@ class _BreadcrumbLinkState extends State<_BreadcrumbLink> {
     return InkWell(
       onTap: widget.onTap,
       onHover: (h) => setState(() => _hovered = h),
+      // Accent + permanent underline: earlier styling (plain inkSecondary,
+      // underline only on hover) read as static text, so the breadcrumb
+      // wasn't recognised as navigation at all.
       child: Text(
         widget.label,
         style: base?.copyWith(
-          color: _hovered ? AppColors.ink : AppColors.inkSecondary,
-          decoration:
-              _hovered ? TextDecoration.underline : TextDecoration.none,
+          color: _hovered ? AppColors.ink : AppColors.accent,
+          decoration: TextDecoration.underline,
+          decorationColor:
+              _hovered ? AppColors.ink : AppColors.accent.withValues(alpha: 0.5),
         ),
       ),
     );

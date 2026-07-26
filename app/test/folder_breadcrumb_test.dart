@@ -173,4 +173,62 @@ void main() {
       expect(find.text('Other Song'), findsOneWidget);
     });
   });
+
+  testWidgets('up-one-level button pops exactly one folder level',
+      (tester) async {
+    // Mike reported he could not go one folder up while browsing deeper than
+    // one level: segments were clickable but looked like plain text, and a
+    // deep path scrolls its tail out of view. The header now has an explicit
+    // control that never depends on spotting the right segment.
+    final tapped = <int>[];
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          width: 300,
+          height: 400,
+          child: FilterPanel(
+            title: 'Folder',
+            values: const ['2007-08', '2007-09'],
+            selected: const {},
+            onSelect: (_) {},
+            headerSegments: const ['All', 'monthly', '2007-08'],
+            onHeaderSegmentTap: tapped.add,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final up = find.byKey(const Key('folder-up'));
+    expect(up, findsOneWidget);
+    await tester.tap(up);
+    await tester.pumpAndSettle();
+
+    // 3 segments -> one level up is index 1 ('monthly'), not 0 ('All').
+    expect(tapped, [1]);
+  });
+
+  testWidgets('no up-one-level control at the root level', (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: SizedBox(
+          width: 300,
+          height: 400,
+          child: FilterPanel(
+            title: 'Folder',
+            values: const ['albums', 'monthly'],
+            selected: const {},
+            onSelect: (_) {},
+            headerSegments: const ['All'],
+            onHeaderSegmentTap: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('folder-up')), findsNothing);
+  });
 }
