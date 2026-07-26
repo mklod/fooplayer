@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/artwork_picker.dart';
+import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
 import '../model/playlist_store.dart';
 import '../model/track.dart';
@@ -109,6 +111,17 @@ class TrackListView extends StatelessWidget {
   /// so widget tests can substitute a spy that never touches disk.
   final PlaylistStore? playlistStore;
 
+  /// Backs the context menu's "Album artwork..." item (Plan 4 task A3).
+  /// Null -- the default -- hides the item entirely: without a search/store
+  /// implementation there is nothing honest for it to do, and a menu entry
+  /// that opens an empty picker is worse than no entry.
+  ///
+  /// MERGE (Plan 4): build one [ArtworkServices] from A1's `searchAll` +
+  /// A2's `ArtworkStore`/resolver in `main.dart` and pass it down through
+  /// `home_screen.dart` -> here (and to the phone sheet), which is the one
+  /// wiring change that turns the whole feature on.
+  final ArtworkServices? artwork;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -116,6 +129,7 @@ class TrackListView extends StatelessWidget {
     this.onPlayTrack,
     this.launchExplorer = _launchInExplorer,
     this.playlistStore,
+    this.artwork,
   });
 
   void _play(List<Track> tracks, int index) {
@@ -174,6 +188,7 @@ class TrackListView extends StatelessWidget {
                     launchExplorer: launchExplorer,
                     library: library,
                     playlistStore: store,
+                    artwork: artwork,
                     showTrackNumber: showTrackNumber,
                     // Playlist order is curator-defined, not tag-derived, so
                     // '#' shows where the track sits in that order (1-based)
@@ -353,6 +368,9 @@ class _TrackRow extends StatelessWidget {
   // list / active-playlist state, the store performs the writes.
   final LibraryModel library;
   final PlaylistStore playlistStore;
+  // Null when artwork services haven't been wired -- the "Album artwork..."
+  // menu item is then omitted (see [TrackListView.artwork]).
+  final ArtworkServices? artwork;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -367,6 +385,7 @@ class _TrackRow extends StatelessWidget {
     required this.launchExplorer,
     required this.library,
     required this.playlistStore,
+    required this.artwork,
     required this.showTrackNumber,
     this.trackNumberText,
   });
@@ -385,6 +404,7 @@ class _TrackRow extends StatelessWidget {
           launchExplorer: launchExplorer,
           library: library,
           playlistStore: playlistStore,
+          artwork: artwork,
         ),
         // The default ink splash + pressed highlight take hundreds of ms to
         // play out, which made single-click selection feel sluggish. Both
@@ -481,7 +501,12 @@ class _TrackRow extends StatelessWidget {
 
 /// Row context-menu items. A private enum rather than a bare string keeps
 /// [showMenu]'s selected value type-checked.
-enum _TrackMenuAction { viewInFolder, addToPlaylist, removeFromPlaylist }
+enum _TrackMenuAction {
+  viewInFolder,
+  addToPlaylist,
+  removeFromPlaylist,
+  albumArtwork,
+}
 
 /// Shows the row's right-click context menu at [globalPosition] (from
 /// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]):
@@ -491,7 +516,9 @@ enum _TrackMenuAction { viewInFolder, addToPlaylist, removeFromPlaylist }
 ///   at the same anchor) listing every merged playlist plus "New
 ///   playlist..." -- see [_showAddToPlaylistMenu];
 /// - "Remove from playlist" appears only in playlist view (an active
-///   playlist) and removes [track] from it.
+///   playlist) and removes [track] from it;
+/// - "Album artwork..." (Plan 4 A3) opens the shared [ArtworkPicker] in a
+///   dialog -- shown only when [artwork] services were injected.
 ///
 /// Store refusals ([PlaylistStoreException] -- e.g. the target playlist
 /// lives in another root's manifest) surface via SnackBar, never silently.
@@ -502,6 +529,7 @@ Future<void> _showTrackContextMenu({
   required void Function(Track track) launchExplorer,
   required LibraryModel library,
   required PlaylistStore playlistStore,
+  ArtworkServices? artwork,
 }) async {
   final overlayBox =
       Overlay.of(context).context.findRenderObject() as RenderBox;
@@ -526,6 +554,11 @@ Future<void> _showTrackContextMenu({
           value: _TrackMenuAction.removeFromPlaylist,
           child: Text('Remove from playlist'),
         ),
+      if (artwork != null)
+        const PopupMenuItem(
+          value: _TrackMenuAction.albumArtwork,
+          child: Text('Album artwork...'),
+        ),
     ],
   );
   if (!context.mounted) return;
@@ -547,6 +580,13 @@ Future<void> _showTrackContextMenu({
       } on PlaylistStoreException catch (e) {
         if (context.mounted) showPlaylistError(context, e);
       }
+    case _TrackMenuAction.albumArtwork:
+      if (artwork == null) return; // unreachable; item not shown
+      await showArtworkPickerDialog(
+        context,
+        track: track,
+        services: artwork,
+      );
     case null:
       return;
   }

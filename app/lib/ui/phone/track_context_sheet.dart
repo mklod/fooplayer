@@ -8,6 +8,8 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../../artwork/artwork_picker.dart';
+import '../../artwork/picker_seams.dart';
 import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
@@ -92,11 +94,18 @@ Future<void> showTrackDetailsDialog(BuildContext context,
 /// [PlaylistStore.addTrack]. View details opens [showTrackDetailsDialog].
 /// Store failures surface through the shared [showPlaylistError] SnackBar
 /// path; nothing here touches the models directly.
+///
+/// [artwork] (Plan 4 task A3) adds a third item, "Album artwork", which
+/// pushes the shared picker full-screen ([ArtworkPickerPage]) -- the phone
+/// counterpart of the desktop row menu's "Album artwork...". Null (the
+/// default) omits the item, exactly like [TrackListView.artwork]; MERGE
+/// passes the one [ArtworkServices] built in `main.dart`.
 Future<void> showTrackContextSheet(
   BuildContext context, {
   required Track track,
   required LibraryModel library,
   required PlaylistStore store,
+  ArtworkServices? artwork,
 }) async {
   final subtitle = trackSubtitle(track);
   final action = await showModalBottomSheet<String>(
@@ -126,6 +135,14 @@ Future<void> showTrackContextSheet(
             title: const Text('View details'),
             onTap: () => Navigator.of(ctx).pop('view-details'),
           ),
+          if (artwork != null)
+            ListTile(
+              key: const Key('sheet-album-artwork'),
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('Album artwork'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(ctx).pop('album-artwork'),
+            ),
         ],
       ),
     ),
@@ -133,6 +150,11 @@ Future<void> showTrackContextSheet(
   if (!context.mounted) return;
   if (action == 'view-details') {
     await showTrackDetailsDialog(context, track: track);
+    return;
+  }
+  if (action == 'album-artwork') {
+    if (artwork == null) return; // unreachable; item not shown
+    await pushArtworkPickerPage(context, track: track, services: artwork);
     return;
   }
   if (action != 'add-to-playlist') return;
