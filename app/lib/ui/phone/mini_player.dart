@@ -1,7 +1,8 @@
-// Last modified: 2026-07-24--1835
+// Last modified: 2026-07-25--2115
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../../artwork/artwork_resolver.dart';
 import '../../player/player_service.dart';
 import '../app_theme.dart';
 import '../now_playing_bar.dart' show AlbumArt, kIconPlay, kIconPause;
@@ -17,7 +18,14 @@ import 'now_playing_page.dart';
 /// time -- this widget only needs the [PlayerService].
 class MiniPlayer extends StatelessWidget {
   final PlayerService player;
-  const MiniPlayer({super.key, required this.player});
+
+  /// Artwork resolution chain (Plan 4) -- forwarded to [AlbumArt] and on to
+  /// [NowPlayingPage] so the mini-player, the full-screen page and the
+  /// desktop bar all show the same resolved cover from one shared cache.
+  /// Null keeps the pre-Plan-4 embedded-art-only behavior.
+  final ArtworkResolver? artworkResolver;
+
+  const MiniPlayer({super.key, required this.player, this.artworkResolver});
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +37,12 @@ class MiniPlayer extends StatelessWidget {
         return Material(
           color: AppColors.barBg,
           child: InkWell(
-            onTap: () => Navigator.of(
-              context,
-            ).push(NowPlayingPage.route(player: player)),
+            onTap: () => Navigator.of(context).push(
+              NowPlayingPage.route(
+                player: player,
+                artworkResolver: artworkResolver,
+              ),
+            ),
             child: Container(
               key: const Key('mini-player-bar'),
               height: 64,
@@ -45,6 +56,8 @@ class MiniPlayer extends StatelessWidget {
                     contentId: t.contentId,
                     file: File(p.join(t.rootPath, t.relPath)),
                     size: 48,
+                    resolver: artworkResolver,
+                    track: t,
                   ),
                   const SizedBox(width: 10),
                   Expanded(

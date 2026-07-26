@@ -1,8 +1,9 @@
-// Last modified: 2026-07-24--1835
+// Last modified: 2026-07-25--2115
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../../artwork/artwork_resolver.dart';
 import '../../player/player_service.dart';
 import '../app_theme.dart';
 import '../now_playing_bar.dart'
@@ -30,12 +31,29 @@ String _fmt(Duration d) {
 /// AppBar's automatic back button pops it.
 class NowPlayingPage extends StatelessWidget {
   final PlayerService player;
-  const NowPlayingPage({super.key, required this.player});
+
+  /// Artwork resolution chain (Plan 4). Null keeps the pre-Plan-4
+  /// embedded-art-only behavior.
+  final ArtworkResolver? artworkResolver;
+
+  const NowPlayingPage({
+    super.key,
+    required this.player,
+    this.artworkResolver,
+  });
 
   /// Route helper so callers (MiniPlayer, future deep links) push the page
   /// identically without importing MaterialPageRoute boilerplate.
-  static Route<void> route({required PlayerService player}) =>
-      MaterialPageRoute<void>(builder: (_) => NowPlayingPage(player: player));
+  static Route<void> route({
+    required PlayerService player,
+    ArtworkResolver? artworkResolver,
+  }) =>
+      MaterialPageRoute<void>(
+        builder: (_) => NowPlayingPage(
+          player: player,
+          artworkResolver: artworkResolver,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +106,8 @@ class NowPlayingPage extends StatelessWidget {
                               contentId: t.contentId,
                               file: File(p.join(t.rootPath, t.relPath)),
                               size: artSize,
+                              resolver: artworkResolver,
+                              track: t,
                             ),
                           ),
                           const SizedBox(height: 24),

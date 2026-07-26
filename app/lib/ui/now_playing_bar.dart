@@ -1,8 +1,9 @@
-// Last modified: 2026-07-24--1734
+// Last modified: 2026-07-25--2115
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/artwork_resolver.dart';
 import '../metadata/tags.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
@@ -14,21 +15,42 @@ String _fmt(Duration d) {
   return '$m:$s';
 }
 
-/// Renders the current track's embedded cover art (or a placeholder while
-/// loading / when none is present).
+/// Renders the current track's cover art (or a placeholder while loading /
+/// when none is present).
+///
+/// Two sources, chosen by what the caller supplies:
+///
+/// - **[resolver] + [track] given** (production, since Plan 4): the full
+///   artwork resolution chain -- embedded tag art, then the album's
+///   `.artwork.json` sidecar choice (user pick or auto best guess), then
+///   `folder.jpg`/`cover.jpg`/`front.jpg` beside the file, then nothing.
+///   The resolver caches per album key, dedupes concurrent requests, and
+///   notifies when a pick changes so every visible surface refreshes.
+/// - **neither given**: [loader] (embedded art only) -- the original
+///   behavior, kept as the default so widget tests can inject a fake loader
+///   without standing up a resolver.
 ///
 /// Deliberately stateful: [ListenableBuilder] in [NowPlayingBar] rebuilds on
 /// every position tick during playback (several times a second), so the art
 /// [Future] must be created once per track -- not recreated on every parent
 /// rebuild -- otherwise [FutureBuilder] resets to its waiting state each
-/// tick (art flickers to the placeholder) and [loader] re-parses the file's
-/// tags on every tick. The future is cached in [State] and only
-/// re-requested when [contentId] actually changes.
+/// tick (art flickers to the placeholder) and the source re-parses the
+/// file's tags on every tick. The result is cached in [State] and only
+/// re-requested when [contentId] actually changes (or the resolver reports
+/// a new artwork revision).
 class AlbumArt extends StatefulWidget {
   final String contentId;
   final File file;
   final Future<List<int>?> Function(File) loader;
   final double size;
+
+  /// Full resolution chain. Null (the default) keeps the embedded-only
+  /// [loader] path -- see the class doc.
+  final ArtworkResolver? resolver;
+
+  /// The track whose album key the [resolver] resolves. Required for the
+  /// resolver path (artist/album drive the key); ignored otherwise.
+  final Track? track;
 
   const AlbumArt({
     super.key,
@@ -36,6 +58,8 @@ class AlbumArt extends StatefulWidget {
     required this.file,
     this.loader = readArtSafe,
     this.size = 56,
+    this.resolver,
+    this.track,
   });
 
   @override
@@ -48,27 +72,84 @@ class _AlbumArtState extends State<AlbumArt> {
   // re-decode (one blank frame) on every position tick. gaplessPlayback keeps
   // the previous art on screen while the next track's art loads.
   Uint8List? _bytes;
+
+  // The exact list instance the current [_bytes] came from. The resolver
+  // hands back the SAME cached instance on every hit, so an identity match
+  // means "nothing changed" -- skip setState entirely and Flutter's image
+  // cache is never asked to re-decode the same picture.
+  List<int>? _raw;
+
   int _request = 0;
+  int _seenRevision = 0;
 
   @override
   void initState() {
     super.initState();
+    final resolver = widget.resolver;
+    if (resolver != null) {
+      _seenRevision = resolver.revision;
+      resolver.addListener(_onArtworkChanged);
+    }
     _load();
   }
 
   @override
   void didUpdateWidget(covariant AlbumArt oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(widget.resolver, oldWidget.resolver)) {
+      oldWidget.resolver?.removeListener(_onArtworkChanged);
+      final resolver = widget.resolver;
+      if (resolver != null) {
+        _seenRevision = resolver.revision;
+        resolver.addListener(_onArtworkChanged);
+      }
+      _load();
+      return;
+    }
     if (widget.contentId != oldWidget.contentId) {
       _load();
     }
   }
 
+  @override
+  void dispose() {
+    // Symmetric with initState/didUpdateWidget: leaving this listener
+    // attached would keep a disposed State (and its bytes) alive for as
+    // long as the app-lifetime resolver does.
+    widget.resolver?.removeListener(_onArtworkChanged);
+    super.dispose();
+  }
+
+  /// A pick was applied/removed somewhere (picker, background best-guess
+  /// pass) -- re-run the chain. The revision check keeps an unrelated
+  /// notification from costing a reload.
+  void _onArtworkChanged() {
+    final resolver = widget.resolver;
+    if (resolver == null || !mounted) return;
+    if (resolver.revision == _seenRevision) return;
+    _seenRevision = resolver.revision;
+    _load();
+  }
+
   void _load() {
     final req = ++_request;
-    widget.loader(widget.file).then((data) {
+    final resolver = widget.resolver;
+    final track = widget.track;
+    final future = (resolver != null && track != null)
+        ? resolver.resolve(ArtworkRequest.forTrack(track))
+        : widget.loader(widget.file);
+    future.then((data) {
       if (!mounted || req != _request) return; // stale result for a prior track
-      setState(() => _bytes = data == null ? null : Uint8List.fromList(data));
+      if (identical(data, _raw)) return; // unchanged -- don't force a re-decode
+      setState(() {
+        _raw = data;
+        _bytes = data == null
+            ? null
+            : (data is Uint8List ? data : Uint8List.fromList(data));
+      });
+    }).catchError((Object _) {
+      // Art is a nicety: a loader/resolver that throws leaves the
+      // placeholder up rather than surfacing an unhandled future error.
     });
   }
 
@@ -223,6 +304,7 @@ class _LcdCluster extends StatelessWidget {
   final Duration pos;
   final Duration total;
   final ValueChanged<double> onSeek;
+  final ArtworkResolver? resolver;
 
   const _LcdCluster({
     super.key,
@@ -231,6 +313,7 @@ class _LcdCluster extends StatelessWidget {
     required this.pos,
     required this.total,
     required this.onSeek,
+    this.resolver,
   });
 
   @override
@@ -239,7 +322,13 @@ class _LcdCluster extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        AlbumArt(contentId: track.contentId, file: file, size: 56),
+        AlbumArt(
+          contentId: track.contentId,
+          file: file,
+          size: 56,
+          resolver: resolver,
+          track: track,
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -305,9 +394,16 @@ class _LcdCluster extends StatelessWidget {
 
 class NowPlayingBar extends StatelessWidget {
   final PlayerService player;
+
+  /// Artwork resolution chain (Plan 4). Null keeps the pre-Plan-4
+  /// embedded-art-only behavior, which is what the widget tests that build
+  /// the bar without an app-level resolver rely on.
+  final ArtworkResolver? artworkResolver;
+
   const NowPlayingBar({
     super.key,
     required this.player,
+    this.artworkResolver,
   });
 
   @override
@@ -347,6 +443,7 @@ class NowPlayingBar extends StatelessWidget {
                           key: const Key('lcd'),
                           track: t,
                           file: File(p.join(t.rootPath, t.relPath)),
+                          resolver: artworkResolver,
                           pos: pos,
                           total: total,
                           onSeek: (v) => player.seek(
