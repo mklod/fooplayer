@@ -1,6 +1,6 @@
 # fooplayer
 
-Custom music player (Windows desktop + Android) built around portable per-folder `.library.json` manifests that store **date downloaded as permanent data** — immune to tag editors. Replaces foobar2000.
+Custom music player (Windows desktop + Android) built around portable per-folder `.library.json` manifests that store **date downloaded as permanent data** — immune to tag editors. Album artwork is looked up automatically and stored beside the music. Replaces foobar2000.
 
 ## Project docs
 
