@@ -81,15 +81,18 @@ class HomeScreen extends StatelessWidget {
                     child: Material(
                       color: AppColors.panelBg,
                       child: _Sidebar(
-                          library: library,
-                          libraryRootsPrefs: libraryRootsPrefs,
-                          playlistStore: store),
+                        artworkBackfill: artworkBackfill,
+                        library: library,
+                        libraryRootsPrefs: libraryRootsPrefs,
+                        playlistStore: store,
+                      ),
                     ),
                   ),
                   VerticalDragDivider(
                     key: const Key('sidebar-divider'),
-                    onDragDelta: (dx) => layoutPrefs
-                        .setSidebarWidth(layoutPrefs.sidebarWidth + dx),
+                    onDragDelta: (dx) => layoutPrefs.setSidebarWidth(
+                      layoutPrefs.sidebarWidth + dx,
+                    ),
                   ),
                   Expanded(
                     child: Column(
@@ -152,11 +155,11 @@ class HomeScreen extends StatelessWidget {
                                       // path, drop the sibling selection".
                                       headerSegments:
                                           library.folderBreadcrumbs.isEmpty
-                                              ? null
-                                              : [
-                                                  'All',
-                                                  ...library.folderBreadcrumbs,
-                                                ],
+                                          ? null
+                                          : [
+                                              'All',
+                                              ...library.folderBreadcrumbs,
+                                            ],
                                       onHeaderSegmentTap: library.popFolderTo,
                                       onClearHeader:
                                           library.clearFolderSelection,
@@ -192,16 +195,18 @@ class HomeScreen extends StatelessWidget {
                         ),
                         HorizontalDragDivider(
                           key: const Key('filter-divider'),
-                          onDragDelta: (dy) => layoutPrefs
-                              .setFilterHeight(layoutPrefs.filterHeight + dy),
+                          onDragDelta: (dy) => layoutPrefs.setFilterHeight(
+                            layoutPrefs.filterHeight + dy,
+                          ),
                         ),
                         Expanded(
-                            child: TrackListView(
-                                library: library,
-                                player: player,
-                                playlistStore: store,
-                                artwork: artworkServices)),
-                        _StatusBar(library: library),
+                          child: TrackListView(
+                            library: library,
+                            player: player,
+                            playlistStore: store,
+                            artwork: artworkServices,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -220,10 +225,17 @@ class _Sidebar extends StatelessWidget {
   final LibraryModel library;
   final LibraryRootsPrefs libraryRootsPrefs;
   final PlaylistStore playlistStore;
+
+  /// Background best-guess artwork pass, driven by the "Enrich artwork"
+  /// entry pinned at the sidebar bottom. Null hides that entry (widget
+  /// tests that build the screen without the artwork feature wired).
+  final ArtworkBackfill? artworkBackfill;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
     required this.playlistStore,
+    this.artworkBackfill,
   });
 
   Future<void> _createPlaylist(BuildContext context) async {
@@ -234,6 +246,21 @@ class _Sidebar extends StatelessWidget {
     } on PlaylistStoreException catch (e) {
       if (context.mounted) showPlaylistError(context, e);
     }
+  }
+
+  /// Kicks the background best-guess pass over every album that still has
+  /// no artwork. Safe to press repeatedly: the pass dedupes per album and
+  /// skips albums that already resolved.
+  void _enrichArtwork(BuildContext context) {
+    final backfill = artworkBackfill;
+    if (backfill == null) return;
+    backfill.run(artworkBackfillRequests(library.allTracks));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Looking up artwork for albums without a cover…'),
+        duration: Duration(seconds: 3),
+      ),
+    );
   }
 
   void _openSettings(BuildContext context) {
@@ -289,7 +316,25 @@ class _Sidebar extends StatelessWidget {
           ),
           const Divider(height: 1),
           // Pinned at the sidebar bottom (outside the scrolling ListView
-          // above) so it's always reachable regardless of playlist count.
+          // above) so these stay reachable regardless of playlist count:
+          // the library status line, the manual artwork pass, then Settings.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+            child: Text(
+              '${library.status} — ${library.visibleTracks.length} tracks',
+              key: const Key('sidebar-status'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+          if (artworkBackfill != null)
+            ListTile(
+              key: const Key('enrich-artwork'),
+              leading: const Icon(Icons.image_search_outlined, size: 18),
+              title: const Text('Enrich artwork'),
+              onTap: () => _enrichArtwork(context),
+            ),
           ListTile(
             key: const Key('settings-gear'),
             leading: const Icon(Icons.settings_outlined),
@@ -352,8 +397,11 @@ class _PlaylistTile extends StatelessWidget {
       onSecondaryTapDown: (details) =>
           _showContextMenu(context, details.globalPosition),
       child: ListTile(
-        title: Text(playlist.name,
-            maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(
+          playlist.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         selected: active,
         // Toggle: a tap on the already-active playlist clears back to the
         // Library view instead of being a dead click.
@@ -361,8 +409,11 @@ class _PlaylistTile extends StatelessWidget {
         trailing: active
             ? IconButton(
                 key: Key('clear-playlist-${playlist.name}'),
-                icon: const Icon(Icons.close,
-                    size: 14, color: AppColors.inkSecondary),
+                icon: const Icon(
+                  Icons.close,
+                  size: 14,
+                  color: AppColors.inkSecondary,
+                ),
                 tooltip: 'Back to Library',
                 onPressed: () => library.setPlaylist(null),
               )
@@ -412,8 +463,11 @@ class _SearchFieldState extends State<_SearchField> {
               ? null
               : IconButton(
                   key: const Key('search-clear'),
-                  icon: const Icon(Icons.close,
-                      size: 16, color: AppColors.inkSecondary),
+                  icon: const Icon(
+                    Icons.close,
+                    size: 16,
+                    color: AppColors.inkSecondary,
+                  ),
                   tooltip: 'Clear search',
                   onPressed: _clear,
                 ),
@@ -457,33 +511,15 @@ class _RefreshButton extends StatelessWidget {
                 if (backfill == null) {
                   library.rescan();
                 } else {
-                  unawaited(rescanThenBackfill(
-                    rescan: library.rescan,
-                    backfill: backfill,
-                    tracks: () => library.allTracks,
-                  ));
+                  unawaited(
+                    rescanThenBackfill(
+                      rescan: library.rescan,
+                      backfill: backfill,
+                      tracks: () => library.allTracks,
+                    ),
+                  );
                 }
               },
-      ),
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  final LibraryModel library;
-  const _StatusBar({required this.library});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: library,
-      builder: (context, _) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          '${library.status} — ${library.visibleTracks.length} tracks',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
       ),
     );
   }
