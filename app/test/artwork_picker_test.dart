@@ -520,4 +520,23 @@ void main() {
       expect(artworkSourceLabel('discogs'), 'discogs');
     });
   });
+
+  testWidgets('close button dismisses the picker', (tester) async {
+    // Mike reported there was no visible way out of the modal.
+    final outcomes = await pumpPicker(
+      tester,
+      svc: fakeArtworkServices(
+        search: FakeArtworkSearch([const []]),
+        store: FakeArtworkStore(),
+      ),
+    );
+    expect(find.byKey(const Key('artwork-picker')), findsOneWidget);
+    expect(find.byKey(const Key('artwork-picker-close')), findsOneWidget);
+    // Pumped bare (no route), so the button's maybePop is a no-op here --
+    // what this pins is that the affordance exists and is tappable; the
+    // dialog/page chromes are covered in artwork_picker_entry_points_test.
+    await tester.tap(find.byKey(const Key('artwork-picker-close')));
+    await tester.pumpAndSettle();
+    expect(outcomes, isEmpty);
+  });
 }
