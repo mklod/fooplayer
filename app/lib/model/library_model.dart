@@ -352,6 +352,17 @@ class LibraryModel extends ChangeNotifier {
           durationMs: tags.durationMs,
           trackNumber: tags.trackNumber,
         );
+        // A cache hit still worth a one-time re-read for a duration (see
+        // `meta_cache.dart`'s `needsDurationProbe`) -- the already-good
+        // cached title/artist/album applied just above are kept for the
+        // instant feed; only queue it for Part B's background re-read
+        // (below) when the file is actually still there, so a stale entry
+        // for a since-removed file doesn't get downgraded to a
+        // filename-derived placeholder by that re-read's own miss path.
+        if (needsDurationProbe(tags, t.relPath) &&
+            File(p.join(t.rootPath, t.relPath)).existsSync()) {
+          missing.add(i);
+        }
       }
       allTracks = tracks;
       status = missing.isEmpty ? 'ready' : 'ready (reading tags in background)';
@@ -628,6 +639,7 @@ class LibraryModel extends ChangeNotifier {
         genre: entry.genre,
         durationMs: known,
         trackNumber: entry.trackNumber,
+        durationProbed: entry.durationProbed,
       );
     }
   }
@@ -1020,6 +1032,7 @@ class LibraryModel extends ChangeNotifier {
         genre: old.genre,
         durationMs: entry.value,
         trackNumber: old.trackNumber,
+        durationProbed: old.durationProbed,
       );
     }
     await cache.save(cacheFile);

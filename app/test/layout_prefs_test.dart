@@ -87,7 +87,7 @@ void main() {
         async.elapse(const Duration(milliseconds: 500));
 
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 240, 'filterHeight': 200});
+        expect(writes.single, {'sidebarWidth': 240, 'filterHeight': 200, 'filtersCollapsed': false});
       });
     });
 
@@ -103,7 +103,7 @@ void main() {
         prefs.setSidebarWidth(300);
         async.elapse(const Duration(milliseconds: 500));
         expect(writes, hasLength(2));
-        expect(writes.last, {'sidebarWidth': 300, 'filterHeight': 180});
+        expect(writes.last, {'sidebarWidth': 300, 'filterHeight': 180, 'filtersCollapsed': false});
       });
     });
 
@@ -131,7 +131,7 @@ void main() {
 
         prefs.flush();
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 220, 'filterHeight': 260});
+        expect(writes.single, {'sidebarWidth': 220, 'filterHeight': 260, 'filtersCollapsed': false});
 
         // The original timer must be cancelled -- letting the rest of the
         // original 500ms window (and then some) elapse must not produce a
@@ -167,12 +167,39 @@ void main() {
         prefs.dispose();
 
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 300, 'filterHeight': 180});
+        expect(writes.single, {'sidebarWidth': 300, 'filterHeight': 180, 'filtersCollapsed': false});
 
         // No lingering timer either.
         async.elapse(const Duration(seconds: 2));
         expect(writes, hasLength(1));
       });
+    });
+  });
+
+  group('filters collapsed', () {
+    test('toggles, persists, and round-trips through config', () async {
+      final writes = <Map<String, dynamic>>[];
+      final prefs = LayoutPrefs(writer: writes.add, debounce: Duration.zero);
+      expect(prefs.filtersCollapsed, isFalse);
+
+      prefs.toggleFiltersCollapsed();
+      expect(prefs.filtersCollapsed, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(writes.last['filtersCollapsed'], isTrue);
+
+      // Same value again is a no-op (no extra write, no notify).
+      final before = writes.length;
+      prefs.setFiltersCollapsed(true);
+      await Future<void>.delayed(Duration.zero);
+      expect(writes.length, before);
+
+      // Restored from config on next launch.
+      final restored = LayoutPrefs.fromConfig(
+        {'sidebarWidth': 240, 'filterHeight': 200, 'filtersCollapsed': true},
+      );
+      expect(restored.filtersCollapsed, isTrue);
+      // The dragged height survives collapsing, so expanding restores it.
+      expect(restored.filterHeight, 200);
     });
   });
 }

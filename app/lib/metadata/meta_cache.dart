@@ -41,6 +41,28 @@ class MetaCache {
   }
 }
 
+/// True when [tags] -- an existing cache *hit* for a track at [relPath] --
+/// still deserves one more look for a duration, because it was cached
+/// before `readTags` grew the `mp3_duration.dart` stream-header fallback
+/// (or by a path that never needed it, e.g. a non-mp3 format). Re-reading
+/// such an entry is a one-time cost: [readTags] always sets
+/// [TrackTags.durationProbed] to true after attempting the fallback,
+/// whether or not it actually found a duration, so a file whose audio
+/// stream genuinely can't be measured doesn't get re-probed on every future
+/// load forever -- only once, right after upgrading to this feature (or
+/// after a scan that, for whatever reason, produced a still-probed-false
+/// null-duration mp3 entry).
+///
+/// Deliberately narrower than the durationMs/trackNumber staleness checks
+/// in [MetaCache.load] (which evict *any* entry missing those keys
+/// entirely): gating on [tags.durationMs] being null here means a healthy
+/// majority of a real library -- every non-mp3 track, and every mp3 whose
+/// duration the tag parser already found directly -- is completely
+/// unaffected by this rollout, rather than the whole cache invalidating in
+/// one shot.
+bool needsDurationProbe(TrackTags tags, String relPath) =>
+    tags.durationMs == null && !tags.durationProbed && isMp3Path(relPath);
+
 /// Resolves each track's file via its own [Track.rootPath] (multi-root
 /// libraries can mix tracks from different roots in a single list), rather
 /// than a single library-wide root directory.
@@ -59,6 +81,17 @@ Future<List<Track>> fillMetadata(
           ? await readTags(file, relPath: t.relPath)
           : parseFromFilename(t.relPath);
       cache.entries[t.contentId] = tags;
+    } else if (needsDurationProbe(tags, t.relPath)) {
+      // A cache hit, but one worth a one-time re-read for a duration (see
+      // [needsDurationProbe]). Only actually re-reads when the file is
+      // still there -- otherwise there's nothing to probe, and keeping the
+      // existing (already-enriched) cached tags beats discarding real
+      // title/artist/album for a filename-derived placeholder.
+      final file = File(p.join(t.rootPath, t.relPath));
+      if (file.existsSync()) {
+        tags = await readTags(file, relPath: t.relPath);
+        cache.entries[t.contentId] = tags;
+      }
     }
     out.add(t.copyWith(
       title: tags.title,
