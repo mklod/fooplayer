@@ -119,13 +119,23 @@ class LibraryModel extends ChangeNotifier {
   String? activePlaylist;
   String status = 'idle';
 
-  /// The single track currently selected in the track list (single-click;
-  /// see `ui/track_list.dart`'s `_TrackRow`) -- visual-only for now (a
-  /// `selectionFill` background), and the basis for a future multi-select.
+  /// The tracks currently selected in the track list (see
+  /// `ui/track_list.dart`'s per-row `onSelect`/`onPlay`, [selectTrackClick]
+  /// and [selectTrack]) -- visual-only (the `selectionFill` background,
+  /// applied per selected row), and the source selection for the row
+  /// context menu's bulk playlist actions when the right-clicked row is
+  /// part of it (see `ui/track_list.dart`'s `_showTrackContextMenu`).
   /// Distinct from the currently *playing* track ([PlayerService.current]):
   /// a row can be selected, playing, both, or neither, and each gets its
   /// own independent highlight treatment.
-  String? selectedTrackId;
+  Set<String> selectedTrackIds = {};
+
+  /// The Shift+click range-selection anchor: the last row clicked WITHOUT
+  /// Shift (a plain or Ctrl+click), or the row a Ctrl+click just toggled.
+  /// Null once the selection has been cleared -- e.g. by one of the
+  /// filter/search/playlist/folder cascade points (see [_clearSelection])
+  /// -- and nothing has been clicked since. See [selectTrackClick].
+  String? _selectionAnchor;
 
   /// The track-list column [visibleTracks] is currently sorted by, and its
   /// direction. Defaults to date-added, newest first -- matching the feed's
@@ -887,6 +897,7 @@ class LibraryModel extends ChangeNotifier {
   void _onFolderSelectionChanged() {
     artistFilters = {};
     albumFilters = {};
+    _clearSelection();
     if (folderSelectionIsSingleAlbum) {
       sortColumn = SortColumn.trackNumber;
       sortAscending = true;
@@ -907,6 +918,7 @@ class LibraryModel extends ChangeNotifier {
   void setArtists(Set<String> values) {
     artistFilters = values;
     albumFilters = {};
+    _clearSelection();
     _revertSortIfTrackNumber();
     notifyListeners();
   }
@@ -926,6 +938,7 @@ class LibraryModel extends ChangeNotifier {
   /// always wins afterward, same as any other sort change.
   void setAlbums(Set<String> values) {
     albumFilters = values;
+    _clearSelection();
     if (values.length == 1) {
       sortColumn = SortColumn.trackNumber;
       sortAscending = true;
@@ -938,15 +951,104 @@ class LibraryModel extends ChangeNotifier {
 
   void setSearch(String s) {
     search = s;
+    _clearSelection();
     notifyListeners();
   }
 
-  /// Selects [id] as the single selected track (or clears the selection,
-  /// when `null`). Selection is purely a UI highlight -- it never starts or
-  /// affects playback (see [PlayerService.playFrom] for that).
+  /// Selects exactly [id] (or clears the selection entirely when `null`),
+  /// discarding any wider multi-selection and moving the range anchor to
+  /// [id] -- used by double-click (selects the clicked row before playing
+  /// it, see `ui/track_list.dart`'s `onPlay`) and by the row context menu's
+  /// Explorer-style "right-click on an unselected row selects it first"
+  /// behavior (`_showTrackContextMenu`). Selection is purely a UI
+  /// highlight -- it never starts or affects playback (see
+  /// [PlayerService.playFrom] for that).
   void selectTrack(String? id) {
-    selectedTrackId = id;
+    selectedTrackIds = id == null ? {} : {id};
+    _selectionAnchor = id;
     notifyListeners();
+  }
+
+  /// Standard Explorer/foobar row-click selection semantics for the track
+  /// list. `ui/track_list.dart`'s per-row `onSelect` supplies [ctrl]/[shift]
+  /// from `HardwareKeyboard.instance` (the same real-time-modifier pattern
+  /// [FilterPanel] already uses for its own Ctrl+click) and [visibleOrder]
+  /// as [visibleTracks] at click time -- the order a Shift+click's range is
+  /// walked in:
+  ///
+  /// - plain click: selects only [id], replacing the whole selection, and
+  ///   moves the range anchor to it.
+  /// - Ctrl+click: toggles [id] in/out of the existing selection, moving
+  ///   the anchor to it.
+  /// - Shift+click: replaces the selection with the contiguous range from
+  ///   the anchor to [id] in [visibleOrder] -- the anchor itself is left
+  ///   unchanged, so a further Shift+click re-ranges from the same start.
+  /// - Ctrl+Shift+click: adds that anchor->[id] range to the existing
+  ///   selection instead of replacing it (anchor unchanged) -- Explorer's
+  ///   "extend" behavior.
+  ///
+  /// A Shift+click with no anchor yet, or whose anchor/[id] isn't present
+  /// in [visibleOrder] (shouldn't normally happen -- see the cascade points
+  /// that call [_clearSelection] whenever the visible set changes), falls
+  /// back to plain/Ctrl+click handling on [id] alone.
+  void selectTrackClick(
+    String id, {
+    required bool ctrl,
+    required bool shift,
+    required List<Track> visibleOrder,
+  }) {
+    final anchor = _selectionAnchor;
+    if (shift && anchor != null) {
+      final ids = [for (final t in visibleOrder) t.contentId];
+      final anchorIndex = ids.indexOf(anchor);
+      final clickIndex = ids.indexOf(id);
+      if (anchorIndex >= 0 && clickIndex >= 0) {
+        final lo = anchorIndex < clickIndex ? anchorIndex : clickIndex;
+        final hi = anchorIndex < clickIndex ? clickIndex : anchorIndex;
+        final range = ids.sublist(lo, hi + 1).toSet();
+        selectedTrackIds = ctrl ? {...selectedTrackIds, ...range} : range;
+        notifyListeners();
+        return;
+      }
+      // Anchor/id not found in the current view -- fall through to
+      // plain/Ctrl handling below as if Shift weren't held.
+    }
+    if (ctrl) {
+      final next = Set<String>.of(selectedTrackIds);
+      if (!next.remove(id)) next.add(id);
+      selectedTrackIds = next;
+    } else {
+      selectedTrackIds = {id};
+    }
+    _selectionAnchor = id;
+    notifyListeners();
+  }
+
+  /// Ctrl+A: selects every track currently in [visibleTracks]. No-ops on an
+  /// empty visible list. Keeps the existing anchor when it's still part of
+  /// the newly-selected set (so a further Shift+click ranges from where the
+  /// user was), otherwise anchors on the first visible track.
+  void selectAll() {
+    final tracks = visibleTracks;
+    if (tracks.isEmpty) return;
+    selectedTrackIds = {for (final t in tracks) t.contentId};
+    if (_selectionAnchor == null ||
+        !selectedTrackIds.contains(_selectionAnchor)) {
+      _selectionAnchor = tracks.first.contentId;
+    }
+    notifyListeners();
+  }
+
+  /// Clears the track-list selection and its range anchor -- called from
+  /// every existing filter/search/playlist/folder cascade point
+  /// ([setSearch], [setPlaylist], [setArtists], [setAlbums],
+  /// [_onFolderSelectionChanged]) since a selection made against one
+  /// visible set stops meaning anything once that set changes materially.
+  /// Plain resorting ([setSort]) is deliberately NOT a cascade point here --
+  /// the same rows stay visible, just reordered.
+  void _clearSelection() {
+    selectedTrackIds = {};
+    _selectionAnchor = null;
   }
 
   /// On-play duration backfill (see [PlayerService.onObservedDuration],
@@ -1122,6 +1224,7 @@ class LibraryModel extends ChangeNotifier {
     artistFilters = {};
     albumFilters = {};
     search = '';
+    _clearSelection();
     notifyListeners();
   }
 

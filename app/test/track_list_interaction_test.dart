@@ -86,7 +86,7 @@ void main() {
       onPlayTrack: (_, _) => playCalls++,
     );
 
-    expect(lib.selectedTrackId, isNull);
+    expect(lib.selectedTrackIds, isEmpty);
 
     await tester.tap(find.text('Banana'));
     // onTap is only resolved once the double-tap disambiguation window
@@ -94,7 +94,7 @@ void main() {
     // past it before asserting.
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
 
-    expect(lib.selectedTrackId, 'a');
+    expect(lib.selectedTrackIds, {'a'});
     expect(playCalls, 0);
     expect(player.current, isNull);
   });
@@ -106,11 +106,11 @@ void main() {
 
     await tester.tap(find.text('Banana'));
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
-    expect(lib.selectedTrackId, 'a');
+    expect(lib.selectedTrackIds, {'a'});
 
     await tester.tap(find.text('Apple'));
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
-    expect(lib.selectedTrackId, 'b');
+    expect(lib.selectedTrackIds, {'b'});
   });
 
   testWidgets(
@@ -138,7 +138,7 @@ void main() {
       expect(playedIndex, 0);
       expect(playedTracks.length, 2);
       expect(playedTracks[playedIndex].contentId, 'b');
-      expect(lib.selectedTrackId, 'b');
+      expect(lib.selectedTrackIds, {'b'});
       // The real player must never be touched by this spy-based flow.
       expect(player.current, isNull);
     },

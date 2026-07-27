@@ -131,6 +131,66 @@ void main() {
   });
 
   test(
+      'addTracks / removeTracks (batch, used by the track list\'s '
+      'multi-select context menu) round-trip on model and disk and report '
+      'accurate added/removed counts', () async {
+    await store.createPlaylist('batch');
+
+    final added = await store.addTracks('batch', ['a1', 'a2']);
+    expect(added, 2);
+    expect(model.playlists.singleWhere((pl) => pl.name == 'batch').trackIds,
+        ['a1', 'a2']);
+    expect(
+        _diskPlaylists(rootA)
+            .singleWhere((p) => p['name'] == 'batch')['track_ids'],
+        ['a1', 'a2']);
+
+    // Re-adding the same ids duplicates nothing -- reported count is 0.
+    final addedAgain = await store.addTracks('batch', ['a1', 'a2']);
+    expect(addedAgain, 0,
+        reason: 'both already present -- not counted as newly added');
+    expect(model.playlists.singleWhere((pl) => pl.name == 'batch').trackIds,
+        ['a1', 'a2']);
+
+    final removed = await store.removeTracks('batch', ['a1', 'a2']);
+    expect(removed, 2);
+    expect(model.playlists.singleWhere((pl) => pl.name == 'batch').trackIds,
+        isEmpty);
+    expect(
+        _diskPlaylists(rootA)
+            .singleWhere((p) => p['name'] == 'batch')['track_ids'],
+        isEmpty);
+  });
+
+  test('addTracks / removeTracks no-op (no manifest write, no throw) on an empty id list',
+      () async {
+    await store.createPlaylist('empty-batch');
+    final before = _readManifest(rootA);
+
+    expect(await store.addTracks('empty-batch', []), 0);
+    expect(await store.removeTracks('empty-batch', []), 0);
+
+    expect(_readManifest(rootA), before,
+        reason: 'nothing written for a no-op batch');
+  });
+
+  test(
+      'addTracks / removeTracks respect first-root ownership -- refused '
+      '(naming the owning root) for a playlist that lives in another '
+      'root\'s manifest', () async {
+    await expectLater(
+      store.addTracks('unique', ['a1']),
+      throwsA(isA<PlaylistStoreException>().having(
+          (e) => e.message, 'message', contains(rootB.path))),
+    );
+    await expectLater(
+      store.removeTracks('unique', ['b1']),
+      throwsA(isA<PlaylistStoreException>().having(
+          (e) => e.message, 'message', contains(rootB.path))),
+    );
+  });
+
+  test(
       'deletePlaylist removes the entry from model and disk, and clears '
       'activePlaylist when the deleted playlist was the active one',
       () async {

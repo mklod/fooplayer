@@ -111,6 +111,52 @@ class PlaylistStore {
     });
   }
 
+  /// Batch form of [addTrack]: appends every id in [contentIds] to the
+  /// playlist shown as [name] (skipping any already present -- same
+  /// set-in-order semantics as [addTrack]), writing the manifest ONCE for
+  /// the whole batch rather than once per track -- what the track list's
+  /// multi-select "Add to playlist" context-menu action uses so selecting
+  /// N tracks costs one disk write, not N. Returns the number of tracks
+  /// actually appended (excludes ones already present), so the caller can
+  /// report an accurate count. No-ops (no manifest write, no busy
+  /// acquisition) when [contentIds] is empty. Same ownership rules as
+  /// [addTrack].
+  Future<int> addTracks(String name, List<String> contentIds) async {
+    if (contentIds.isEmpty) return 0;
+    final entry = _ownedEntry(name);
+    var added = 0;
+    await _withFirstRootManifest((manifest, root) {
+      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
+      for (final id in contentIds) {
+        if (!pl.trackIds.contains(id)) {
+          pl.trackIds.add(id);
+          added++;
+        }
+      }
+    });
+    return added;
+  }
+
+  /// Batch form of [removeTrack]: removes every occurrence of every id in
+  /// [contentIds] from the playlist shown as [name], writing the manifest
+  /// ONCE for the whole batch -- the multi-select "Remove from playlist"
+  /// counterpart to [addTracks]. Returns the number of playlist entries
+  /// actually removed. No-ops when [contentIds] is empty. Same ownership
+  /// rules as [removeTrack].
+  Future<int> removeTracks(String name, List<String> contentIds) async {
+    if (contentIds.isEmpty) return 0;
+    final entry = _ownedEntry(name);
+    var removed = 0;
+    await _withFirstRootManifest((manifest, root) {
+      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
+      final idSet = contentIds.toSet();
+      final before = pl.trackIds.length;
+      pl.trackIds.removeWhere((id) => idSet.contains(id));
+      removed = before - pl.trackIds.length;
+    });
+    return removed;
+  }
+
   /// Throws [PlaylistStoreException] unless [name] (already trimmed) is a
   /// usable NEW playlist name: non-empty and not colliding with any merged
   /// playlist name (suffixed merge artifacts included). Public so the

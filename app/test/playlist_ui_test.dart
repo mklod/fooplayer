@@ -29,6 +29,15 @@ class SpyPlaylistStore extends PlaylistStore {
   final added = <(String, String)>[];
   final removed = <(String, String)>[];
 
+  /// One-write-per-call log, distinct from [added]'s per-track entries --
+  /// lets multi-select tests assert the manifest was written exactly ONCE
+  /// for a whole batch rather than once per track (see track_list.dart's
+  /// _showAddToPlaylistMenu / "Remove from playlist" action, both of which
+  /// call the batch [addTracks]/[removeTracks] below, never the singular
+  /// [addTrack]/[removeTrack] per track).
+  final addTracksCalls = <(String, List<String>)>[];
+  final removeTracksCalls = <(String, List<String>)>[];
+
   @override
   Future<void> createPlaylist(String name) async => created.add(name.trim());
   @override
@@ -39,6 +48,24 @@ class SpyPlaylistStore extends PlaylistStore {
   @override
   Future<void> removeTrack(String name, String contentId) async =>
       removed.add((name, contentId));
+
+  @override
+  Future<int> addTracks(String name, List<String> contentIds) async {
+    addTracksCalls.add((name, List<String>.of(contentIds)));
+    for (final id in contentIds) {
+      added.add((name, id));
+    }
+    return contentIds.length;
+  }
+
+  @override
+  Future<int> removeTracks(String name, List<String> contentIds) async {
+    removeTracksCalls.add((name, List<String>.of(contentIds)));
+    for (final id in contentIds) {
+      removed.add((name, id));
+    }
+    return contentIds.length;
+  }
 }
 
 LibraryModel fixtureLibrary() {

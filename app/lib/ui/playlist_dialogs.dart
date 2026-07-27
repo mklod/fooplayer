@@ -123,3 +123,11 @@ Future<bool> confirmDeletePlaylist(BuildContext context, String name) async {
 void showPlaylistError(BuildContext context, PlaylistStoreException e) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
 }
+
+/// Surfaces a plain informational [message] (SnackBar) -- used by the track
+/// list's multi-select context-menu actions to report how many tracks a
+/// batch add/remove actually affected (see `ui/track_list.dart`'s
+/// `_showAddToPlaylistMenu`).
+void showPlaylistInfo(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
