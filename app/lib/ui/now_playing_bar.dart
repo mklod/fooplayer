@@ -209,6 +209,13 @@ const kIconShuffleOn = 'assets/icons/shuffle2.png';
 /// column on the right holding the (short, fat) seek bar with the transport
 /// row beneath it.
 const double kNowPlayingArtSize = 200;
+
+/// The seek row + transport row stack needs about this much vertical space;
+/// the bar never gets shorter than it, however small the cover goes.
+const double kNowPlayingMinStack = 104;
+
+/// Below this window width the bar uses the one-row [_CompactBar] layout.
+const double kCompactBarWidth = 700;
 const double kSeekColumnWidth = 440;
 
 /// One metro-style PNG glyph, sized and tinted for the now-playing bar.
@@ -245,7 +252,11 @@ class _MetroIcon extends StatelessWidget {
 /// parent and blow up trying to be infinitely wide.
 class _Transport extends StatelessWidget {
   final PlayerService player;
-  const _Transport({required this.player});
+
+  /// Narrow windows get tighter buttons so the seek+transport stack still
+  /// fits the shortened bar (pinned by the no-overflow widget test).
+  final bool compact;
+  const _Transport({required this.player, this.compact = false});
 
   // prev | play-pause | next | shuffle -- one row, shuffle immediately right
   // of Next per Mike's layout. Volume stays in its own group at the bar's
@@ -334,6 +345,7 @@ class _LcdCluster extends StatelessWidget {
   /// both shrink on narrow windows so the bar can never overflow.
   final double artSize;
   final double seekWidth;
+  final bool compact;
 
   const _LcdCluster({
     super.key,
@@ -345,6 +357,7 @@ class _LcdCluster extends StatelessWidget {
     required this.transport,
     required this.artSize,
     required this.seekWidth,
+    this.compact = false,
     this.resolver,
   });
 
@@ -362,34 +375,38 @@ class _LcdCluster extends StatelessWidget {
           track: track,
         ),
         const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                track.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  track.artist,
-                  track.album,
-                ].where((s) => s.isNotEmpty).join(' — '),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: AppColors.inkSecondary),
-              ),
-            ],
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  track.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  [
+                    track.artist,
+                    track.album,
+                  ].where((s) => s.isNotEmpty).join(' — '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.inkSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
+        const Spacer(),
         const SizedBox(width: 24),
         // Seek bar with the transport controls in ONE row beneath it, per
         // Mike's layout: shorter + fatter track, times flanking it, and
@@ -434,6 +451,91 @@ class _LcdCluster extends StatelessWidget {
   }
 }
 
+/// The small-window bar: one row, 48px cover, inline seek, tight transport.
+/// The big layout (200px cover + seek/transport stack) needs ~130px of
+/// height, which a short window can't spare -- so below [kCompactBarWidth]
+/// the bar switches to this instead of trying to squeeze.
+class _CompactBar extends StatelessWidget {
+  final PlayerService player;
+  final Track track;
+  final File file;
+  final Duration pos;
+  final Duration total;
+  final ArtworkResolver? resolver;
+  final ValueChanged<double> onSeek;
+
+  const _CompactBar({
+    required this.player,
+    required this.track,
+    required this.file,
+    required this.pos,
+    required this.total,
+    required this.onSeek,
+    this.resolver,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const timeStyle = TextStyle(fontSize: 10.5, color: AppColors.inkSecondary);
+    return SizedBox(
+      height: 56,
+      child: Row(
+        children: [
+          AlbumArt(
+            contentId: track.contentId,
+            file: file,
+            size: 44,
+            resolver: resolver,
+            track: track,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                Row(
+                  children: [
+                    Text(_fmt(pos), style: timeStyle),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 4,
+                          ),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 8,
+                          ),
+                        ),
+                        child: Slider(
+                          value: total.inMilliseconds == 0
+                              ? 0
+                              : pos.inMilliseconds / total.inMilliseconds,
+                          onChanged: onSeek,
+                        ),
+                      ),
+                    ),
+                    Text(_fmt(total), style: timeStyle),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _Transport(player: player, compact: true),
+        ],
+      ),
+    );
+  }
+}
+
 class NowPlayingBar extends StatelessWidget {
   final PlayerService player;
 
@@ -454,6 +556,9 @@ class NowPlayingBar extends StatelessWidget {
         final total = player.duration ?? Duration.zero;
         final pos = player.position > total ? total : player.position;
         return Container(
+          // Height is driven by the cover, but never less than the
+          // seek-bar + transport stack needs (~104) -- otherwise a short
+          // window makes the right-hand column overflow vertically.
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           decoration: const BoxDecoration(
             color: AppColors.barBg,
@@ -481,33 +586,46 @@ class NowPlayingBar extends StatelessWidget {
               final seekWidth = w >= 1100
                   ? kSeekColumnWidth
                   : (w * 0.42).clamp(220.0, kSeekColumnWidth);
-              return Row(
-                children: [
-                  Expanded(
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1200),
-                        child: _LcdCluster(
-                          key: const Key('lcd'),
-                          track: t,
-                          file: File(p.join(t.rootPath, t.relPath)),
-                          resolver: artworkResolver,
-                          pos: pos,
-                          total: total,
-                          transport: _Transport(player: player),
-                          artSize: artSize,
-                          seekWidth: seekWidth,
-                          onSeek: (v) => player.seek(
-                            Duration(
-                              milliseconds: (v * total.inMilliseconds).round(),
-                            ),
+              if (w < kCompactBarWidth) {
+                return _CompactBar(
+                  player: player,
+                  track: t,
+                  file: File(p.join(t.rootPath, t.relPath)),
+                  resolver: artworkResolver,
+                  pos: pos,
+                  total: total,
+                  onSeek: (v) => player.seek(
+                    Duration(milliseconds: (v * total.inMilliseconds).round()),
+                  ),
+                );
+              }
+              final minStack = narrow ? 88.0 : kNowPlayingMinStack;
+              return SizedBox(
+                height: (artSize > minStack ? artSize : minStack) + 8,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _LcdCluster(
+                        key: const Key('lcd'),
+                        track: t,
+                        file: File(p.join(t.rootPath, t.relPath)),
+                        resolver: artworkResolver,
+                        pos: pos,
+                        total: total,
+                        transport: _Transport(player: player, compact: narrow),
+                        compact: narrow,
+                        artSize: artSize,
+                        seekWidth: seekWidth,
+                        onSeek: (v) => player.seek(
+                          Duration(
+                            milliseconds: (v * total.inMilliseconds).round(),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  if (!narrow) _VolumeGroup(player: player),
-                ],
+                    if (!narrow) _VolumeGroup(player: player),
+                  ],
+                ),
               );
             },
           ),
