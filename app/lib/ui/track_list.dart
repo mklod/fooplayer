@@ -283,7 +283,7 @@ class _TrackListHeader extends StatelessWidget {
                 alignEnd: true,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 32),
             SizedBox(
               width: _kDateColumnWidth,
               child: _HeaderCell(
@@ -480,7 +480,7 @@ class _TrackRow extends StatelessWidget {
                     style: _kRowTextStyle,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 32),
                 SizedBox(
                   width: _kDateColumnWidth,
                   child: Text(

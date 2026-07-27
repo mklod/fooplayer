@@ -245,8 +245,11 @@ void main() {
   });
 
   testWidgets(
-      'now-playing bar centers the LCD cluster on a wide surface',
+      'now-playing bar: big art left, transport row beneath the seek bar',
       (tester) async {
+    // Mike's layout: large square cover + track info on the left, a short
+    // fat seek bar on the right with ONE transport row directly beneath it
+    // (shuffle immediately right of Next).
     await tester.binding.setSurfaceSize(const Size(1400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
@@ -263,23 +266,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
-    // The title text must be fully present (no fixed crop) inside the LCD
-    // cluster (found by walking from the title text to its ancestor
-    // cluster container), and the cluster itself (keyed 'lcd') must sit
-    // centered on the window, not merely somewhere left-of-center next to
-    // the transport controls. (The same title also appears in the track
-    // list behind the bar, so scope the title lookup to inside the
-    // cluster.)
     final clusterFinder = find.byKey(const Key('lcd'));
     expect(clusterFinder, findsOneWidget);
+    // Title is fully present (no fixed crop) inside the cluster.
     expect(
       find.descendant(of: clusterFinder, matching: find.text('Newest Song')),
       findsOneWidget,
     );
-    final center = tester.getCenter(clusterFinder);
-    expect(center.dx, closeTo(700, 40));
-  });
 
+    // Cover renders large on a wide window.
+    final art = tester.widget<AlbumArt>(
+        find.descendant(of: clusterFinder, matching: find.byType(AlbumArt)));
+    expect(art.size, greaterThanOrEqualTo(140));
+
+    // Transport sits BELOW the seek slider, and shuffle right of Next.
+    final seekY = tester
+        .getCenter(find.descendant(
+            of: clusterFinder, matching: find.byType(Slider).first))
+        .dy;
+    final playCenter = tester.getCenter(find.byTooltip('Play'));
+    expect(playCenter.dy, greaterThan(seekY));
+    final nextX = tester.getCenter(find.byTooltip('Next')).dx;
+    final shuffleCenter = tester.getCenter(find.byTooltip('Shuffle'));
+    expect(shuffleCenter.dx, greaterThan(nextX));
+    expect((shuffleCenter.dy - playCenter.dy).abs(), lessThan(4));
+  });
   testWidgets(
       'dragging the sidebar divider resizes the sidebar SizedBox by the drag delta',
       (tester) async {

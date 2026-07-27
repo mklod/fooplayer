@@ -138,19 +138,27 @@ class _AlbumArtState extends State<AlbumArt> {
     final future = (resolver != null && track != null)
         ? resolver.resolve(ArtworkRequest.forTrack(track))
         : widget.loader(widget.file);
-    future.then((data) {
-      if (!mounted || req != _request) return; // stale result for a prior track
-      if (identical(data, _raw)) return; // unchanged -- don't force a re-decode
-      setState(() {
-        _raw = data;
-        _bytes = data == null
-            ? null
-            : (data is Uint8List ? data : Uint8List.fromList(data));
-      });
-    }).catchError((Object _) {
-      // Art is a nicety: a loader/resolver that throws leaves the
-      // placeholder up rather than surfacing an unhandled future error.
-    });
+    future
+        .then((data) {
+          // stale result for a prior track
+          if (!mounted || req != _request) {
+            return;
+          }
+          // unchanged -- don't force a re-decode
+          if (identical(data, _raw)) {
+            return;
+          }
+          setState(() {
+            _raw = data;
+            _bytes = data == null
+                ? null
+                : (data is Uint8List ? data : Uint8List.fromList(data));
+          });
+        })
+        .catchError((Object _) {
+          // Art is a nicety: a loader/resolver that throws leaves the
+          // placeholder up rather than surfacing an unhandled future error.
+        });
   }
 
   @override
@@ -197,6 +205,12 @@ const kIconPrevious = 'assets/icons/previous.png';
 const kIconShuffleOff = 'assets/icons/shuffle1.png';
 const kIconShuffleOn = 'assets/icons/shuffle2.png';
 
+/// Now-playing bar geometry: a large square cover on the left, and a fixed
+/// column on the right holding the (short, fat) seek bar with the transport
+/// row beneath it.
+const double kNowPlayingArtSize = 200;
+const double kSeekColumnWidth = 440;
+
 /// One metro-style PNG glyph, sized and tinted for the now-playing bar.
 ///
 /// The source PNGs are WHITE glyphs on transparency (verified by pixel
@@ -233,6 +247,10 @@ class _Transport extends StatelessWidget {
   final PlayerService player;
   const _Transport({required this.player});
 
+  // prev | play-pause | next | shuffle -- one row, shuffle immediately right
+  // of Next per Mike's layout. Volume stays in its own group at the bar's
+  // right edge.
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -246,16 +264,22 @@ class _Transport extends StatelessWidget {
         IconButton(
           tooltip: player.playing ? 'Pause' : 'Play',
           iconSize: 32,
-          icon: _MetroIcon(
-            player.playing ? kIconPause : kIconPlay,
-            size: 32,
-          ),
+          icon: _MetroIcon(player.playing ? kIconPause : kIconPlay, size: 32),
           onPressed: player.togglePlayPause,
         ),
         IconButton(
           tooltip: 'Next',
           icon: const _MetroIcon(kIconNext),
           onPressed: player.next,
+        ),
+        IconButton(
+          tooltip: 'Shuffle',
+          isSelected: player.shuffle,
+          icon: _MetroIcon(
+            player.shuffle ? kIconShuffleOn : kIconShuffleOff,
+            size: 24,
+          ),
+          onPressed: player.toggleShuffle,
         ),
       ],
     );
@@ -274,26 +298,11 @@ class _VolumeGroup extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Shuffle state is conveyed by the glyph itself (shuffle2.png has
-        // the "on" framing), replacing the old accent-color treatment.
-        IconButton(
-          tooltip: 'Shuffle',
-          isSelected: player.shuffle,
-          icon: _MetroIcon(
-            player.shuffle ? kIconShuffleOn : kIconShuffleOff,
-            size: 24,
-          ),
-          onPressed: player.toggleShuffle,
-        ),
-        const SizedBox(width: 4),
         const Icon(Icons.volume_up, size: 16, color: AppColors.inkSecondary),
         const SizedBox(width: 6),
         SizedBox(
           width: 100,
-          child: Slider(
-            value: player.volume,
-            onChanged: player.setVolume,
-          ),
+          child: Slider(value: player.volume, onChanged: player.setVolume),
         ),
       ],
     );
@@ -318,6 +327,14 @@ class _LcdCluster extends StatelessWidget {
   final ValueChanged<double> onSeek;
   final ArtworkResolver? resolver;
 
+  /// The single transport row rendered directly beneath the seek bar.
+  final Widget transport;
+
+  /// Cover edge length and seek-column width for the current window size --
+  /// both shrink on narrow windows so the bar can never overflow.
+  final double artSize;
+  final double seekWidth;
+
   const _LcdCluster({
     super.key,
     required this.track,
@@ -325,23 +342,26 @@ class _LcdCluster extends StatelessWidget {
     required this.pos,
     required this.total,
     required this.onSeek,
+    required this.transport,
+    required this.artSize,
+    required this.seekWidth,
     this.resolver,
   });
 
   @override
   Widget build(BuildContext context) {
-    const timeStyle = TextStyle(fontSize: 10.5, color: AppColors.inkSecondary);
+    const timeStyle = TextStyle(fontSize: 11, color: AppColors.inkSecondary);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         AlbumArt(
           contentId: track.contentId,
           file: file,
-          size: 56,
+          size: artSize,
           resolver: resolver,
           track: track,
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -349,53 +369,63 @@ class _LcdCluster extends StatelessWidget {
             children: [
               Text(
                 track.title,
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleSmall,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 6),
               Text(
-                [track.artist, track.album]
-                    .where((s) => s.isNotEmpty)
-                    .join(' — '),
-                maxLines: 1,
+                [
+                  track.artist,
+                  track.album,
+                ].where((s) => s.isNotEmpty).join(' — '),
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: AppColors.inkSecondary),
               ),
-              const SizedBox(height: 3),
+            ],
+          ),
+        ),
+        const SizedBox(width: 24),
+        // Seek bar with the transport controls in ONE row beneath it, per
+        // Mike's layout: shorter + fatter track, times flanking it, and
+        // shuffle sitting immediately right of Next.
+        SizedBox(
+          width: seekWidth,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               Row(
                 children: [
-                  Flexible(
-                    child: Text(
-                      _fmt(pos),
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      softWrap: false,
-                      style: timeStyle,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
+                  Text(_fmt(pos), style: timeStyle),
                   Expanded(
-                    flex: 6,
-                    child: Slider(
-                      value: total.inMilliseconds == 0
-                          ? 0
-                          : pos.inMilliseconds / total.inMilliseconds,
-                      onChanged: (v) => onSeek(v),
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 7,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 7,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 14,
+                        ),
+                      ),
+                      child: Slider(
+                        value: total.inMilliseconds == 0
+                            ? 0
+                            : pos.inMilliseconds / total.inMilliseconds,
+                        onChanged: (v) => onSeek(v),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      _fmt(total),
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      softWrap: false,
-                      style: timeStyle,
-                    ),
-                  ),
+                  Text(_fmt(total), style: timeStyle),
                 ],
               ),
+              const SizedBox(height: 2),
+              transport,
             ],
           ),
         ),
@@ -412,11 +442,7 @@ class NowPlayingBar extends StatelessWidget {
   /// the bar without an app-level resolver rely on.
   final ArtworkResolver? artworkResolver;
 
-  const NowPlayingBar({
-    super.key,
-    required this.player,
-    this.artworkResolver,
-  });
+  const NowPlayingBar({super.key, required this.player, this.artworkResolver});
 
   @override
   Widget build(BuildContext context) {
@@ -428,8 +454,7 @@ class NowPlayingBar extends StatelessWidget {
         final total = player.duration ?? Duration.zero;
         final pos = player.position > total ? total : player.position;
         return Container(
-          height: 72,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           decoration: const BoxDecoration(
             color: AppColors.barBg,
             border: Border(top: BorderSide(color: AppColors.hairline)),
@@ -441,16 +466,27 @@ class NowPlayingBar extends StatelessWidget {
           // via the LCD text (see _LcdCluster).
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final narrow = constraints.maxWidth < 900;
+              final w = constraints.maxWidth;
+              final narrow = w < 900;
+              // Shrink the cover and the seek column together as the window
+              // narrows; below ~700px the layout drops to a compact bar so a
+              // small window can never overflow (pinned by a widget test).
+              final artSize = w >= 1100
+                  ? kNowPlayingArtSize
+                  : w >= 900
+                  ? 140.0
+                  : w >= 700
+                  ? 96.0
+                  : 64.0;
+              final seekWidth = w >= 1100
+                  ? kSeekColumnWidth
+                  : (w * 0.42).clamp(220.0, kSeekColumnWidth);
               return Row(
                 children: [
-                  _Transport(player: player),
-                  const Expanded(child: SizedBox.shrink()),
-                  Flexible(
-                    flex: 3,
+                  Expanded(
                     child: Center(
                       child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 720),
+                        constraints: const BoxConstraints(maxWidth: 1200),
                         child: _LcdCluster(
                           key: const Key('lcd'),
                           track: t,
@@ -458,6 +494,9 @@ class NowPlayingBar extends StatelessWidget {
                           resolver: artworkResolver,
                           pos: pos,
                           total: total,
+                          transport: _Transport(player: player),
+                          artSize: artSize,
+                          seekWidth: seekWidth,
                           onSeek: (v) => player.seek(
                             Duration(
                               milliseconds: (v * total.inMilliseconds).round(),
@@ -467,7 +506,6 @@ class NowPlayingBar extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Expanded(child: SizedBox.shrink()),
                   if (!narrow) _VolumeGroup(player: player),
                 ],
               );
