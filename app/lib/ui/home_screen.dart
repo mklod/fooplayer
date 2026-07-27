@@ -318,16 +318,6 @@ class _Sidebar extends StatelessWidget {
           // Pinned at the sidebar bottom (outside the scrolling ListView
           // above) so these stay reachable regardless of playlist count:
           // the library status line, the manual artwork pass, then Settings.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
-            child: Text(
-              '${library.status} — ${library.visibleTracks.length} tracks',
-              key: const Key('sidebar-status'),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
           if (artworkBackfill != null)
             ListTile(
               key: const Key('enrich-artwork'),
@@ -340,6 +330,16 @@ class _Sidebar extends StatelessWidget {
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
             onTap: () => _openSettings(context),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+            child: Text(
+              '${library.status} — ${library.visibleTracks.length} tracks',
+              key: const Key('sidebar-status'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ],
       ),

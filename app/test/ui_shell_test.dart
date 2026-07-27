@@ -319,7 +319,7 @@ void main() {
     expect(layoutPrefs.sidebarWidth, oldWidth + 80);
   });
 
-  testWidgets('status line sits in the sidebar above Settings', (tester) async {
+  testWidgets('status line sits at the sidebar bottom, below Settings', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final lib = fixtureLibrary();
@@ -337,9 +337,10 @@ void main() {
     expect(status, findsOneWidget);
     // Directly above the Settings entry, and inside the sidebar (left of the
     // track list) rather than under it.
+    // Sits at the very bottom of the sidebar, beneath the button stack.
     final statusY = tester.getCenter(status).dy;
     final settingsY = tester.getCenter(find.byKey(const Key('settings-gear'))).dy;
-    expect(statusY, lessThan(settingsY));
+    expect(statusY, greaterThan(settingsY));
     expect(tester.getCenter(status).dx, lessThan(300));
     // No artwork backfill wired -> no Enrich artwork entry.
     expect(find.byKey(const Key('enrich-artwork')), findsNothing);

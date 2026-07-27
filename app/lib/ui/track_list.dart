@@ -157,7 +157,8 @@ class TrackListView extends StatelessWidget {
         // selected at once) track numbers from different albums would
         // collide meaninglessly, so the column stays hidden.
         final isPlaylist = library.activePlaylist != null;
-        final showTrackNumber = isPlaylist ||
+        final showTrackNumber =
+            isPlaylist ||
             library.albumFilters.length == 1 ||
             library.folderSelectionIsSingleAlbum;
         return Column(
@@ -299,7 +300,7 @@ class _TrackListHeader extends StatelessWidget {
   }
 }
 
-class _HeaderCell extends StatelessWidget {
+class _HeaderCell extends StatefulWidget {
   final String label;
   final SortColumn column;
   final LibraryModel library;
@@ -312,9 +313,26 @@ class _HeaderCell extends StatelessWidget {
   });
 
   @override
+  State<_HeaderCell> createState() => _HeaderCellState();
+}
+
+/// Header cells are sort controls, so they need to *look* clickable: hovering
+/// tints the cell and darkens its label (the resting label is deliberately
+/// quiet inkSecondary, which on its own reads as static text).
+class _HeaderCellState extends State<_HeaderCell> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final label = widget.label;
+    final column = widget.column;
+    final library = widget.library;
+    final alignEnd = widget.alignEnd;
     final active = library.sortColumn == column;
-    final style = Theme.of(context).textTheme.labelLarge;
+    final baseStyle = Theme.of(context).textTheme.labelLarge;
+    final style = _hovered
+        ? baseStyle?.copyWith(color: AppColors.ink)
+        : baseStyle;
     final arrowSpan = TextSpan(
       text: library.sortAscending ? '▲' : '▼',
       style: style?.copyWith(color: AppColors.accent),
@@ -324,21 +342,30 @@ class _HeaderCell extends StatelessWidget {
     // too-narrow fixed column (Time/Date) clips with an ellipsis instead of
     // throwing a hard RenderFlex overflow -- the label carries [style]'s
     // normal color throughout; only the arrow span is accent-colored.
-    return InkWell(
-      onTap: () => library.setSort(column),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Text.rich(
-          TextSpan(
-            children: alignEnd && active
-                ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
-                : active
-                ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
-                : [labelSpan],
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: InkWell(
+        onTap: () => library.setSort(column),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _hovered ? AppColors.hairline.withValues(alpha: 0.55) : null,
+            borderRadius: BorderRadius.circular(3),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+          child: Text.rich(
+            TextSpan(
+              children: alignEnd && active
+                  ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
+                  : active
+                  ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
+                  : [labelSpan],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          ),
         ),
       ),
     );
@@ -582,11 +609,7 @@ Future<void> _showTrackContextMenu({
       }
     case _TrackMenuAction.albumArtwork:
       if (artwork == null) return; // unreachable; item not shown
-      await showArtworkPickerDialog(
-        context,
-        track: track,
-        services: artwork,
-      );
+      await showArtworkPickerDialog(context, track: track, services: artwork);
     case null:
       return;
   }
@@ -625,8 +648,7 @@ Future<void> _showAddToPlaylistMenu({
     if (choice >= 0) {
       await playlistStore.addTrack(playlists[choice].name, track.contentId);
     } else {
-      final name =
-          await showPlaylistNameDialog(context, store: playlistStore);
+      final name = await showPlaylistNameDialog(context, store: playlistStore);
       if (name == null) return;
       await playlistStore.createPlaylist(name);
       await playlistStore.addTrack(name, track.contentId);
