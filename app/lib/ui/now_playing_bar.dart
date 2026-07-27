@@ -164,33 +164,48 @@ class _AlbumArtState extends State<AlbumArt> {
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: bytes == null
-          ? SizedBox(
-              width: widget.size,
-              height: widget.size,
-              child: Icon(Icons.album, size: widget.size * 0.7),
-            )
-          : Image.memory(
-              bytes,
-              width: widget.size,
-              height: widget.size,
-              fit: BoxFit.cover,
-              gaplessPlayback: true,
-              // Adversarial review finding 6: bytes that made it this far
-              // (an embedded tag, a sidecar file, or a sibling image on
-              // disk -- any of which could be corrupt or non-image content
-              // that slipped past the store's write-time validation, e.g.
-              // one written before that check existed) must fall back to
-              // the placeholder on a decode failure, not Flutter's red
-              // error box.
-              errorBuilder: (context, error, stackTrace) => SizedBox(
+    // Subtle drop shadow so the cover reads as a physical sleeve sitting on
+    // the bar rather than a flat patch of colour.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.ink.withValues(alpha: 0.18),
+            blurRadius: widget.size >= 120 ? 14 : 6,
+            spreadRadius: 0,
+            offset: Offset(0, widget.size >= 120 ? 4 : 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: bytes == null
+            ? SizedBox(
                 width: widget.size,
                 height: widget.size,
                 child: Icon(Icons.album, size: widget.size * 0.7),
+              )
+            : Image.memory(
+                bytes,
+                width: widget.size,
+                height: widget.size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                // Adversarial review finding 6: bytes that made it this far
+                // (an embedded tag, a sidecar file, or a sibling image on
+                // disk -- any of which could be corrupt or non-image content
+                // that slipped past the store's write-time validation, e.g.
+                // one written before that check existed) must fall back to
+                // the placeholder on a decode failure, not Flutter's red
+                // error box.
+                errorBuilder: (context, error, stackTrace) => SizedBox(
+                  width: widget.size,
+                  height: widget.size,
+                  child: Icon(Icons.album, size: widget.size * 0.7),
+                ),
               ),
-            ),
+      ),
     );
   }
 }
