@@ -13,7 +13,14 @@ import 'tags.dart';
 /// (band/album artist). 359 files in this library had them differ -- mostly
 /// compilation tracks cached as "Various Artists" -- and those cached values
 /// would otherwise survive the fix indefinitely.
-const int kMetaCacheRevision = 2;
+///
+/// rev 3 (2026-07-28): tags the upstream parser dropped are now recovered by
+/// our own ID3 reader (id3_text.dart) -- frames after a large picture,
+/// ID3v2.2's 3-character IDs, stacked tags. Whole albums (Tha Carter III,
+/// Dummy, Treats, Becoming X, Keystone State Of Mind) were cached with a
+/// null artist. Unlike rev 2, this bump costs nothing visible: stale entries
+/// are served while the refresh runs (see [MetaCache.staleIds]).
+const int kMetaCacheRevision = 3;
 
 class MetaCache {
   final Map<String, TrackTags> entries;

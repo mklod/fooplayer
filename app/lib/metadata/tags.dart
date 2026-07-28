@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:path/path.dart' as p;
 import 'isolate_io.dart';
+import 'id3_text.dart';
 import 'mp3_duration.dart';
 
 class TrackTags {
@@ -299,7 +300,18 @@ Future<(int?, bool)> _resolveDuration(
 Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
   try {
     final raw = _readRawTags(audioFile, fetchImage: false);
-    if (raw == null) return parseFromFilename(relPath ?? audioFile.path);
+    if (raw == null) {
+      // No parser would touch the file. Its TAGS are a loss, but an mp3's
+      // duration is still readable straight from the frame headers, so ask
+      // the estimator rather than returning a track with a blank Time
+      // column forever. (This path is why five real files -- among them
+      // "Tiesto - The Business" and "AB2G Cygnus" -- had no duration
+      // despite ffprobe reading them fine.)
+      return _withEstimatedDuration(
+        audioFile,
+        parseFromFilename(relPath ?? audioFile.path),
+      );
+    }
     final (durationMs, durationProbed) = await _resolveDuration(
       audioFile,
       raw.durationMs,
@@ -317,31 +329,87 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       // parsed stream headers (or the fallback estimator), not the tag
       // block -- still worth keeping even though everything else falls
       // back to the filename.
+      final own = await _ownId3Gaps(audioFile, fromTags);
       final fb = parseFromFilename(relPath ?? audioFile.path);
       return TrackTags(
-        title: fb.title,
-        artist: fb.artist,
-        album: fb.album,
-        genre: fb.genre,
+        title: own.title ?? fb.title,
+        artist: own.artist ?? fb.artist,
+        album: own.album ?? fb.album,
+        genre: own.genre ?? fb.genre,
         durationMs: durationMs,
-        trackNumber: fromTags.trackNumber ?? fb.trackNumber,
+        trackNumber: fromTags.trackNumber ?? own.trackNumber ?? fb.trackNumber,
         durationProbed: durationProbed,
       );
     }
-    // Fill gaps (e.g. tagged title but no artist) from the filename.
+    // Before falling back to the filename, ask our own ID3 reader for
+    // anything the upstream parser missed. It misses a lot on real files:
+    // frames sitting after a large embedded picture, ID3v2.2's 3-character
+    // frame IDs, and stacked tags -- between them, several fully-tagged
+    // albums here showed no artist at all. See id3_text.dart.
+    final own = await _ownId3Gaps(audioFile, fromTags);
     final fb = parseFromFilename(relPath ?? audioFile.path);
     return TrackTags(
-      title: fromTags.title ?? fb.title,
-      artist: fromTags.artist ?? fb.artist,
-      album: fromTags.album ?? fb.album,
-      genre: fromTags.genre,
+      title: fromTags.title ?? own.title ?? fb.title,
+      artist: fromTags.artist ?? own.artist ?? fb.artist,
+      album: fromTags.album ?? own.album ?? fb.album,
+      genre: fromTags.genre ?? own.genre,
       durationMs: fromTags.durationMs,
-      trackNumber: fromTags.trackNumber ?? fb.trackNumber,
+      trackNumber: fromTags.trackNumber ?? own.trackNumber ?? fb.trackNumber,
       durationProbed: durationProbed,
     );
   } catch (_) {
-    return parseFromFilename(relPath ?? audioFile.path);
+    // Same reasoning as the `raw == null` path above: a parser that threw
+    // says nothing about whether the frame headers are readable.
+    return _withEstimatedDuration(
+      audioFile,
+      parseFromFilename(relPath ?? audioFile.path),
+    );
   }
+}
+
+/// Returns [fallback] with a duration filled in from the header-only
+/// estimator, marked [TrackTags.durationProbed] so it is attempted exactly
+/// once. Used by the paths where tag parsing produced nothing at all.
+Future<TrackTags> _withEstimatedDuration(
+  File audioFile,
+  TrackTags fallback,
+) async {
+  final (ms, probed) = await _resolveDuration(audioFile, null);
+  if (ms == null && !probed) return fallback;
+  return TrackTags(
+    title: fallback.title,
+    artist: fallback.artist,
+    album: fallback.album,
+    genre: fallback.genre,
+    durationMs: ms,
+    trackNumber: fallback.trackNumber,
+    durationProbed: probed,
+  );
+}
+
+/// Text tags read by our own ID3 parser, consulted only for fields the
+/// upstream parser left null (see [readId3TextFramesFromFile]). Returns all
+/// nulls for non-mp3 files and for anything it can't read -- it is a
+/// gap-filler, never an override.
+Future<TrackTags> _ownId3Gaps(File audioFile, TrackTags fromTags) async {
+  if (!isMp3Path(audioFile.path)) return const TrackTags();
+  final needsSomething =
+      fromTags.title == null ||
+      fromTags.artist == null ||
+      fromTags.album == null;
+  if (!needsSomething) return const TrackTags();
+  final frames = await readId3TextFramesFromFile(audioFile);
+  if (frames.isEmpty) return const TrackTags();
+  final track = frames['TRCK'];
+  return TrackTags(
+    title: _blankAsNull(frames['TIT2']),
+    // TPE1 (lead performer) first, TPE2 (band / album artist) only as a
+    // fallback -- the same precedence the upstream mapping uses.
+    artist: _blankAsNull(frames['TPE1']) ?? _blankAsNull(frames['TPE2']),
+    album: _blankAsNull(frames['TALB']),
+    genre: _blankAsNull(frames['TCON']),
+    trackNumber: track == null ? null : int.tryParse(track.split('/').first),
+  );
 }
 
 Future<List<int>?> readArt(File audioFile) async {
