@@ -435,3 +435,191 @@ bool audioBytesUnchanged(Uint8List before, Uint8List after) {
   }
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// FLAC
+//
+// FLAC needs no conversion to carry a cover: `flacAudioRange` skips the
+// metadata blocks, so replacing/adding a PICTURE block leaves the hashed
+// audio frames untouched -- the same identity guarantee MP3 gets, without
+// re-encoding a lossless file into a lossy one.
+// ---------------------------------------------------------------------------
+
+/// FLAC metadata block type for an attached picture.
+const int kFlacBlockPicture = 6;
+
+/// FLAC metadata block type for padding.
+const int kFlacBlockPadding = 1;
+
+/// Picture dimensions parsed out of the image itself. The FLAC PICTURE block
+/// carries width/height/depth inline; zeros are legal but make some taggers
+/// show a cover as 0x0, so they're read properly rather than faked.
+class ImageDims {
+  final int width;
+  final int height;
+  final int depth;
+  const ImageDims(this.width, this.height, this.depth);
+}
+
+/// Reads dimensions from a PNG header or a JPEG's first SOF marker.
+/// Falls back to zeros (permitted by the spec) if the structure is unexpected.
+ImageDims imageDimsOf(Uint8List b) {
+  if (b.length > 24 && b[0] == 0x89 && b[1] == 0x50) {
+    // PNG: IHDR width/height are big-endian at offsets 16 and 20.
+    final w = (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19];
+    final h = (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23];
+    final bitDepth = b[24];
+    return ImageDims(w, h, bitDepth * 3);
+  }
+  if (b.length > 4 && b[0] == 0xFF && b[1] == 0xD8) {
+    var o = 2;
+    while (o + 9 < b.length) {
+      if (b[o] != 0xFF) {
+        o++;
+        continue;
+      }
+      final marker = b[o + 1];
+      // SOF0..SOF15, excluding the non-frame markers DHT/JPG/DAC.
+      final isSof =
+          marker >= 0xC0 &&
+          marker <= 0xCF &&
+          marker != 0xC4 &&
+          marker != 0xC8 &&
+          marker != 0xCC;
+      final segLen = (b[o + 2] << 8) | b[o + 3];
+      if (isSof) {
+        final h = (b[o + 5] << 8) | b[o + 6];
+        final w = (b[o + 7] << 8) | b[o + 8];
+        final components = b[o + 9];
+        return ImageDims(w, h, b[o + 4] * components);
+      }
+      o += 2 + segLen;
+    }
+  }
+  return const ImageDims(0, 0, 0);
+}
+
+void _writeBe32At(List<int> out, int v) {
+  out.addAll([(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff]);
+}
+
+/// The body of a FLAC METADATA_BLOCK_PICTURE (everything after the 4-byte
+/// block header): type, MIME, description, dimensions, then the image.
+Uint8List buildFlacPictureBlock(Uint8List image, String mime) {
+  final dims = imageDimsOf(image);
+  final out = <int>[];
+  _writeBe32At(out, kApicFrontCover);
+  final mimeBytes = latin1.encode(mime);
+  _writeBe32At(out, mimeBytes.length);
+  out.addAll(mimeBytes);
+  _writeBe32At(out, 0); // empty description
+  _writeBe32At(out, dims.width);
+  _writeBe32At(out, dims.height);
+  _writeBe32At(out, dims.depth);
+  _writeBe32At(out, 0); // indexed-colour count; 0 for non-indexed
+  _writeBe32At(out, image.length);
+  out.addAll(image);
+  return Uint8List.fromList(out);
+}
+
+/// Returns the complete new FLAC file carrying [image] as its front cover.
+///
+/// Every existing metadata block except PICTURE and PADDING is preserved in
+/// order (STREAMINFO stays first, as the format requires), and the audio
+/// frames after the metadata are copied verbatim -- so the content ID is
+/// unchanged. Throws [EmbedException] if this isn't a FLAC stream.
+Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
+  final mime = imageMimeOf(image);
+  if (mime == null) {
+    throw const EmbedException(
+      EmbedRefusal.unsupportedImage,
+      'image is neither JPEG nor PNG',
+    );
+  }
+  if (original.length < 8 ||
+      original[0] != 0x66 ||
+      original[1] != 0x4C ||
+      original[2] != 0x61 ||
+      original[3] != 0x43) {
+    throw const EmbedException(
+      EmbedRefusal.notMpeg,
+      'not a FLAC stream (no fLaC marker at offset 0)',
+    );
+  }
+
+  final kept = <(int, Uint8List)>[]; // (block type, block body)
+  var o = 4;
+  var sawLast = false;
+  while (o + 4 <= original.length && !sawLast) {
+    final header = original[o];
+    sawLast = (header & 0x80) != 0;
+    final type = header & 0x7f;
+    final len =
+        (original[o + 1] << 16) | (original[o + 2] << 8) | original[o + 3];
+    final bodyStart = o + 4;
+    if (bodyStart + len > original.length) {
+      throw const EmbedException(
+        EmbedRefusal.unsupportedTagFlags,
+        'truncated FLAC metadata block',
+      );
+    }
+    if (type != kFlacBlockPicture && type != kFlacBlockPadding) {
+      kept.add((
+        type,
+        Uint8List.sublistView(original, bodyStart, bodyStart + len),
+      ));
+    }
+    o = bodyStart + len;
+  }
+  final audioStart = o;
+
+  kept.add((kFlacBlockPicture, buildFlacPictureBlock(image, mime)));
+
+  final out = BytesBuilder(copy: false);
+  out.add(Uint8List.fromList([0x66, 0x4C, 0x61, 0x43]));
+  for (var i = 0; i < kept.length; i++) {
+    final (type, body) = kept[i];
+    final isLast = i == kept.length - 1;
+    out.add(
+      Uint8List.fromList([
+        (isLast ? 0x80 : 0x00) | type,
+        (body.length >> 16) & 0xff,
+        (body.length >> 8) & 0xff,
+        body.length & 0xff,
+      ]),
+    );
+    out.add(body);
+  }
+  out.add(Uint8List.sublistView(original, audioStart));
+  return out.takeBytes();
+}
+
+/// Offset where FLAC audio frames begin (past all metadata blocks).
+int flacAudioStartOf(Uint8List b) {
+  if (b.length < 8 ||
+      b[0] != 0x66 ||
+      b[1] != 0x4C ||
+      b[2] != 0x61 ||
+      b[3] != 0x43) {
+    return 0;
+  }
+  var o = 4;
+  var last = false;
+  while (o + 4 <= b.length && !last) {
+    last = (b[o] & 0x80) != 0;
+    final len = (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+    o += 4 + len;
+  }
+  return o > b.length ? b.length : o;
+}
+
+/// FLAC counterpart of [audioBytesUnchanged].
+bool flacAudioBytesUnchanged(Uint8List before, Uint8List after) {
+  final a = Uint8List.sublistView(before, flacAudioStartOf(before));
+  final b = Uint8List.sublistView(after, flacAudioStartOf(after));
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}

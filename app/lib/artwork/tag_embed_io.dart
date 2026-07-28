@@ -11,6 +11,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:path/path.dart' as p;
+
 import '../util/win_file_times.dart';
 import 'tag_embed.dart';
 
@@ -65,9 +67,10 @@ Future<EmbedReport> embedCover(File file, Uint8List image) async {
   final times = getFileTimes(path);
   if (times == null && Platform.isWindows) {
     return EmbedReport(
-        path: path,
-        outcome: EmbedOutcome.refused,
-        reason: 'could not read timestamps -- refusing to write');
+      path: path,
+      outcome: EmbedOutcome.refused,
+      reason: 'could not read timestamps -- refusing to write',
+    );
   }
 
   final Uint8List before;
@@ -75,28 +78,42 @@ Future<EmbedReport> embedCover(File file, Uint8List image) async {
     before = await file.readAsBytes();
   } catch (e) {
     return EmbedReport(
-        path: path, outcome: EmbedOutcome.failed, reason: 'read failed: $e');
+      path: path,
+      outcome: EmbedOutcome.failed,
+      reason: 'read failed: $e',
+    );
   }
 
+  // Dispatch on format: MP3 gets an ID3v2 APIC frame, FLAC a PICTURE
+  // metadata block. Both leave their hashed audio range untouched, which is
+  // why FLAC needs no conversion to carry a cover.
+  final isFlac = p.extension(path).toLowerCase() == '.flac';
   final Uint8List after;
   try {
-    after = buildTaggedMp3(before, image);
+    after = isFlac
+        ? buildTaggedFlac(before, image)
+        : buildTaggedMp3(before, image);
   } on EmbedException catch (e) {
     return EmbedReport(
-        path: path,
-        outcome: EmbedOutcome.refused,
-        reason: '${e.refusal.name}: ${e.message}',
-        bytesBefore: before.length);
+      path: path,
+      outcome: EmbedOutcome.refused,
+      reason: '${e.refusal.name}: ${e.message}',
+      bytesBefore: before.length,
+    );
   }
 
   // Belt and braces: prove the hashed range is untouched before anything is
   // written, not after.
-  if (!audioBytesUnchanged(before, after)) {
+  final unchanged = isFlac
+      ? flacAudioBytesUnchanged(before, after)
+      : audioBytesUnchanged(before, after);
+  if (!unchanged) {
     return EmbedReport(
-        path: path,
-        outcome: EmbedOutcome.refused,
-        reason: 'audio range would have changed -- identity at risk',
-        bytesBefore: before.length);
+      path: path,
+      outcome: EmbedOutcome.refused,
+      reason: 'audio range would have changed -- identity at risk',
+      bytesBefore: before.length,
+    );
   }
 
   final tmp = File('$path.embed-tmp');
@@ -110,14 +127,18 @@ Future<EmbedReport> embedCover(File file, Uint8List image) async {
       } catch (_) {}
     }
     return EmbedReport(
-        path: path, outcome: EmbedOutcome.failed, reason: 'write failed: $e');
+      path: path,
+      outcome: EmbedOutcome.failed,
+      reason: 'write failed: $e',
+    );
   }
 
   var restored = true;
   if (times != null) {
     restored = setFileTimes(path, times);
     final now = getFileTimes(path);
-    restored = restored &&
+    restored =
+        restored &&
         now != null &&
         now.lastWrite == times.lastWrite &&
         now.creation == times.creation;

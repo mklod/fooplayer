@@ -38,8 +38,19 @@ Uint8List _jpeg([int n = 512]) {
   return b;
 }
 
-Uint8List _png() =>
-    Uint8List.fromList([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3]);
+Uint8List _png() => Uint8List.fromList([
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  1,
+  2,
+  3,
+]);
 
 /// A text frame body: encoding byte + latin1 text.
 Uint8List _text(String s) => Uint8List.fromList([0x00, ...latin1.encode(s)]);
@@ -95,25 +106,36 @@ void main() {
       final before = Uint8List.fromList(audio);
       final after = buildTaggedMp3(before, _jpeg());
 
-      expect(contentIdForBytes('x.mp3', after),
-          contentIdForBytes('x.mp3', before));
+      expect(
+        contentIdForBytes('x.mp3', after),
+        contentIdForBytes('x.mp3', before),
+      );
       expect(audioBytesUnchanged(before, after), isTrue);
       expect(after.length, greaterThan(before.length));
       expect(parseId3(after).major, 3, reason: 'fresh tags are written v2.3');
     });
 
     test('v2.3 tag without art: existing frames are preserved verbatim', () {
-      final before = _fileWithTag(major: 3, frames: [
-        ('TIT2', _text('Sorry, Blame It on Me')),
-        ('TPE1', _text('Akon')),
-        ('TALB', _text('2007-08')),
-      ], audio: _audio());
+      final before = _fileWithTag(
+        major: 3,
+        frames: [
+          ('TIT2', _text('Sorry, Blame It on Me')),
+          ('TPE1', _text('Akon')),
+          ('TALB', _text('2007-08')),
+        ],
+        audio: _audio(),
+      );
       final after = buildTaggedMp3(before, _jpeg());
 
-      expect(contentIdForBytes('a.mp3', after),
-          contentIdForBytes('a.mp3', before));
+      expect(
+        contentIdForBytes('a.mp3', after),
+        contentIdForBytes('a.mp3', before),
+      );
       final frames = {for (final f in parseId3(after).frames) f.id: f.data};
-      expect(latin1.decode(frames['TIT2']!.sublist(1)), 'Sorry, Blame It on Me');
+      expect(
+        latin1.decode(frames['TIT2']!.sublist(1)),
+        'Sorry, Blame It on Me',
+      );
       expect(latin1.decode(frames['TPE1']!.sublist(1)), 'Akon');
       expect(latin1.decode(frames['TALB']!.sublist(1)), '2007-08');
       expect(frames.containsKey('APIC'), isTrue);
@@ -122,46 +144,69 @@ void main() {
     test('v2.3 tag that already has art: the old picture is replaced, not '
         'duplicated', () {
       final oldArt = buildApicBody(_jpeg(2048), 'image/jpeg');
-      final before = _fileWithTag(major: 3, frames: [
-        ('TIT2', _text('Le missile est lance')),
-        ('APIC', oldArt),
-      ], audio: _audio());
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Le missile est lance')), ('APIC', oldArt)],
+        audio: _audio(),
+      );
 
       final newArt = _png();
       final after = buildTaggedMp3(before, newArt);
 
-      expect(contentIdForBytes('k.mp3', after),
-          contentIdForBytes('k.mp3', before));
-      final apics =
-          parseId3(after).frames.where((f) => f.id == 'APIC').toList();
+      expect(
+        contentIdForBytes('k.mp3', after),
+        contentIdForBytes('k.mp3', before),
+      );
+      final apics = parseId3(
+        after,
+      ).frames.where((f) => f.id == 'APIC').toList();
       expect(apics, hasLength(1), reason: 'exactly one cover, never two');
-      expect(apics.single.data.length, lessThan(oldArt.length),
-          reason: 'the new (smaller) picture replaced the old one');
+      expect(
+        apics.single.data.length,
+        lessThan(oldArt.length),
+        reason: 'the new (smaller) picture replaced the old one',
+      );
       // MIME is rewritten to match the new bytes, not inherited.
       expect(latin1.decode(apics.single.data.sublist(1, 10)), 'image/png');
     });
 
     test('v2.4 stays v2.4 (syncsafe frame sizes), v2.2 upgrades to v2.3', () {
       final v24 = _fileWithTag(
-          major: 4, frames: [('TIT2', _text('Four'))], audio: _audio());
+        major: 4,
+        frames: [('TIT2', _text('Four'))],
+        audio: _audio(),
+      );
       final outV24 = buildTaggedMp3(v24, _jpeg());
       expect(parseId3(outV24).major, 4);
-      expect(contentIdForBytes('v.mp3', outV24), contentIdForBytes('v.mp3', v24));
+      expect(
+        contentIdForBytes('v.mp3', outV24),
+        contentIdForBytes('v.mp3', v24),
+      );
       final f24 = {for (final f in parseId3(outV24).frames) f.id: f.data};
       expect(latin1.decode(f24['TIT2']!.sublist(1)), 'Four');
 
-      final v22 = _fileWithTag(major: 2, frames: [
-        ('TT2', _text('Comfortable')),
-        ('TP1', _text('Lil Wayne')),
-      ], audio: _audio());
+      final v22 = _fileWithTag(
+        major: 2,
+        frames: [('TT2', _text('Comfortable')), ('TP1', _text('Lil Wayne'))],
+        audio: _audio(),
+      );
       final outV22 = buildTaggedMp3(v22, _jpeg());
       expect(parseId3(outV22).major, 3);
-      expect(contentIdForBytes('w.mp3', outV22), contentIdForBytes('w.mp3', v22));
+      expect(
+        contentIdForBytes('w.mp3', outV22),
+        contentIdForBytes('w.mp3', v22),
+      );
       final f22 = {for (final f in parseId3(outV22).frames) f.id: f.data};
-      expect(latin1.decode(f22['TIT2']!.sublist(1)), 'Comfortable',
-          reason: 'TT2 -> TIT2');
-      expect(latin1.decode(f22['TPE1']!.sublist(1)), 'Lil Wayne',
-          reason: 'TP1 -> TPE1');
+      expect(
+        latin1.decode(f22['TIT2']!.sublist(1)),
+        'Comfortable',
+        reason: 'TT2 -> TIT2',
+      );
+      expect(
+        latin1.decode(f22['TPE1']!.sublist(1)),
+        'Lil Wayne',
+        reason: 'TP1 -> TPE1',
+      );
     });
 
     test('a trailing ID3v1 block is carried through untouched', () {
@@ -177,19 +222,26 @@ void main() {
       final before = Uint8List.fromList([..._audio(), ...v1]);
       final after = buildTaggedMp3(before, _jpeg());
 
-      expect(contentIdForBytes('t.mp3', after),
-          contentIdForBytes('t.mp3', before));
+      expect(
+        contentIdForBytes('t.mp3', after),
+        contentIdForBytes('t.mp3', before),
+      );
       expect(after.sublist(after.length - 128), v1);
     });
 
     test('embedding twice is idempotent in identity and cover count', () {
       final before = _fileWithTag(
-          major: 3, frames: [('TIT2', _text('Twice'))], audio: _audio());
+        major: 3,
+        frames: [('TIT2', _text('Twice'))],
+        audio: _audio(),
+      );
       final once = buildTaggedMp3(before, _jpeg());
       final twice = buildTaggedMp3(once, _jpeg(600));
 
-      expect(contentIdForBytes('i.mp3', twice),
-          contentIdForBytes('i.mp3', before));
+      expect(
+        contentIdForBytes('i.mp3', twice),
+        contentIdForBytes('i.mp3', before),
+      );
       expect(parseId3(twice).frames.where((f) => f.id == 'APIC'), hasLength(1));
     });
   });
@@ -199,25 +251,44 @@ void main() {
       // ID3 tag, then 'ftyp' where MPEG frames should be. Prepending a tag
       // to this is exactly what made that file unplayable.
       final mp4ish = Uint8List.fromList([
-        0x00, 0x00, 0x00, 0x1c,
+        0x00,
+        0x00,
+        0x00,
+        0x1c,
         ...latin1.encode('ftypisom'),
         ...List<int>.filled(2048, 0x41),
       ]);
       final before = _fileWithTag(
-          major: 3, frames: [('TIT2', _text('Fake'))], audio: mp4ish);
+        major: 3,
+        frames: [('TIT2', _text('Fake'))],
+        audio: mp4ish,
+      );
 
       expect(
-          () => buildTaggedMp3(before, _jpeg()),
-          throwsA(isA<EmbedException>()
-              .having((e) => e.refusal, 'refusal', EmbedRefusal.notMpeg)));
+        () => buildTaggedMp3(before, _jpeg()),
+        throwsA(
+          isA<EmbedException>().having(
+            (e) => e.refusal,
+            'refusal',
+            EmbedRefusal.notMpeg,
+          ),
+        ),
+      );
     });
 
     test('a non-image payload is refused', () {
       final before = Uint8List.fromList(_audio());
       expect(
-          () => buildTaggedMp3(before, Uint8List.fromList(latin1.encode('<html>'))),
-          throwsA(isA<EmbedException>().having(
-              (e) => e.refusal, 'refusal', EmbedRefusal.unsupportedImage)));
+        () =>
+            buildTaggedMp3(before, Uint8List.fromList(latin1.encode('<html>'))),
+        throwsA(
+          isA<EmbedException>().having(
+            (e) => e.refusal,
+            'refusal',
+            EmbedRefusal.unsupportedImage,
+          ),
+        ),
+      );
     });
 
     test('unsynchronised / extended-header / footer tags are refused', () {
@@ -227,14 +298,128 @@ void main() {
         (0x10, 'footer'),
       ]) {
         final f = _fileWithTag(
-            major: 3, frames: [('TIT2', _text('x'))], audio: _audio());
+          major: 3,
+          frames: [('TIT2', _text('x'))],
+          audio: _audio(),
+        );
         f[5] = flag;
         expect(
-            () => buildTaggedMp3(f, _jpeg()),
-            throwsA(isA<EmbedException>().having((e) => e.refusal, 'refusal',
-                EmbedRefusal.unsupportedTagFlags)),
-            reason: label);
+          () => buildTaggedMp3(f, _jpeg()),
+          throwsA(
+            isA<EmbedException>().having(
+              (e) => e.refusal,
+              'refusal',
+              EmbedRefusal.unsupportedTagFlags,
+            ),
+          ),
+          reason: label,
+        );
       }
+    });
+  });
+
+  group('FLAC keeps its identity too (no conversion needed)', () {
+    /// A minimal but structurally real FLAC: fLaC, a 34-byte STREAMINFO, a
+    /// VORBIS_COMMENT, then "audio".
+    Uint8List flac({bool withPicture = false, int padding = 0}) {
+      List<int> block(int type, List<int> body, bool last) => [
+        (last ? 0x80 : 0x00) | type,
+        (body.length >> 16) & 0xff,
+        (body.length >> 8) & 0xff,
+        body.length & 0xff,
+        ...body,
+      ];
+      final streaminfo = List<int>.filled(34, 0x11);
+      final comment = latin1.encode('reference libFLAC').toList();
+      final blocks = <int>[
+        ...block(0, streaminfo, false),
+        ...block(4, comment, !withPicture && padding == 0),
+      ];
+      if (withPicture) {
+        blocks.addAll(
+          block(
+            6,
+            buildFlacPictureBlock(_jpeg(4096), 'image/jpeg').toList(),
+            padding == 0,
+          ),
+        );
+      }
+      if (padding > 0) {
+        blocks.addAll(block(1, List<int>.filled(padding, 0), true));
+      }
+      return Uint8List.fromList([
+        0x66, 0x4C, 0x61, 0x43,
+        ...blocks,
+        ...List<int>.generate(2048, (i) => (i * 13) % 251), // frames
+      ]);
+    }
+
+    test('a cover is added without disturbing the audio frames', () {
+      final before = flac();
+      final after = buildTaggedFlac(before, _jpeg());
+
+      expect(
+        contentIdForBytes('z.flac', after),
+        contentIdForBytes('z.flac', before),
+        reason: 'flacAudioRange skips metadata, so identity must hold',
+      );
+      expect(flacAudioBytesUnchanged(before, after), isTrue);
+    });
+
+    test('an existing picture is replaced, and padding is dropped', () {
+      final before = flac(withPicture: true, padding: 512);
+      final after = buildTaggedFlac(before, _png());
+
+      expect(
+        contentIdForBytes('z.flac', after),
+        contentIdForBytes('z.flac', before),
+      );
+      // Walk the rebuilt block list: exactly one PICTURE, no PADDING, and
+      // STREAMINFO still first (the format requires it).
+      var o = 4, pictures = 0, paddings = 0;
+      final types = <int>[];
+      var last = false;
+      while (o + 4 <= after.length && !last) {
+        last = (after[o] & 0x80) != 0;
+        final type = after[o] & 0x7f;
+        types.add(type);
+        if (type == kFlacBlockPicture) pictures++;
+        if (type == kFlacBlockPadding) paddings++;
+        o += 4 + ((after[o + 1] << 16) | (after[o + 2] << 8) | after[o + 3]);
+      }
+      expect(types.first, 0, reason: 'STREAMINFO stays first');
+      expect(pictures, 1);
+      expect(paddings, 0);
+      expect(types, contains(4), reason: 'VORBIS_COMMENT preserved');
+    });
+
+    test('the picture block records real dimensions', () {
+      // 1x1 PNG: IHDR says 1x1, and the block must say so too rather than 0x0.
+      final png = Uint8List.fromList([
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+        0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52,
+        0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0,
+      ]);
+      final dims = imageDimsOf(png);
+      expect(dims.width, 1);
+      expect(dims.height, 1);
+
+      final block = buildFlacPictureBlock(png, 'image/png');
+      // width sits after: type(4) + mimeLen(4) + mime + descLen(4)
+      final o = 4 + 4 + 'image/png'.length + 4;
+      final w =
+          (block[o] << 24) |
+          (block[o + 1] << 16) |
+          (block[o + 2] << 8) |
+          block[o + 3];
+      expect(w, 1);
+    });
+
+    test('a non-FLAC payload is refused', () {
+      expect(
+        () => buildTaggedFlac(_audio(), _jpeg()),
+        throwsA(isA<EmbedException>()),
+      );
     });
   });
 }
