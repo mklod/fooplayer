@@ -371,15 +371,28 @@ Duration? estimateMp3Duration(Uint8List bytes) {
 /// start. Using this instead lets [estimateMp3DurationForFile] detect that
 /// oversized-tag case correctly and follow up with a second, targeted read.
 int _id3v2TagEnd(Uint8List head) {
-  if (head.length < 10 ||
-      head[0] != 0x49 ||
-      head[1] != 0x44 ||
-      head[2] != 0x33) {
-    return 0;
+  // Tags can be STACKED: files written by more than one tagger routinely
+  // carry an ID3v2.3 tag immediately followed by an ID3v2.4 one (an album in
+  // Mike's library -- Tayyib Ali, Keystone State Of Mind -- is 15 such
+  // files). Skipping only the first left the frame search staring at the
+  // second tag's header, finding no valid frame, and returning no duration
+  // at all. Walk them all.
+  var off = 0;
+  while (off + 10 <= head.length &&
+      head[off] == 0x49 &&
+      head[off + 1] == 0x44 &&
+      head[off + 2] == 0x33) {
+    final size =
+        (head[off + 6] << 21) |
+        (head[off + 7] << 14) |
+        (head[off + 8] << 7) |
+        head[off + 9];
+    final footer = (head[off + 5] & 0x10) != 0 ? 10 : 0;
+    final next = off + 10 + size + footer;
+    if (next <= off) break; // malformed size -- don't loop forever
+    off = next;
   }
-  final size = (head[6] << 21) | (head[7] << 14) | (head[8] << 7) | head[9];
-  final footer = (head[5] & 0x10) != 0 ? 10 : 0;
-  return 10 + size + footer;
+  return off;
 }
 
 /// File-based wrapper around the same estimator that reads only what it

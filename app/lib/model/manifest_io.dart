@@ -51,8 +51,9 @@ class ManifestData {
 ManifestData loadManifestFile(File f, {required String rootPath}) {
   final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
   final schema = j['schema'] as int;
-  if (schema != 1)
+  if (schema != 1) {
     throw FormatException('unsupported manifest schema: $schema');
+  }
   final tracks = <Track>[];
   (j['tracks'] as Map<String, dynamic>).forEach((id, v) {
     final entry = v as Map<String, dynamic>;
@@ -63,6 +64,9 @@ ManifestData loadManifestFile(File f, {required String rootPath}) {
         relPath: paths.first,
         rootPath: rootPath,
         dateAdded: DateTime.parse(entry['date_added'] as String).toUtc(),
+        // Straight into the first frame: a duration the manifest already
+        // knows never waits on tag enrichment (see TrackEntry.durationMs).
+        durationMs: (entry['duration_ms'] as num?)?.toInt(),
         title: p.basenameWithoutExtension(paths.first),
       ),
     );
@@ -80,8 +84,9 @@ ManifestData loadManifestFile(File f, {required String rootPath}) {
 List<ManifestPlaylist> loadManifestPlaylistsFile(File f) {
   final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
   final schema = j['schema'] as int;
-  if (schema != 1)
+  if (schema != 1) {
     throw FormatException('unsupported manifest schema: $schema');
+  }
   return _playlistsFromJson(j);
 }
 
