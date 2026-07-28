@@ -7,6 +7,7 @@ import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
 import '../metadata/isolate_io.dart';
 import '../metadata/meta_cache.dart';
+import '../metadata/id3_text.dart';
 import '../metadata/mp3_duration.dart';
 import '../metadata/tags.dart';
 import 'filtering.dart';
@@ -476,21 +477,59 @@ class LibraryModel extends ChangeNotifier {
           for (final i in batch) {
             final t = tracks[i];
             if (results.containsKey(t.contentId)) continue;
-            if (cache.entries.containsKey(t.contentId)) continue;
-            final ms = await _estimateDurationMs(t);
-            if (ms == null) continue;
+            final existing = cache.entries[t.contentId];
+            final wasStale = cache.staleIds.contains(t.contentId);
+            if (existing != null && !wasStale) continue;
+
+            // Our own readers are bounded and fast (tens of ms) and handle
+            // precisely the shapes that make the upstream parser hang -- a
+            // 439 KB ID3v2.4 tag stacked behind a v2.3 one, on the Tayyib
+            // Ali album, timed out on every pass and so was never corrected.
+            // Freshly-read frames win over a stale entry's values; for a
+            // never-seen track they simply fill in.
+            final frames = await readId3TextFramesFromFile(
+              File(p.join(t.rootPath, t.relPath)),
+            );
+            final ms = existing?.durationMs ?? await _estimateDurationMs(t);
+            if (frames.isEmpty && ms == null) continue;
+
             final fb = parseFromFilename(t.relPath);
+            String? pick(String frame, String? stale, String? fallback) =>
+                blankAsNull(frames[frame]) ?? stale ?? fallback;
+            final track = frames['TRCK'];
             cache.entries[t.contentId] = TrackTags(
-              title: fb.title ?? p.basenameWithoutExtension(t.relPath),
-              artist: fb.artist,
-              album: fb.album,
-              genre: fb.genre,
+              title:
+                  pick('TIT2', existing?.title, fb.title) ??
+                  p.basenameWithoutExtension(t.relPath),
+              artist:
+                  blankAsNull(frames['TPE1']) ??
+                  blankAsNull(frames['TPE2']) ??
+                  existing?.artist ??
+                  fb.artist,
+              album: pick('TALB', existing?.album, fb.album),
+              genre: pick('TCON', existing?.genre, fb.genre),
               durationMs: ms,
-              trackNumber: fb.trackNumber,
+              trackNumber:
+                  (track == null
+                      ? null
+                      : int.tryParse(track.split('/').first)) ??
+                  existing?.trackNumber ??
+                  fb.trackNumber,
               // Probed: don't re-attempt this file forever.
               durationProbed: true,
             );
-            tracks[i] = tracks[i].copyWith(durationMs: ms);
+            // Recovered as far as we can, so stop treating it as stale --
+            // otherwise the same timing-out file is retried every launch.
+            cache.markRefreshed(t.contentId);
+            final rec = cache.entries[t.contentId]!;
+            tracks[i] = tracks[i].copyWith(
+              title: rec.title,
+              artist: rec.artist,
+              album: rec.album,
+              genre: rec.genre,
+              durationMs: rec.durationMs,
+              trackNumber: rec.trackNumber,
+            );
           }
 
           for (final i in batch) {
@@ -498,6 +537,9 @@ class LibraryModel extends ChangeNotifier {
             final tags = results[t.contentId];
             if (tags == null) continue;
             cache.entries[t.contentId] = tags;
+            // This entry has now genuinely been re-read at the current
+            // revision; without this it stays flagged stale forever.
+            cache.markRefreshed(t.contentId);
             tracks[i] = t.copyWith(
               title: tags.title,
               artist: tags.artist,
@@ -1600,7 +1642,30 @@ Future<Map<String, TrackTags>> _readBatchResilient(
   required Duration timeout,
 }) async {
   final out = <String, TrackTags>{};
-  for (final record in records) {
+  // Bounded concurrency, NOT one at a time. A batch that trips the
+  // pathological-parser guard falls in here with all 200 of its files, and
+  // serially at up to [timeout] each that is over an hour for a single
+  // batch -- which is exactly what "stuck at 1400/5473" looked like. Eight
+  // at a time keeps the worst case in minutes while staying polite to the
+  // share.
+  const lanes = 8;
+  for (var start = 0; start < records.length; start += lanes) {
+    final end = start + lanes < records.length ? start + lanes : records.length;
+    await Future.wait([
+      for (final record in records.sublist(start, end))
+        _readOneResilient(record, timeout, out),
+    ]);
+  }
+  return out;
+}
+
+/// One file's guarded read, writing into [out] on success. Never throws.
+Future<void> _readOneResilient(
+  (String, String, String) record,
+  Duration timeout,
+  Map<String, TrackTags> out,
+) async {
+  {
     final (contentId, _, _) = record;
     try {
       final single = await _readBatchIsolate([record], timeout: timeout);
@@ -1616,7 +1681,6 @@ Future<Map<String, TrackTags>> _readBatchResilient(
       // Same: skip, don't guess.
     }
   }
-  return out;
 }
 
 /// Header-only duration estimate for a track whose full tag read failed.
