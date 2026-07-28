@@ -471,15 +471,6 @@ class _TrackListHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
-        const SizedBox(
-          width: _kArtColumnWidth,
-          child: _PlainHeaderLabel(label: 'Art'),
-        ),
-        const SizedBox(
-          width: _kArtColumnWidth,
-          child: _PlainHeaderLabel(label: 'Emb'),
-        ),
-        const SizedBox(width: 8),
         SizedBox(
           width: _kDurationColumnWidth,
           child: _HeaderCell(
@@ -497,6 +488,15 @@ class _TrackListHeader extends StatelessWidget {
             column: SortColumn.dateAdded,
             library: library,
           ),
+        ),
+        const SizedBox(width: 8),
+        const SizedBox(
+          width: _kArtColumnWidth,
+          child: _PlainHeaderLabel(label: 'Art'),
+        ),
+        const SizedBox(
+          width: _kArtColumnWidth,
+          child: _PlainHeaderLabel(label: 'Emb'),
         ),
       ],
     );
@@ -532,15 +532,21 @@ class _TrackListHeader extends StatelessWidget {
 /// with no [InkWell]/hover treatment and no sort arrow -- used for the
 /// playlist view's header, whose column order is curator-defined and
 /// therefore not a sort control (see [_TrackListHeader]'s doc).
-/// A tick, or nothing. Deliberately not a cross: an empty cell reads as
-/// "no", and a column of crosses next to a column of ticks is noise.
+/// A circled check in accent blue -- the same colour the shuffle button takes
+/// when it is active -- or nothing at all. Deliberately not a cross: an empty
+/// cell already reads as "no", and a column of crosses beside a column of
+/// ticks is noise.
 class _ArtTick extends StatelessWidget {
   final bool on;
   const _ArtTick({required this.on});
 
   @override
   Widget build(BuildContext context) => on
-      ? const Icon(Icons.check, size: 14, color: AppColors.inkSecondary)
+      ? const Icon(
+          Icons.check_circle_outline,
+          size: 15,
+          color: AppColors.accent,
+        )
       : const SizedBox.shrink();
 }
 
@@ -811,15 +817,6 @@ class _TrackRow extends StatelessWidget {
     ),
     const SizedBox(width: 8),
     SizedBox(
-      width: _kArtColumnWidth,
-      child: _ArtTick(on: hasArtwork),
-    ),
-    SizedBox(
-      width: _kArtColumnWidth,
-      child: _ArtTick(on: track.hasEmbeddedArt),
-    ),
-    const SizedBox(width: 8),
-    SizedBox(
       width: _kDurationColumnWidth,
       child: Text(
         _fmtDuration(track.durationMs),
@@ -838,6 +835,15 @@ class _TrackRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: _kRowTextStyle,
       ),
+    ),
+    const SizedBox(width: 8),
+    SizedBox(
+      width: _kArtColumnWidth,
+      child: _ArtTick(on: hasArtwork),
+    ),
+    SizedBox(
+      width: _kArtColumnWidth,
+      child: _ArtTick(on: track.hasEmbeddedArt),
     ),
   ];
 
