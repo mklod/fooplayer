@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_backfill.dart';
+import '../artwork/artwork_store.dart';
+import '../artwork/artwork_embed_pass.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
@@ -39,6 +41,11 @@ class HomeScreen extends StatelessWidget {
   /// row context menu can offer "Album artwork...". Null hides the item.
   final ArtworkServices? artworkServices;
 
+  /// Per-root artwork sidecars. Backs the sidebar's "Embed art in files"
+  /// action; null hides it (widget tests that build the screen without the
+  /// artwork feature wired).
+  final ArtworkStoreRegistry? artworkStores;
+
   /// Background best-guess artwork pass -- the Refresh button below queues a
   /// pass over any newly-discovered tracks once its manual rescan settles
   /// (mirroring what main.dart's periodic timer and launch-time rescan
@@ -56,6 +63,7 @@ class HomeScreen extends StatelessWidget {
     this.playlistStore,
     this.artworkResolver,
     this.artworkServices,
+    this.artworkStores,
     this.artworkBackfill,
   });
 
@@ -82,6 +90,7 @@ class HomeScreen extends StatelessWidget {
                       color: AppColors.panelBg,
                       child: _Sidebar(
                         artworkBackfill: artworkBackfill,
+                        artworkStores: artworkStores,
                         library: library,
                         libraryRootsPrefs: libraryRootsPrefs,
                         playlistStore: store,
@@ -242,7 +251,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class _Sidebar extends StatelessWidget {
+class _Sidebar extends StatefulWidget {
   final LibraryModel library;
   final LibraryRootsPrefs libraryRootsPrefs;
   final PlaylistStore playlistStore;
@@ -252,12 +261,36 @@ class _Sidebar extends StatelessWidget {
   /// tests that build the screen without the artwork feature wired).
   final ArtworkBackfill? artworkBackfill;
 
+  /// Per-root artwork sidecars, read by "Embed art in files". Null hides it.
+  final ArtworkStoreRegistry? artworkStores;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
     required this.playlistStore,
     this.artworkBackfill,
+    this.artworkStores,
   });
+
+  @override
+  State<_Sidebar> createState() => _SidebarState();
+}
+
+class _SidebarState extends State<_Sidebar> {
+  /// True while an embed pass runs, so it can't be started twice.
+  ///
+  /// Deliberately NOT gated on [LibraryModel.busy]: the pass writes tag
+  /// blocks inside audio files and touches neither the manifests nor the tag
+  /// cache, so it is safe alongside a scan -- and this library rescans on a
+  /// timer, which would otherwise leave the entry greyed out most of the
+  /// time.
+  bool _embedding = false;
+
+  LibraryModel get library => widget.library;
+  LibraryRootsPrefs get libraryRootsPrefs => widget.libraryRootsPrefs;
+  PlaylistStore get playlistStore => widget.playlistStore;
+  ArtworkBackfill? get artworkBackfill => widget.artworkBackfill;
+  ArtworkStoreRegistry? get artworkStores => widget.artworkStores;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -282,6 +315,79 @@ class _Sidebar extends StatelessWidget {
       const SnackBar(
         content: Text('Looking up artwork for albums without a cover…'),
         duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  /// Writes the artwork fooplayer has chosen into the files themselves, so
+  /// every other player can see it.
+  ///
+  /// Confirmed first, and the dialog states plainly what is and isn't
+  /// touched: only tag blocks are rewritten, never audio, so no content ID
+  /// moves -- and every file's dates are restored and re-read afterwards,
+  /// which since 2026-07-28 ARE the library's "date downloaded". A write
+  /// that failed to put a date back is surfaced in the result rather than
+  /// counted as a success.
+  Future<void> _embedArtwork(BuildContext context) async {
+    final stores = artworkStores;
+    if (stores == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final tracks = library.allTracks
+        .where(
+          (t) => kEmbeddableExtensions.contains(
+            p.extension(t.relPath).toLowerCase(),
+          ),
+        )
+        .toList();
+
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        key: const Key('embed-artwork-confirm'),
+        title: const Text('Embed art in files?'),
+        content: Text(
+          'Writes the cover fooplayer picked into the tags of each track, so '
+          'foobar2000, Kodi, Explorer and your phone can see it.\n\n'
+          '${tracks.length} eligible tracks (mp3 and FLAC).\n\n'
+          'Audio is never rewritten, so nothing changes identity, and every '
+          'file has its dates put back exactly as they were — the date '
+          'downloaded is not touched. Anything that cannot be written safely '
+          'is skipped and reported.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('embed-artwork-go'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Embed'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) return;
+
+    setState(() => _embedding = true);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('Embedding artwork into ${tracks.length} files…'),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+
+    EmbedPassReport report;
+    try {
+      report = await ArtworkEmbedPass(stores: stores).run(tracks);
+    } finally {
+      if (mounted) setState(() => _embedding = false);
+    }
+
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('Artwork embedding: ${report.summary}'),
+        duration: Duration(seconds: report.datesDisturbed > 0 ? 12 : 6),
       ),
     );
   }
@@ -371,6 +477,14 @@ class _Sidebar extends StatelessWidget {
               leading: const Icon(Icons.image_search_outlined, size: 18),
               title: const Text('Enrich artwork'),
               onTap: () => _enrichArtwork(context),
+            ),
+          if (artworkStores != null)
+            ListTile(
+              key: const Key('embed-artwork'),
+              leading: const Icon(Icons.save_alt_outlined, size: 18),
+              title: Text(_embedding ? 'Embedding art…' : 'Embed art in files'),
+              enabled: !_embedding,
+              onTap: _embedding ? null : () => _embedArtwork(context),
             ),
           ListTile(
             key: const Key('settings-gear'),

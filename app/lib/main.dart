@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'artwork/artwork_backfill.dart';
 import 'artwork/artwork_resolver.dart';
+import 'artwork/artwork_store.dart';
 import 'artwork/artwork_wiring.dart';
 import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
@@ -241,6 +242,7 @@ void main() async {
       libraryRootsPrefs: libraryRootsPrefs,
       artworkResolver: artworkResolver,
       artworkServices: artworkServices,
+      artworkStores: artwork.stores,
       artworkBackfill: artworkBackfill,
     ),
   );
@@ -256,6 +258,11 @@ class FooPlayerApp extends StatelessWidget {
   /// surface so desktop bar, phone mini-player and phone Now Playing all
   /// read from one cache and refresh together when a pick changes.
   final ArtworkResolver? artworkResolver;
+
+  /// Per-root artwork sidecars -- backs the sidebar's "Embed art in files"
+  /// action, which copies each album's chosen cover into the tracks' own
+  /// tags so other players can see it.
+  final ArtworkStoreRegistry? artworkStores;
 
   /// Artwork picker services (Plan 4 A3) -- the desktop row context menu and
   /// the phone long-press sheet both hide their "Album artwork" item when
@@ -277,6 +284,7 @@ class FooPlayerApp extends StatelessWidget {
     required this.libraryRootsPrefs,
     this.artworkResolver,
     this.artworkServices,
+    this.artworkStores,
     this.artworkBackfill,
   });
 
@@ -300,6 +308,7 @@ class FooPlayerApp extends StatelessWidget {
               libraryRootsPrefs: libraryRootsPrefs,
               artworkResolver: artworkResolver,
               artworkServices: artworkServices,
+              artworkStores: artworkStores,
               artworkBackfill: artworkBackfill,
             );
           }
