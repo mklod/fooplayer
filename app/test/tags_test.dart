@@ -210,12 +210,16 @@ void main() {
       final f = File('${tmp.path}/Muse - New Born.mp3');
       await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
       final t = await readTags(f);
-      expect(t.durationMs, isNull);
-      // No container parser recognized this file at all (see _readRawTags's
-      // `raw == null` early return) -- the mp3_duration.dart fallback only
-      // ever runs once a parser has actually matched, so it's correctly never
-      // attempted here.
-      expect(t.durationProbed, isFalse);
+      expect(t.durationMs, isNull, reason: '64 zero bytes have no frames');
+      // The estimator IS attempted here, and that matters: this test used to
+      // assert the opposite -- that the fallback only runs once a parser has
+      // matched -- and that assumption is exactly what left five real files
+      // (Tiesto's "The Business", "AB2G Cygnus" and others) with a blank
+      // Time column despite ffprobe reading them fine. No parser matching
+      // says nothing about whether the frame headers are readable.
+      // `durationProbed` records that the attempt happened, so a file that
+      // genuinely cannot be measured is not retried on every launch.
+      expect(t.durationProbed, isTrue);
       await tmp.delete(recursive: true);
     },
   );
