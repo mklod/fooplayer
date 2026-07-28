@@ -2,6 +2,60 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-28 — the metadata pipeline stops lying
+
+A night of Mike finding real defects in live use. Every one was reproduced and
+root-caused before it was touched.
+
+**Tags that were there all along.** Five fully-tagged albums showed no artist —
+Tha Carter III, Dummy, Treats, Becoming X, Keystone State Of Mind (57 tracks).
+Dumping their ID3 frames found three separate upstream-parser failures: frames
+after a large embedded picture are never reached (Tha Carter III keeps `TPE1`
+*after* a 307 KB `APIC`), ID3v2.2's 3-character frame IDs aren't mapped at all,
+and stacked tags — a v2.3 immediately followed by a v2.4 — make it give up.
+`id3_text.dart` now reads ID3 text frames ourselves: every leading tag, every
+frame, any size, all four encodings. It only fills gaps the upstream parser
+left, so FLAC/MP4/OGG stay its job.
+
+**Artist was reading the wrong frame.** `TPE2` (band / album artist) was
+preferred over `TPE1` (lead performer). 2,231 files carry both and **359
+disagree** — mostly compilation tracks displaying "Various Artists" instead of
+the band that played them. "The Life" showed RÜFÜS instead of RÜFÜS du Sol,
+which is how Mike spotted it.
+
+**Durations were the most expensive thing to compute and the least durably
+stored.** They lived only in the local tag cache, so any cache loss blanked the
+Time column for the whole library and forced a full re-read over SMB. The
+manifest — which already holds `date_added` — now carries an optional
+`duration_ms` beside it (omitted when null; existing manifests and older
+readers unaffected). 5,453 durations persisted. Twenty tracks had no duration
+at all despite ffprobe reading them fine: their tag read timed out before the
+estimator ever ran, and 15 of them carry stacked ID3 tags the estimator's
+single-tag skip walked straight into. Now zero.
+
+**A refresh must never blank the library, and must never lie about finishing.**
+Bumping the cache revision used to discard every entry — ten minutes of empty
+columns to correct one field. Stale entries are now kept and served while a
+background pass corrects them in place. The first version of that shipped with
+a bug of its own: `save()` stamped every entry with the current revision,
+including ones it had only served, so within ~1,000 files the whole library was
+marked refreshed and the tracks needing work were never revisited. Staleness
+now survives a save. A read that times out also falls through to our own reader
+instead of leaving an entry uncorrected forever, and the per-file retry path
+runs 8 at a time rather than one — a bad 200-file batch was over an hour of
+apparent stall.
+
+**UI, from live use:** row selection fires on pointer-down (it hung off
+`InkWell.onTap`, which Flutter withholds for the full ~300 ms double-tap window
+— the model work behind a selection measures ~5 ms, so the wait *was* the
+stutter); the now-playing cover opens the artwork picker for what's playing;
+"Album artwork…" moved to the top of the row context menu; the empty-cover
+placeholder is the app's own music-note icon in grey inside an outlined tile
+instead of an icon floating under a drop shadow; and the column-header hover
+tint is gone.
+
+723 tests, analyze clean, Windows release verified live.
+
 ## 2026-07-27 — artwork goes into the files themselves
 
 - **Cover art is now embedded in the audio files' own tags**, so foobar2000, Kodi, Explorer thumbnails and any phone player see it — no `folder.jpg` litter. MP3 gets an ID3v2 APIC frame, FLAC a PICTURE metadata block.

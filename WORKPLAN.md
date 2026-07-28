@@ -1,9 +1,16 @@
 # fooplayer — WORKPLAN
 
-*Forward-looking queue. State: [STATUS.md](STATUS.md) · History: [CHANGELOG.md](CHANGELOG.md). Last update: 2026-07-27.*
+*Forward-looking queue. State: [STATUS.md](STATUS.md) · History: [CHANGELOG.md](CHANGELOG.md). Last update: 2026-07-28.*
 
 ## ✅ Completed since the last plan revision
 
+- **Tag/metadata pipeline hardened** (2026-07-28): own ID3 reader for what the
+  upstream parser drops, TPE1-before-TPE2 artist precedence, durations
+  persisted in the manifest, refresh that never blanks the library and can't
+  report itself finished without doing the work.
+- **Artwork embedding into files** (MP3 APIC / FLAC PICTURE) with content ID and
+  file dates provably unchanged; applied to the 3 FLACs and the 13 m4a that were
+  converted to MP3 carrying their date-added across.
 - Repo migration to `L:\PROJECTS\fooplayer`; old `foobar` dir deleted and verified clear.
 - Android phone-native UI (Plan 2b) shipped and verified on the emulator; launcher icon + app label.
 - Album artwork lookup (Plan 4) shipped on both platforms: auto-enrichment + picker, two adversarial-review passes' findings fixed.
@@ -60,7 +67,12 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 - Fuzzy title matching for the 26 unmatched "alternative times" playlist lines
 - Missing-file tracks not hidden from the feed (spec line-item; rescan's diff already knows)
 - `visibleTracks` memoization (recomputes per player tick); gear-tap integration test; multi-format tagged-file fixtures (package-upgrade protection)
-- Deeper duration probe for never-played null-duration tracks; duration re-check on retag
+- Duration re-check on retag (the deeper probe landed 2026-07-28: header-only
+  estimator on every give-up path, stacked-tag aware)
+- `AB2G Cygnus.mp3` has no ID3 tag at all, so it shows no artist. Nothing to
+  read — a candidate for the metadata-repair feature rather than a bug
+- The Zero 7 Destiny folder holds both FLAC and MP3 of the same three tracks
+  (6 library entries for 3 songs); decide whether to dedupe
 - Empty-roots config restart quirk; `.bad` backup clobber on repeat corruption; sub-400px bar widths
 - Artwork: late CAA results discarded after the picker's budget expires; noise-word normalizer can fold distinct album titles together (accepted fuzzy-matching trade-off)
 - Workflow-script hygiene: reviewer severity labels are enum-locked now; keep it that way (a non-enum label once slipped a finding past a filter)
