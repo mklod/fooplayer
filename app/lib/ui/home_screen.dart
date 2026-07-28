@@ -8,6 +8,7 @@ import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_store.dart';
 import '../artwork/artwork_embed_pass.dart';
 import '../artwork/local_art_harvest.dart';
+import '../artwork/artwork_picker.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
@@ -99,6 +100,7 @@ class HomeScreen extends StatelessWidget {
                         playlistStore: store,
                         player: player,
                         artworkResolver: artworkResolver,
+                        artworkServices: artworkServices,
                       ),
                     ),
                   ),
@@ -293,6 +295,10 @@ class _Sidebar extends StatefulWidget {
   final PlayerService player;
   final ArtworkResolver? artworkResolver;
 
+  /// Picker services, so the selected-track preview can open the same dialog
+  /// the now-playing cover and the row context menu use.
+  final ArtworkServices? artworkServices;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
@@ -301,6 +307,7 @@ class _Sidebar extends StatefulWidget {
     this.artworkBackfill,
     this.artworkStores,
     this.artworkResolver,
+    this.artworkServices,
   });
 
   @override
@@ -322,6 +329,7 @@ class _SidebarState extends State<_Sidebar> {
   PlaylistStore get playlistStore => widget.playlistStore;
   ArtworkBackfill? get artworkBackfill => widget.artworkBackfill;
   ArtworkStoreRegistry? get artworkStores => widget.artworkStores;
+  ArtworkServices? get artworkServices => widget.artworkServices;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -376,11 +384,24 @@ class _SidebarState extends State<_Sidebar> {
       );
     }
 
-    backfill.run(artworkBackfillRequests(library.allTracks));
     messenger?.showSnackBar(
       const SnackBar(
         content: Text('Looking up artwork for the albums still without one…'),
         duration: Duration(seconds: 3),
+      ),
+    );
+    // Awaited, so there is a definite end: the pass used to be
+    // fire-and-forget, which meant it announced itself starting and then
+    // never said another word -- no way to tell "still working" from
+    // "finished twenty minutes ago".
+    await backfill.run(artworkBackfillRequests(library.allTracks));
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Artwork lookup finished: ${backfill.appliedCount} found across '
+          '${backfill.consideredCount} albums checked',
+        ),
+        duration: const Duration(seconds: 8),
       ),
     );
   }
@@ -562,6 +583,7 @@ class _SidebarState extends State<_Sidebar> {
             library: library,
             player: widget.player,
             resolver: widget.artworkResolver,
+            artwork: widget.artworkServices,
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
@@ -730,10 +752,15 @@ class _SelectedArtPreview extends StatelessWidget {
   final PlayerService player;
   final ArtworkResolver? resolver;
 
+  /// Lets the preview open the picker for the SELECTED track, the same way
+  /// the now-playing cover does for the playing one. Null leaves it inert.
+  final ArtworkServices? artwork;
+
   const _SelectedArtPreview({
     required this.library,
     required this.player,
     this.resolver,
+    this.artwork,
   });
 
   @override
@@ -755,17 +782,34 @@ class _SelectedArtPreview extends StatelessWidget {
         );
         // Square, and as wide as the sidebar allows -- it is the one piece
         // of art on screen while nothing plays, so it gets the space.
+        final services = artwork;
         return Padding(
           padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
           child: LayoutBuilder(
-            builder: (context, constraints) => AlbumArt(
-              key: const Key('sidebar-art-preview'),
-              contentId: track.contentId,
-              file: File(p.join(track.rootPath, track.relPath)),
-              size: constraints.maxWidth,
-              resolver: resolver,
-              track: track,
-            ),
+            builder: (context, constraints) {
+              final art = AlbumArt(
+                key: const Key('sidebar-art-preview'),
+                contentId: track.contentId,
+                file: File(p.join(track.rootPath, track.relPath)),
+                size: constraints.maxWidth,
+                resolver: resolver,
+                track: track,
+              );
+              if (services == null) return art;
+              return MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  key: const Key('sidebar-art-preview-tap'),
+                  onTap: () => showArtworkPickerDialog(
+                    context,
+                    track: track,
+                    services: services,
+                    resolver: resolver,
+                  ),
+                  child: art,
+                ),
+              );
+            },
           ),
         );
       },
