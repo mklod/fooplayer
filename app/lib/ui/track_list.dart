@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_picker.dart';
+import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
 import '../model/playlist_store.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
+import 'now_playing_bar.dart' show AlbumArt;
 import 'playlist_dialogs.dart';
 
 String _fmtDate(DateTime d) =>
@@ -56,6 +58,13 @@ const int _kTitleFlex = 3;
 const int _kArtistFlex = 2;
 const int _kTitleArtistFlex = _kTitleFlex + _kArtistFlex;
 const int _kAlbumFlex = 2;
+
+// Playlist-view "Song" cell: a small square thumbnail (scaled down from the
+// now-playing bar's compact 44px [AlbumArt] -- see now_playing_bar.dart's
+// kNowPlayingArtSize/_CompactBar) to the left of the title/artist block, at
+// the row's own 13px text scale rather than the bar's larger LCD cluster.
+const double _kPlaylistArtSize = 36;
+const double _kPlaylistArtSpacing = 8;
 
 /// Builds the absolute Windows path (backslash-separated) `explorer.exe`
 /// needs from [track]'s root + relative path -- [Track.relPath] is always
@@ -123,6 +132,15 @@ class TrackListView extends StatefulWidget {
   /// wiring change that turns the whole feature on.
   final ArtworkServices? artwork;
 
+  /// Artwork resolution chain (Plan 4), reused for the playlist view's
+  /// per-row thumbnail ([AlbumArt] via [_SongCell]) -- the same instance
+  /// [HomeScreen] hands to [NowPlayingBar]. Null keeps every row's thumbnail
+  /// on [AlbumArt]'s embedded-only placeholder path, which is what widget
+  /// tests that build the list without the artwork feature wired rely on.
+  /// The library (non-playlist) view never shows a thumbnail, so this is
+  /// only consulted in playlist mode.
+  final ArtworkResolver? artworkResolver;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -131,6 +149,7 @@ class TrackListView extends StatefulWidget {
     this.launchExplorer = _launchInExplorer,
     this.playlistStore,
     this.artwork,
+    this.artworkResolver,
   });
 
   @override
@@ -201,9 +220,16 @@ class _TrackListViewState extends State<TrackListView> {
                 library.folderSelectionIsSingleAlbum;
             return Column(
               children: [
+                if (isPlaylist)
+                  _PlaylistBanner(
+                    name: library.activePlaylist!,
+                    tracks: tracks,
+                    resolver: widget.artworkResolver,
+                  ),
                 _TrackListHeader(
                   library: library,
                   showTrackNumber: showTrackNumber,
+                  playlistMode: isPlaylist,
                 ),
                 Expanded(
                   child: ListView.builder(
@@ -212,8 +238,9 @@ class _TrackListViewState extends State<TrackListView> {
                       final t = tracks[i];
                       final isCurrent =
                           player.current?.contentId == t.contentId;
-                      final isSelected =
-                          library.selectedTrackIds.contains(t.contentId);
+                      final isSelected = library.selectedTrackIds.contains(
+                        t.contentId,
+                      );
                       return _TrackRow(
                         track: t,
                         isCurrent: isCurrent,
@@ -239,7 +266,9 @@ class _TrackListViewState extends State<TrackListView> {
                         library: library,
                         playlistStore: store,
                         artwork: widget.artwork,
+                        artworkResolver: widget.artworkResolver,
                         showTrackNumber: showTrackNumber,
+                        playlistMode: isPlaylist,
                         // Playlist order is curator-defined, not tag-derived, so
                         // '#' shows where the track sits in that order (1-based)
                         // rather than its (possibly nonexistent, possibly
@@ -262,17 +291,111 @@ class _TrackListViewState extends State<TrackListView> {
   }
 }
 
-/// The clickable Title / Artist / Album / Time / Date header row. Clicking a
-/// label sorts [LibraryModel.visibleTracks] by that column (toggling
-/// direction on a repeat click of the already-active column -- see
+/// The track-list header row.
+///
+/// Library (non-playlist) view: clickable Title / Artist / Album / Time /
+/// Date. Clicking a label sorts [LibraryModel.visibleTracks] by that column
+/// (toggling direction on a repeat click of the already-active column -- see
 /// [LibraryModel.setSort]); the active column's label carries a ▲/▼ arrow in
 /// [AppColors.accent] showing the current direction.
+///
+/// Playlist view ([playlistMode]): the distinct iTunes-style four-column
+/// layout -- #, Song, Album, Time, no Date. Playlist order is curator-defined
+/// ([LibraryModel.visibleTracks] preserves it and ignores [LibraryModel.sortColumn]
+/// entirely for an active playlist -- see its doc), so these labels are
+/// deliberately NOT sort controls: plain static text in the same header
+/// typography, no arrows, no hover affordance (see [_PlainHeaderLabel]).
+/// The playlist view's banner: the first track's cover shown large, the
+/// playlist name, and a "N tracks · MM min" summary -- the header half of
+/// the iTunes-style playlist layout whose four columns follow beneath it.
+///
+/// A playlist has no cover of its own, so the first track's album art
+/// stands in (resolved through the same chain and cache every other
+/// artwork surface uses; no extra lookups).
+class _PlaylistBanner extends StatelessWidget {
+  final String name;
+  final List<Track> tracks;
+  final ArtworkResolver? resolver;
+
+  const _PlaylistBanner({
+    required this.name,
+    required this.tracks,
+    this.resolver,
+  });
+
+  /// "7 tracks · 56 min", omitting the duration half while tracks are still
+  /// missing one (a partially-enriched library would otherwise show a total
+  /// that silently grows as tags load).
+  String get _summary {
+    final count = tracks.length;
+    final label = count == 1 ? '1 track' : '$count tracks';
+    if (tracks.isEmpty || tracks.any((t) => t.durationMs == null)) {
+      return label;
+    }
+    final totalMs = tracks.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
+    final minutes = (totalMs / 60000).round();
+    if (minutes < 60) return '$label · $minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return '$label · ${hours}h ${rem}min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final first = tracks.isEmpty ? null : tracks.first;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (first != null)
+            AlbumArt(
+              key: const Key('playlist-banner-art'),
+              contentId: first.contentId,
+              file: File(p.join(first.rootPath, first.relPath)),
+              size: 96,
+              resolver: resolver,
+              track: first,
+            ),
+          if (first != null) const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  key: const Key('playlist-banner-title'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _summary,
+                  key: const Key('playlist-banner-summary'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
   final bool showTrackNumber;
+  final bool playlistMode;
   const _TrackListHeader({
     required this.library,
     required this.showTrackNumber,
+    required this.playlistMode,
   });
 
   @override
@@ -283,69 +406,122 @@ class _TrackListHeader extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(
-          children: [
-            if (showTrackNumber)
-              SizedBox(
-                width: _kTrackNumberColumnWidth,
+        child: playlistMode ? _buildPlaylistRow() : _buildLibraryRow(),
+      ),
+    );
+  }
+
+  Widget _buildLibraryRow() {
+    return Row(
+      children: [
+        if (showTrackNumber)
+          SizedBox(
+            width: _kTrackNumberColumnWidth,
+            child: _HeaderCell(
+              label: '#',
+              column: SortColumn.trackNumber,
+              library: library,
+            ),
+          ),
+        Expanded(
+          flex: _kTitleArtistFlex,
+          child: Row(
+            children: [
+              Expanded(
+                flex: _kTitleFlex,
                 child: _HeaderCell(
-                  label: '#',
-                  column: SortColumn.trackNumber,
+                  label: 'Title',
+                  column: SortColumn.title,
                   library: library,
                 ),
               ),
-            Expanded(
-              flex: _kTitleArtistFlex,
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: _kTitleFlex,
-                    child: _HeaderCell(
-                      label: 'Title',
-                      column: SortColumn.title,
-                      library: library,
-                    ),
-                  ),
-                  Expanded(
-                    flex: _kArtistFlex,
-                    child: _HeaderCell(
-                      label: 'Artist',
-                      column: SortColumn.artist,
-                      library: library,
-                    ),
-                  ),
-                ],
+              Expanded(
+                flex: _kArtistFlex,
+                child: _HeaderCell(
+                  label: 'Artist',
+                  column: SortColumn.artist,
+                  library: library,
+                ),
               ),
-            ),
-            Expanded(
-              flex: _kAlbumFlex,
-              child: _HeaderCell(
-                label: 'Album',
-                column: SortColumn.album,
-                library: library,
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              width: _kDurationColumnWidth,
-              child: _HeaderCell(
-                label: 'Time',
-                column: SortColumn.duration,
-                library: library,
-                alignEnd: true,
-              ),
-            ),
-            const SizedBox(width: 32),
-            SizedBox(
-              width: _kDateColumnWidth,
-              child: _HeaderCell(
-                label: 'Date',
-                column: SortColumn.dateAdded,
-                library: library,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
+        Expanded(
+          flex: _kAlbumFlex,
+          child: _HeaderCell(
+            label: 'Album',
+            column: SortColumn.album,
+            library: library,
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: _kDurationColumnWidth,
+          child: _HeaderCell(
+            label: 'Time',
+            column: SortColumn.duration,
+            library: library,
+            alignEnd: true,
+          ),
+        ),
+        const SizedBox(width: 32),
+        SizedBox(
+          width: _kDateColumnWidth,
+          child: _HeaderCell(
+            label: 'Date',
+            column: SortColumn.dateAdded,
+            library: library,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPlaylistRow() {
+    return const Row(
+      children: [
+        SizedBox(
+          width: _kTrackNumberColumnWidth,
+          child: _PlainHeaderLabel(label: '#'),
+        ),
+        Expanded(
+          flex: _kTitleArtistFlex,
+          child: _PlainHeaderLabel(label: 'Song'),
+        ),
+        Expanded(
+          flex: _kAlbumFlex,
+          child: _PlainHeaderLabel(label: 'Album'),
+        ),
+        SizedBox(width: 8),
+        SizedBox(
+          width: _kDurationColumnWidth,
+          child: _PlainHeaderLabel(label: 'Time', alignEnd: true),
+        ),
+      ],
+    );
+  }
+}
+
+/// A non-interactive header label: same typography as an inactive
+/// [_HeaderCell] (quiet [AppColors.inkSecondary] labelLarge, uppercased) but
+/// with no [InkWell]/hover treatment and no sort arrow -- used for the
+/// playlist view's header, whose column order is curator-defined and
+/// therefore not a sort control (see [_TrackListHeader]'s doc).
+class _PlainHeaderLabel extends StatelessWidget {
+  final String label;
+  final bool alignEnd;
+  const _PlainHeaderLabel({required this.label, this.alignEnd = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+      child: Text(
+        label.toUpperCase(),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+        style: Theme.of(context).textTheme.labelLarge,
       ),
     );
   }
@@ -454,6 +630,17 @@ class _TrackRow extends StatelessWidget {
   // mode, which this widget doesn't otherwise know) -- null whenever
   // [showTrackNumber] is false.
   final String? trackNumberText;
+  // Selects the distinct iTunes-style four-column layout (#, Song with
+  // thumbnail + title/artist, Album, Time -- see [_playlistCells]) instead
+  // of the library view's five flat columns ([_libraryCells]). Only the cell
+  // layout differs; the selection/InkWell/context-menu shell below is
+  // shared, per TrackListView.artworkResolver's doc.
+  final bool playlistMode;
+  // The Song cell's thumbnail source, forwarded to [AlbumArt]. Null in
+  // library mode (never consulted -- no thumbnail there) and whenever
+  // [TrackListView.artworkResolver] wasn't wired, in which case [AlbumArt]
+  // falls back to its own embedded-only placeholder path.
+  final ArtworkResolver? artworkResolver;
   const _TrackRow({
     required this.track,
     required this.isCurrent,
@@ -466,6 +653,8 @@ class _TrackRow extends StatelessWidget {
     required this.artwork,
     required this.showTrackNumber,
     this.trackNumberText,
+    this.playlistMode = false,
+    this.artworkResolver,
   });
 
   @override
@@ -504,81 +693,192 @@ class _TrackRow extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Row(
-              children: [
-                if (showTrackNumber)
-                  SizedBox(
-                    width: _kTrackNumberColumnWidth,
-                    child: Text(
-                      trackNumberText ?? '',
-                      textAlign: TextAlign.left,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: _kRowTextStyle,
-                    ),
-                  ),
-                Expanded(
-                  flex: _kTitleArtistFlex,
-                  child: Row(
-                    children: [
-                      Expanded(
-                        flex: _kTitleFlex,
-                        child: Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isCurrent ? AppColors.accent : AppColors.ink,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        flex: _kArtistFlex,
-                        child: Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _kRowTextStyle,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  flex: _kAlbumFlex,
-                  child: Text(
-                    track.album,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _kRowTextStyle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: _kDurationColumnWidth,
-                  child: Text(
-                    _fmtDuration(track.durationMs),
-                    textAlign: TextAlign.right,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _kRowTextStyle,
-                  ),
-                ),
-                const SizedBox(width: 32),
-                SizedBox(
-                  width: _kDateColumnWidth,
-                  child: Text(
-                    _fmtDate(track.dateAdded),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _kRowTextStyle,
-                  ),
-                ),
-              ],
+              children: playlistMode
+                  ? _playlistCells(context)
+                  : _libraryCells(context),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  /// The library view's five flat columns, unchanged from before the
+  /// playlist-view layout existed.
+  List<Widget> _libraryCells(BuildContext context) => [
+    if (showTrackNumber)
+      SizedBox(
+        width: _kTrackNumberColumnWidth,
+        child: Text(
+          trackNumberText ?? '',
+          textAlign: TextAlign.left,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _kRowTextStyle,
+        ),
+      ),
+    Expanded(
+      flex: _kTitleArtistFlex,
+      child: Row(
+        children: [
+          Expanded(
+            flex: _kTitleFlex,
+            child: Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 13,
+                color: isCurrent ? AppColors.accent : AppColors.ink,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: _kArtistFlex,
+            child: Text(
+              track.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: _kRowTextStyle,
+            ),
+          ),
+        ],
+      ),
+    ),
+    Expanded(
+      flex: _kAlbumFlex,
+      child: Text(
+        track.album,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+    const SizedBox(width: 8),
+    SizedBox(
+      width: _kDurationColumnWidth,
+      child: Text(
+        _fmtDuration(track.durationMs),
+        textAlign: TextAlign.right,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+    const SizedBox(width: 32),
+    SizedBox(
+      width: _kDateColumnWidth,
+      child: Text(
+        _fmtDate(track.dateAdded),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+  ];
+
+  /// The playlist view's distinct four-column layout: #, Song (thumbnail +
+  /// title/artist), Album, Time -- no Date (playlist order carries no
+  /// "date added to library" meaning worth a column). [trackNumberText] is
+  /// always the 1-based playlist position here (see [TrackListView.build]'s
+  /// doc), never the tag track number.
+  List<Widget> _playlistCells(BuildContext context) => [
+    SizedBox(
+      width: _kTrackNumberColumnWidth,
+      child: Text(
+        trackNumberText ?? '',
+        textAlign: TextAlign.left,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+    Expanded(
+      flex: _kTitleArtistFlex,
+      child: _SongCell(
+        track: track,
+        isCurrent: isCurrent,
+        resolver: artworkResolver,
+      ),
+    ),
+    Expanded(
+      flex: _kAlbumFlex,
+      child: Text(
+        track.album,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+    const SizedBox(width: 8),
+    SizedBox(
+      width: _kDurationColumnWidth,
+      child: Text(
+        _fmtDuration(track.durationMs),
+        textAlign: TextAlign.right,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    ),
+  ];
+}
+
+/// The playlist view's "Song" cell: a small square [AlbumArt] thumbnail on
+/// the left (same rounded-corner + shadow treatment the now-playing bar's
+/// cover uses, scaled down to [_kPlaylistArtSize]), then a two-line block --
+/// title on top, artist as smaller secondary subtext beneath. [resolver]
+/// null falls back to [AlbumArt]'s own embedded-only placeholder path (see
+/// [TrackListView.artworkResolver]'s doc), so this never requires a resolver
+/// to render.
+class _SongCell extends StatelessWidget {
+  final Track track;
+  final bool isCurrent;
+  final ArtworkResolver? resolver;
+  const _SongCell({
+    required this.track,
+    required this.isCurrent,
+    required this.resolver,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        AlbumArt(
+          contentId: track.contentId,
+          file: File(p.join(track.rootPath, track.relPath)),
+          size: _kPlaylistArtSize,
+          resolver: resolver,
+          track: track,
+        ),
+        const SizedBox(width: _kPlaylistArtSpacing),
+        Expanded(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isCurrent ? AppColors.accent : AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -639,8 +939,9 @@ Future<void> _showTrackContextMenu({
     library.selectTrack(track.contentId);
   }
   final selectedIds = library.selectedTrackIds;
-  final selectedTracks =
-      library.visibleTracks.where((t) => selectedIds.contains(t.contentId)).toList();
+  final selectedTracks = library.visibleTracks
+      .where((t) => selectedIds.contains(t.contentId))
+      .toList();
   // Defensive fallback: the right-clicked track should always end up in
   // selectedTracks (either it was already selected, or the line above just
   // selected it), but if selection and the visible list ever disagree,
@@ -653,6 +954,9 @@ Future<void> _showTrackContextMenu({
   final activePlaylist = library.activePlaylist;
   final selection = await showMenu<_TrackMenuAction>(
     context: context,
+    // Right-click menus open instantly -- the default scale/fade makes a
+    // menu that should feel like part of the click feel laggy.
+    popUpAnimationStyle: AnimationStyle.noAnimation,
     position: RelativeRect.fromRect(
       globalPosition & const Size(1, 1),
       Offset.zero & overlayBox.size,
@@ -675,7 +979,8 @@ Future<void> _showTrackContextMenu({
         PopupMenuItem(
           value: _TrackMenuAction.albumArtwork,
           child: Text(
-              multi ? 'Album artwork... (this track)' : 'Album artwork...'),
+            multi ? 'Album artwork... (this track)' : 'Album artwork...',
+          ),
         ),
     ],
   );
@@ -695,13 +1000,15 @@ Future<void> _showTrackContextMenu({
     case _TrackMenuAction.removeFromPlaylist:
       if (activePlaylist == null) return; // unreachable; item not shown
       try {
-        final removed = await playlistStore.removeTracks(
-            activePlaylist, [for (final t in tracks) t.contentId]);
+        final removed = await playlistStore.removeTracks(activePlaylist, [
+          for (final t in tracks) t.contentId,
+        ]);
         showPlaylistInfo(
-            messenger,
-            removed == 1
-                ? 'Removed 1 track from the playlist'
-                : 'Removed $removed tracks from the playlist');
+          messenger,
+          removed == 1
+              ? 'Removed 1 track from the playlist'
+              : 'Removed $removed tracks from the playlist',
+        );
       } on PlaylistStoreException catch (e) {
         showPlaylistError(messenger, e);
       }
@@ -734,6 +1041,7 @@ Future<void> _showAddToPlaylistMenu({
   final playlists = library.playlists;
   final choice = await showMenu<int>(
     context: context,
+    popUpAnimationStyle: AnimationStyle.noAnimation,
     position: RelativeRect.fromRect(
       globalPosition & const Size(1, 1),
       Offset.zero & overlayBox.size,
@@ -767,10 +1075,11 @@ Future<void> _showAddToPlaylistMenu({
       added = await playlistStore.addTracks(name, ids);
     }
     showPlaylistInfo(
-        messenger,
-        added == 1
-            ? 'Added 1 track to "$playlistName"'
-            : 'Added $added tracks to "$playlistName"');
+      messenger,
+      added == 1
+          ? 'Added 1 track to "$playlistName"'
+          : 'Added $added tracks to "$playlistName"',
+    );
   } on PlaylistStoreException catch (e) {
     showPlaylistError(messenger, e);
   }

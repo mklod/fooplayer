@@ -79,6 +79,7 @@ enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
 class LibraryModel extends ChangeNotifier {
   List<Track> allTracks = [];
   List<ManifestPlaylist> playlists = [];
+
   /// Configured roots that have no `.library.json` yet, as of the last
   /// [load] -- skipped (not fatal) so the rest of the library still loads.
   /// The settings dialog surfaces these with a "seed with foolib" note.
@@ -162,6 +163,27 @@ class LibraryModel extends ChangeNotifier {
   bool get busy => _busy;
   bool _busy = false;
 
+  /// True while a phase that actually reads or writes a root's
+  /// `.library.json` is in flight: [load]'s manifest merge, [rescan]'s
+  /// per-root scan/stamp/save, or an external [PlaylistStore] mutation.
+  ///
+  /// Deliberately NARROWER than [busy]. Playlist mutations used to gate on
+  /// [_busy], which stays set for the whole of [load] -- including Part B's
+  /// background tag enrichment, minutes of work on a large SMB-mounted
+  /// library. The result was that "add to playlist" was refused for
+  /// essentially the entire session on a real library (5k+ tracks), and
+  /// since the refusal only surfaced after PlaylistStore's retry deadline,
+  /// it read to the user as a silent failure. Enrichment writes only the
+  /// AppData meta cache, never a manifest, so it has no business blocking
+  /// manifest writes.
+  bool _manifestIo = false;
+
+  /// Bumped by every completed external manifest write ([endManifestWrite]).
+  /// [load] samples it around its merge so a playlist write that lands
+  /// mid-load can't be overwritten in the UI by the pre-write playlists this
+  /// load already read.
+  int _manifestWriteEpoch = 0;
+
   /// Set by [load] when a new load request arrives while [_busy] already
   /// holds (see [load]'s re-entrancy doc); re-issued by [_runPendingLoad]
   /// once the in-flight [load]/[rescan] releases [_busy]. Only ever holds
@@ -217,12 +239,12 @@ class LibraryModel extends ChangeNotifier {
   }) async {
     if (_busy) {
       _pendingLoad = () => load(
-            libraryRoots: libraryRoots,
-            cacheFile: cacheFile,
-            onProgress: onProgress,
-            batchTimeout: batchTimeout,
-            fileTimeout: fileTimeout,
-          );
+        libraryRoots: libraryRoots,
+        cacheFile: cacheFile,
+        onProgress: onProgress,
+        batchTimeout: batchTimeout,
+        fileTimeout: fileTimeout,
+      );
       return;
     }
     _libraryRoots = libraryRoots;
@@ -277,42 +299,61 @@ class LibraryModel extends ChangeNotifier {
       final missingManifest = <String>[];
       final failedRoots = <String>[];
 
-      for (final root in libraryRoots) {
-        final manifest = File(p.join(root.path, '.library.json'));
-        if (!manifest.existsSync()) {
-          missingManifest.add(root.path);
-          continue;
+      // Held across the merge below (manifest reads) and released before
+      // Part B's enrichment, which touches only the meta cache. A playlist
+      // write that refuses to come free in time doesn't block the load:
+      // saveManifest is an atomic tmp-then-rename, so the worst case is
+      // reading the pre-write copy -- which the epoch check below repairs.
+      final epoch = _manifestWriteEpoch;
+      final tookPhase = await _beginManifestPhase(const Duration(seconds: 5));
+      try {
+        for (final root in libraryRoots) {
+          final manifest = File(p.join(root.path, '.library.json'));
+          if (!manifest.existsSync()) {
+            missingManifest.add(root.path);
+            continue;
+          }
+          final ManifestData data;
+          try {
+            data = loadManifestFile(manifest, rootPath: root.path);
+          } catch (e) {
+            // A single root's corrupt/unreadable .library.json (invalid JSON,
+            // wrong shape, an unsupported schema version, ...) must not take
+            // the rest of a multi-root library down with it -- record it
+            // (surfaced via [rootsFailed]) and move on to the remaining
+            // roots, exactly like the no-manifest-yet case above.
+            failedRoots.add(root.path);
+            continue;
+          }
+          for (final t in data.tracks) {
+            mergedTracks.putIfAbsent(t.contentId, () => t);
+          }
+          for (var i = 0; i < data.playlists.length; i++) {
+            final pl = data.playlists[i];
+            mergedPlaylists.add(
+              ManifestPlaylist(
+                name: _uniquePlaylistName(pl.name, usedPlaylistNames),
+                trackIds: pl.trackIds,
+                rootPath: root.path,
+                sourceName: pl.name,
+                sourceIndex: i,
+              ),
+            );
+          }
         }
-        final ManifestData data;
-        try {
-          data = loadManifestFile(manifest, rootPath: root.path);
-        } catch (e) {
-          // A single root's corrupt/unreadable .library.json (invalid JSON,
-          // wrong shape, an unsupported schema version, ...) must not take
-          // the rest of a multi-root library down with it -- record it
-          // (surfaced via [rootsFailed]) and move on to the remaining
-          // roots, exactly like the no-manifest-yet case above.
-          failedRoots.add(root.path);
-          continue;
-        }
-        for (final t in data.tracks) {
-          mergedTracks.putIfAbsent(t.contentId, () => t);
-        }
-        for (var i = 0; i < data.playlists.length; i++) {
-          final pl = data.playlists[i];
-          mergedPlaylists.add(ManifestPlaylist(
-            name: _uniquePlaylistName(pl.name, usedPlaylistNames),
-            trackIds: pl.trackIds,
-            rootPath: root.path,
-            sourceName: pl.name,
-            sourceIndex: i,
-          ));
-        }
+      } finally {
+        if (tookPhase) _endManifestPhase();
       }
 
       rootsMissingManifest = missingManifest;
       rootsFailed = failedRoots;
       playlists = mergedPlaylists;
+      if (_manifestWriteEpoch != epoch) {
+        // A playlist write landed while this load was merging, so
+        // `mergedPlaylists` predates it -- re-read just the playlists rather
+        // than leaving the UI showing the pre-write state.
+        reloadPlaylists();
+      }
 
       if (mergedTracks.isEmpty) {
         allTracks = [];
@@ -396,13 +437,12 @@ class LibraryModel extends ChangeNotifier {
                 tracks[i].contentId,
                 p.join(tracks[i].rootPath, tracks[i].relPath),
                 tracks[i].relPath,
-              )
+              ),
           ];
 
           Map<String, TrackTags> results;
           try {
-            results =
-                await _readBatchIsolate(records, timeout: batchTimeout);
+            results = await _readBatchIsolate(records, timeout: batchTimeout);
           } on TimeoutException {
             // The whole-batch read didn't finish in time, which means at
             // least one file in it is pathologically slow (see
@@ -473,14 +513,26 @@ class LibraryModel extends ChangeNotifier {
   /// they're visible right away), then upgraded via the same batched,
   /// timeout-guarded tag-reading machinery [load]'s Part B uses (see
   /// [_enrichNewTracks]).
-  Future<void> rescan({Duration rootTimeout = _defaultRescanRootTimeout}) async {
+  Future<void> rescan({
+    Duration rootTimeout = _defaultRescanRootTimeout,
+  }) async {
     if (_busy) return;
     final roots = _libraryRoots;
     final cacheFile = _cacheFile;
     if (roots.isEmpty || cacheFile == null) return;
 
     _busy = true;
+    var holdsManifestPhase = false;
     try {
+      // The per-root isolates below do a read-modify-write of each
+      // `.library.json`, so they must not interleave with a PlaylistStore
+      // mutation. Rescan is the one caller that can afford to give up: it
+      // runs again on its 5-minute timer (and on the Refresh button).
+      if (!await _beginManifestPhase(const Duration(seconds: 3))) {
+        status = 'rescan skipped (a playlist write was in progress)';
+        return;
+      }
+      holdsManifestPhase = true;
       final knownIds = {for (final t in allTracks) t.contentId};
       var tracks = List<Track>.of(allTracks);
       final newIndices = <int>[];
@@ -507,8 +559,11 @@ class LibraryModel extends ChangeNotifier {
           // manifest save made under tryBeginManifestWrite. Killing the
           // isolate at the deadline guarantees a timed-out root performs no
           // late manifest write.
-          newRecords = await runIsolateWithTimeout<List<(String, String, String)>,
-              String>(_rescanRootIsolateEntry, root.path, timeout: rootTimeout);
+          newRecords =
+              await runIsolateWithTimeout<
+                List<(String, String, String)>,
+                String
+              >(_rescanRootIsolateEntry, root.path, timeout: rootTimeout);
         } on TimeoutException {
           status = 'rescan of $rootName timed out';
           notifyListeners();
@@ -528,23 +583,30 @@ class LibraryModel extends ChangeNotifier {
           // wins, same dedupe policy as load()'s merge.
           if (!knownIds.add(contentId)) continue;
           final fallback = parseFromFilename(relPath);
-          tracks.add(Track(
-            contentId: contentId,
-            relPath: relPath,
-            rootPath: root.path,
-            dateAdded: DateTime.parse(dateAddedIso).toUtc(),
-            title: fallback.title ?? p.basenameWithoutExtension(relPath),
-            artist: fallback.artist ?? '',
-            album: fallback.album ?? '',
-            genre: fallback.genre ?? '',
-            trackNumber: fallback.trackNumber,
-          ));
+          tracks.add(
+            Track(
+              contentId: contentId,
+              relPath: relPath,
+              rootPath: root.path,
+              dateAdded: DateTime.parse(dateAddedIso).toUtc(),
+              title: fallback.title ?? p.basenameWithoutExtension(relPath),
+              artist: fallback.artist ?? '',
+              album: fallback.album ?? '',
+              genre: fallback.genre ?? '',
+              trackNumber: fallback.trackNumber,
+            ),
+          );
           newIndices.add(tracks.length - 1);
           totalNew++;
         }
         allTracks = List<Track>.of(tracks);
         notifyListeners();
       }
+
+      // Every manifest write this rescan makes is done; enrichment below
+      // only touches the meta cache, so playlist edits are free again.
+      _endManifestPhase();
+      holdsManifestPhase = false;
 
       if (newIndices.isNotEmpty) {
         tracks = await _enrichNewTracks(tracks, newIndices, cacheFile);
@@ -554,6 +616,11 @@ class LibraryModel extends ChangeNotifier {
       status = totalNew == 0 ? 'ready' : 'added $totalNew new tracks';
     } finally {
       _busy = false;
+      // Belt and braces: the happy path released this above, but a throw
+      // in between must not leave the flag stuck -- that would refuse every
+      // later playlist write. Conditional because the give-up path never
+      // held it, and clearing it there would release the OTHER writer's.
+      if (holdsManifestPhase) _endManifestPhase();
       notifyListeners();
       // A load() that arrived while this rescan held `_busy` is queued
       // (see [_pendingLoad]/[load]'s re-entrancy doc) rather than dropped
@@ -588,14 +655,20 @@ class LibraryModel extends ChangeNotifier {
             out[i].contentId,
             p.join(out[i].rootPath, out[i].relPath),
             out[i].relPath,
-          )
+          ),
       ];
 
       Map<String, TrackTags> results;
       try {
-        results = await _readBatchIsolate(records, timeout: _enrichBatchTimeout);
+        results = await _readBatchIsolate(
+          records,
+          timeout: _enrichBatchTimeout,
+        );
       } on TimeoutException {
-        results = await _readBatchResilient(records, timeout: _enrichFileTimeout);
+        results = await _readBatchResilient(
+          records,
+          timeout: _enrichFileTimeout,
+        );
       }
 
       for (final i in batch) {
@@ -666,8 +739,10 @@ class LibraryModel extends ChangeNotifier {
   /// path round-trips through selection unchanged.
   List<String> get folderNames {
     final paths = distinctValues(_searched, (t) => t.rootPath);
-    paths.sort((a, b) =>
-        p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase()));
+    paths.sort(
+      (a, b) =>
+          p.basename(a).toLowerCase().compareTo(p.basename(b).toLowerCase()),
+    );
     return paths;
   }
 
@@ -679,8 +754,11 @@ class LibraryModel extends ChangeNotifier {
   /// leaf folder yields an empty list and only filters the track list).
   List<String> get folderEntries {
     if (folderPath.isEmpty) return folderNames;
-    return subfolderNames(_searched,
-        rootPath: folderPath.first, prefix: folderPath.skip(1).join('/'));
+    return subfolderNames(
+      _searched,
+      rootPath: folderPath.first,
+      prefix: folderPath.skip(1).join('/'),
+    );
   }
 
   /// The Folder pane's pinned-header breadcrumb, one display segment per
@@ -703,9 +781,11 @@ class LibraryModel extends ChangeNotifier {
     if (folderSiblings.length > 1) {
       parts.add('${folderSiblings.length} selected');
     } else if (folderSiblings.length == 1) {
-      parts.add(folderPath.isEmpty
-          ? p.basename(folderSiblings.first)
-          : folderSiblings.first);
+      parts.add(
+        folderPath.isEmpty
+            ? p.basename(folderSiblings.first)
+            : folderSiblings.first,
+      );
     }
     return parts;
   }
@@ -724,17 +804,23 @@ class LibraryModel extends ChangeNotifier {
     final base = folderPath.skip(1).toList();
     if (folderSiblings.isEmpty) return [(root: root, sub: base.join('/'))];
     return [
-      for (final n in folderSiblings) (root: root, sub: [...base, n].join('/'))
+      for (final n in folderSiblings) (root: root, sub: [...base, n].join('/')),
     ];
   }
 
   List<String> get artists => distinctValues(
-      applyFilters(allTracks, folders: folderScopes, search: search),
-      (t) => t.artist);
+    applyFilters(allTracks, folders: folderScopes, search: search),
+    (t) => t.artist,
+  );
   List<String> get albums => distinctValues(
-      applyFilters(allTracks,
-          folders: folderScopes, artist: artistFilters, search: search),
-      (t) => t.album);
+    applyFilters(
+      allTracks,
+      folders: folderScopes,
+      artist: artistFilters,
+      search: search,
+    ),
+    (t) => t.album,
+  );
 
   /// Whether the current Folder-pane selection is a view of exactly one
   /// album: a single selected scope (one drilled folder, or exactly one
@@ -761,7 +847,8 @@ class LibraryModel extends ChangeNotifier {
     final scopes = folderScopes;
     if (scopes.length != 1) return false;
     return isSingleAlbum(
-        applyFilters(allTracks, folders: scopes, search: search));
+      applyFilters(allTracks, folders: scopes, search: search),
+    );
   }
 
   List<Track> get visibleTracks {
@@ -772,13 +859,18 @@ class LibraryModel extends ChangeNotifier {
       if (matches.isEmpty) return [];
       final pl = matches.first;
       final byId = {for (final t in allTracks) t.contentId: t};
-      return [for (final id in pl.trackIds) if (byId[id] != null) byId[id]!];
+      return [
+        for (final id in pl.trackIds)
+          if (byId[id] != null) byId[id]!,
+      ];
     }
-    final filtered = applyFilters(allTracks,
-        folders: folderScopes,
-        artist: artistFilters,
-        album: albumFilters,
-        search: search);
+    final filtered = applyFilters(
+      allTracks,
+      folders: folderScopes,
+      artist: artistFilters,
+      album: albumFilters,
+      search: search,
+    );
     return sortTracks(filtered, sortColumn, sortAscending);
   }
 
@@ -1150,7 +1242,8 @@ class LibraryModel extends ChangeNotifier {
   /// always writes new playlists (see its class doc) -- or null before the
   /// first [load]. Kept in [load]'s remembered-arguments group
   /// ([_libraryRoots]).
-  Directory? get firstRoot => _libraryRoots.isEmpty ? null : _libraryRoots.first;
+  Directory? get firstRoot =>
+      _libraryRoots.isEmpty ? null : _libraryRoots.first;
 
   /// Resolves a configured library root by its [Directory.path] -- what
   /// [PlaylistStore] uses to turn a merged [ManifestPlaylist.rootPath] back
@@ -1175,16 +1268,38 @@ class LibraryModel extends ChangeNotifier {
   /// to each other. MUST be paired with [endManifestWrite] (in a
   /// `finally`).
   bool tryBeginManifestWrite() {
-    if (_busy) return false;
-    _busy = true;
+    if (_manifestIo) return false;
+    _manifestIo = true;
     return true;
+  }
+
+  /// Takes [_manifestIo] for one of THIS model's own manifest-touching
+  /// phases, waiting up to [wait] for an in-flight external write (a
+  /// PlaylistStore mutation is a sub-second load-mutate-save, so the wait is
+  /// short by design). Returns false if it never came free -- the caller
+  /// decides whether to skip ([rescan], which runs again on its timer) or
+  /// proceed anyway ([load], which must not be skipped and whose reads are
+  /// safe against `saveManifest`'s atomic tmp-then-rename).
+  Future<bool> _beginManifestPhase(Duration wait) async {
+    final deadline = DateTime.now().add(wait);
+    while (_manifestIo) {
+      if (DateTime.now().isAfter(deadline)) return false;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    _manifestIo = true;
+    return true;
+  }
+
+  void _endManifestPhase() {
+    _manifestIo = false;
   }
 
   /// Releases the flag taken by [tryBeginManifestWrite], notifies (so a UI
   /// disabled on [busy] re-enables), and runs any [load] that queued up
   /// while the write held the flag.
   Future<void> endManifestWrite() async {
-    _busy = false;
+    _manifestIo = false;
+    _manifestWriteEpoch++;
     notifyListeners();
     await _runPendingLoad();
   }
@@ -1213,13 +1328,15 @@ class LibraryModel extends ChangeNotifier {
         continue; // corrupt manifest: skipped, same as load()
       }
       for (var i = 0; i < loaded.length; i++) {
-        merged.add(ManifestPlaylist(
-          name: _uniquePlaylistName(loaded[i].name, used),
-          trackIds: loaded[i].trackIds,
-          rootPath: root.path,
-          sourceName: loaded[i].name,
-          sourceIndex: i,
-        ));
+        merged.add(
+          ManifestPlaylist(
+            name: _uniquePlaylistName(loaded[i].name, used),
+            trackIds: loaded[i].trackIds,
+            rootPath: root.path,
+            sourceName: loaded[i].name,
+            sourceIndex: i,
+          ),
+        );
       }
     }
     playlists = merged;
@@ -1412,16 +1529,15 @@ Future<Map<String, TrackTags>> _readBatchIsolate(
   List<(String, String, String)> records, {
   required Duration timeout,
 }) {
-  return runIsolateWithTimeout<Map<String, TrackTags>,
-      List<(String, String, String)>>(
-    _readBatchIsolateEntry,
-    records,
-    timeout: timeout,
-  );
+  return runIsolateWithTimeout<
+    Map<String, TrackTags>,
+    List<(String, String, String)>
+  >(_readBatchIsolateEntry, records, timeout: timeout);
 }
 
 void _readBatchIsolateEntry(
-    (List<(String, String, String)>, SendPort) args) async {
+  (List<(String, String, String)>, SendPort) args,
+) async {
   final (records, resultPort) = args;
   Map<String, TrackTags> result;
   try {
