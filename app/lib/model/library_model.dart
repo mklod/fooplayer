@@ -404,6 +404,7 @@ class LibraryModel extends ChangeNotifier {
           genre: tags.genre,
           durationMs: tags.durationMs,
           trackNumber: tags.trackNumber,
+          hasEmbeddedArt: tags.hasEmbeddedArt,
         );
         // A cache hit still worth a one-time re-read for a duration (see
         // `meta_cache.dart`'s `needsDurationProbe`) -- the already-good
@@ -547,6 +548,7 @@ class LibraryModel extends ChangeNotifier {
               genre: tags.genre,
               durationMs: tags.durationMs,
               trackNumber: tags.trackNumber,
+              hasEmbeddedArt: tags.hasEmbeddedArt,
             );
           }
           done += batch.length;
@@ -771,6 +773,7 @@ class LibraryModel extends ChangeNotifier {
           genre: tags.genre,
           durationMs: tags.durationMs,
           trackNumber: tags.trackNumber,
+          hasEmbeddedArt: tags.hasEmbeddedArt,
         );
       }
       allTracks = List<Track>.of(out);

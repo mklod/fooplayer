@@ -217,3 +217,85 @@ Future<Map<String, String>> readId3TextFramesFromFile(File f) async {
     } catch (_) {}
   }
 }
+
+/// True when [bytes] carries an embedded picture: an ID3 APIC/PIC frame, or a
+/// FLAC PICTURE metadata block. Header-only -- it never decodes the image.
+bool bytesCarryEmbeddedArt(Uint8List bytes) {
+  if (bytes.length > 4 &&
+      bytes[0] == 0x66 &&
+      bytes[1] == 0x4C &&
+      bytes[2] == 0x61 &&
+      bytes[3] == 0x43) {
+    // FLAC: walk the metadata blocks looking for type 6 (PICTURE).
+    var o = 4;
+    var last = false;
+    while (o + 4 <= bytes.length && !last) {
+      last = (bytes[o] & 0x80) != 0;
+      if ((bytes[o] & 0x7f) == 6) return true;
+      o += 4 + ((bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]);
+    }
+    return false;
+  }
+  // ID3: scan the frame IDs rather than the whole tag, so a stray "APIC" in
+  // lyrics or a comment can't produce a false positive.
+  var tagStart = 0;
+  while (tagStart + 10 <= bytes.length &&
+      bytes[tagStart] == 0x49 &&
+      bytes[tagStart + 1] == 0x44 &&
+      bytes[tagStart + 2] == 0x33) {
+    final major = bytes[tagStart + 3];
+    final bodySize = _syncsafe(bytes, tagStart + 6);
+    if (bodySize <= 0) break;
+    final tagEnd = tagStart + 10 + bodySize;
+    final headerLen = major == 2 ? 6 : 10;
+    var o = tagStart + 10;
+    final limit = tagEnd < bytes.length ? tagEnd : bytes.length;
+    while (o + headerLen <= limit) {
+      if (bytes[o] == 0) break;
+      final idLen = major == 2 ? 3 : 4;
+      final id = latin1.decode(Uint8List.sublistView(bytes, o, o + idLen));
+      if (id == 'APIC' || id == 'PIC') return true;
+      final int size;
+      if (major == 2) {
+        size = (bytes[o + 3] << 16) | (bytes[o + 4] << 8) | bytes[o + 5];
+      } else if (major == 4) {
+        size = _syncsafe(bytes, o + 4);
+      } else {
+        size =
+            (bytes[o + 4] << 24) |
+            (bytes[o + 5] << 16) |
+            (bytes[o + 6] << 8) |
+            bytes[o + 7];
+      }
+      if (size <= 0 || o + headerLen + size > limit) break;
+      o += headerLen + size;
+    }
+    tagStart = tagEnd;
+  }
+  return false;
+}
+
+/// [bytesCarryEmbeddedArt] over a file, reading only the head. Never throws.
+Future<bool> fileCarriesEmbeddedArt(File f) async {
+  RandomAccessFile? handle;
+  try {
+    handle = await f.open();
+    final head = await handle.read(10);
+    if (head.length < 10) return false;
+    var want = 64 * 1024;
+    if (head[0] == 0x49 && head[1] == 0x44 && head[2] == 0x33) {
+      want = 10 + _syncsafe(head, 6) + 4096;
+    }
+    final len = await f.length();
+    if (want > len) want = len;
+    if (want > kMaxId3ReadBytes) want = kMaxId3ReadBytes;
+    await handle.setPosition(0);
+    return bytesCarryEmbeddedArt(await handle.read(want));
+  } catch (_) {
+    return false;
+  } finally {
+    try {
+      await handle?.close();
+    } catch (_) {}
+  }
+}

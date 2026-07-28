@@ -14,13 +14,16 @@ import 'tags.dart';
 /// compilation tracks cached as "Various Artists" -- and those cached values
 /// would otherwise survive the fix indefinitely.
 ///
+/// rev 4 (2026-07-28): entries now record whether the file carries embedded
+/// cover art, so the library view's artwork columns cost no per-row I/O.
+///
 /// rev 3 (2026-07-28): tags the upstream parser dropped are now recovered by
 /// our own ID3 reader (id3_text.dart) -- frames after a large picture,
 /// ID3v2.2's 3-character IDs, stacked tags. Whole albums (Tha Carter III,
 /// Dummy, Treats, Becoming X, Keystone State Of Mind) were cached with a
 /// null artist. Unlike rev 2, this bump costs nothing visible: stale entries
 /// are served while the refresh runs (see [MetaCache.staleIds]).
-const int kMetaCacheRevision = 3;
+const int kMetaCacheRevision = 4;
 
 class MetaCache {
   final Map<String, TrackTags> entries;

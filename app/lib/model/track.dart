@@ -23,6 +23,10 @@ class Track {
   // carried one, or before enrichment/instant-feed parsing has run yet.
   final int? trackNumber;
 
+  /// Whether the file itself carries a cover -- drives the library view's
+  /// "embedded" column. Filled from the tag cache, never probed per row.
+  final bool hasEmbeddedArt;
+
   const Track({
     required this.contentId,
     required this.relPath,
@@ -34,6 +38,7 @@ class Track {
     this.genre = '',
     this.durationMs,
     this.trackNumber,
+    this.hasEmbeddedArt = false,
   });
 
   Track copyWith({
@@ -43,6 +48,7 @@ class Track {
     String? genre,
     int? durationMs,
     int? trackNumber,
+    bool? hasEmbeddedArt,
   }) => Track(
     contentId: contentId,
     relPath: relPath,
@@ -54,5 +60,6 @@ class Track {
     genre: genre ?? this.genre,
     durationMs: durationMs ?? this.durationMs,
     trackNumber: trackNumber ?? this.trackNumber,
+    hasEmbeddedArt: hasEmbeddedArt ?? this.hasEmbeddedArt,
   );
 }
