@@ -20,6 +20,7 @@ import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/now_playing_bar.dart';
 import 'package:fooplayer_app/ui/home_screen.dart';
 import 'package:fooplayer_app/ui/layout_prefs.dart';
 import 'package:fooplayer_app/ui/phone/track_context_sheet.dart';
@@ -133,10 +134,7 @@ void main() {
       await pumpHomeScreen(
         tester,
         library: fixtureLibrary(),
-        artwork: fakeArtworkServices(
-          search: search,
-          store: FakeArtworkStore(),
-        ),
+        artwork: fakeArtworkServices(search: search, store: FakeArtworkStore()),
       );
       await tester.tap(
         find.text('Time Is Running Out'),
@@ -370,6 +368,58 @@ void main() {
       expect(store.appliedChoices.single.source, ArtworkSource.local);
       expect(store.appliedChoices.single.localPath, r'D:\covers\phone.jpg');
       expect(find.byKey(const Key('artwork-picker-page')), findsNothing);
+    });
+  });
+
+  group('desktop: the now-playing hero cover', () {
+    testWidgets('tapping the cover opens the picker for the playing track', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final search = FakeArtworkSearch([[]]);
+      final player = PlayerService();
+      player.queueController.setQueue(fixtureLibrary().allTracks, 0);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: NowPlayingBar(
+              player: player,
+              artwork: fakeArtworkServices(
+                search: search,
+                store: FakeArtworkStore(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('now-playing-art-tap')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('artwork-picker-dialog')), findsOneWidget);
+      expect(search.calls, 1, reason: 'the picker searched for THIS track');
+    });
+
+    testWidgets('with no artwork services the cover is inert', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1400, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final player = PlayerService();
+      player.queueController.setQueue(fixtureLibrary().allTracks, 0);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(body: NowPlayingBar(player: player)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('now-playing-art-tap')), findsNothing);
     });
   });
 }
