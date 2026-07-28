@@ -2,6 +2,14 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-27 — playlists that actually take, and the iTunes-style playlist view
+
+- **The silent "add to playlist" failure is fixed, and it wasn't what it looked like.** Every playlist mutation gated on the library's `busy` flag — which stays set for the *whole* of a load, including the background tag-reading pass. On the real 5443-track library over SMB that pass runs for most of a session, so the write was refused; and because the refusal only surfaced after a 5-second retry deadline, it looked like the click did nothing at all. Reproduced end to end in the running app (the toast, when you wait for it, says "The library is busy (scanning)"). The lock is now scoped to the phases that genuinely touch a `.library.json`, so tag reading no longer blocks anything. Verified live: tracks added mid-enrichment, confirmed on disk, removed again through the same menu.
+- **Playlist view got its header**: the first track's cover shown large, the playlist name, and a "N tracks · MM min" summary above the four columns — matching the reference layout. The duration half is omitted while any track still lacks a duration, so a partially-enriched library never shows a total that quietly grows.
+- **Four-column playlist layout**: #, Song (36px thumbnail + title with the artist beneath), Album, Time — playlist headers are plain labels, since curator order isn't something you sort away.
+- **Right-click menus open instantly** — the default scale/fade is gone from the row menu, its nested add-to-playlist menu, and the sidebar's playlist menu.
+- Regression test pinned to the real failure window (a write that lands *during* enrichment), proven to fail against the old gate. 682/682 tests, analyze clean, Windows release built.
+
 ## 2026-07-25 — Album artwork lookup (Plan 4, ultracode round)
 
 - **Every album can now get a cover.** Three keyless providers (iTunes Search, Deezer, Cover Art Archive via MusicBrainz — no API keys, no signup) are queried for albums that show no art, scored by a deterministic normalizer + similarity scorer, and the winner is applied automatically **only** when it scores ≥ 75 and beats the runner-up by ≥ 10. Anything ambiguous is left alone: a wrong cover silently applied is worse than none.
