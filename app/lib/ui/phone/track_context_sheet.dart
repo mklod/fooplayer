@@ -107,6 +107,9 @@ Future<void> showTrackContextSheet(
   required PlaylistStore store,
   ArtworkServices? artwork,
 }) async {
+  // Captured before the first sheet opens -- see showPlaylistError's doc
+  // (desktop's ui/track_list.dart uses the same discipline).
+  final messenger = ScaffoldMessenger.of(context);
   final subtitle = trackSubtitle(track);
   final action = await showModalBottomSheet<String>(
     context: context,
@@ -183,26 +186,29 @@ Future<void> showTrackContextSheet(
       ),
     ),
   );
-  if (choice == null || !context.mounted) return;
+  if (choice == null) return;
 
   String target;
   if (choice is _NewPlaylistChoice) {
+    // Genuinely needs a live context for the name dialog's Navigator.
+    if (!context.mounted) return;
     final name = await showPlaylistNameDialog(context, store: store);
-    if (name == null || !context.mounted) return;
+    if (name == null) return;
     try {
       await store.createPlaylist(name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
       return;
     }
     target = name;
   } else {
     target = choice as String;
   }
-  if (!context.mounted) return;
+  // No further context needed -- proceeds (and reports via [messenger])
+  // even if [context] became unmounted while a prior sheet/dialog was open.
   try {
     await store.addTrack(target, track.contentId);
   } on PlaylistStoreException catch (e) {
-    if (context.mounted) showPlaylistError(context, e);
+    showPlaylistError(messenger, e);
   }
 }

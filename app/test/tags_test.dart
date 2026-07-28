@@ -189,7 +189,144 @@ void main() {
     await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
     final t = await readTags(f);
     expect(t.durationMs, isNull);
+    // No container parser recognized this file at all (see _readRawTags's
+    // `raw == null` early return) -- the mp3_duration.dart fallback only
+    // ever runs once a parser has actually matched, so it's correctly never
+    // attempted here.
+    expect(t.durationProbed, isFalse);
     await tmp.delete(recursive: true);
+  });
+
+  group('isMp3Path', () {
+    test('matches .mp3 case-insensitively, not other extensions', () {
+      expect(isMp3Path('song.mp3'), isTrue);
+      expect(isMp3Path('Album/Song.MP3'), isTrue);
+      expect(isMp3Path('Album/Song.Mp3'), isTrue);
+      expect(isMp3Path('song.flac'), isFalse);
+      expect(isMp3Path('song.m4a'), isFalse);
+      expect(isMp3Path('song.mp3.bak'), isFalse);
+      expect(isMp3Path('song'), isFalse);
+    });
+  });
+
+  group('readTags: mp3 duration fallback wiring (mp3_duration.dart)', () {
+    // A deterministic, machine-independent way to make `audio_metadata_reader`
+    // itself yield a null duration (as opposed to relying on the exact
+    // real-world condition seen in the Eminem - Relapse fixture, which isn't
+    // reproducible from small synthetic bytes): its MP3Parser has no
+    // MPEG2.5 branch in either `_getBitrate` or `_getSamplePerFrame` (see
+    // audio_metadata_reader 1.6.0's `mp3.dart`), so for *any* MPEG2.5 file
+    // it can never compute a duration via either its Xing-header path (needs
+    // samplesPerFrame > 0) or its CBR-bytes-over-bitrate fallback (needs a
+    // non-null bitrate) -- both silently no-op. This estimator's own
+    // MPEG2.5 support (exercised directly in mp3_duration_test.dart) is what
+    // fills the gap.
+    List<int> id3v2Frames(Map<String, String> frames) {
+      final frameBytes = <int>[];
+      for (final e in frames.entries) {
+        final text = [0x00, ...e.value.codeUnits];
+        frameBytes.addAll(e.key.codeUnits);
+        final size = text.length;
+        frameBytes.addAll([
+          (size >> 24) & 0xFF,
+          (size >> 16) & 0xFF,
+          (size >> 8) & 0xFF,
+          size & 0xFF,
+        ]);
+        frameBytes.addAll([0x00, 0x00]);
+        frameBytes.addAll(text);
+      }
+      final total = frameBytes.length;
+      return [
+        ...'ID3'.codeUnits,
+        0x03, 0x00, 0x00,
+        (total >> 21) & 0x7F,
+        (total >> 14) & 0x7F,
+        (total >> 7) & 0x7F,
+        total & 0x7F,
+        ...frameBytes,
+      ];
+    }
+
+    /// MPEG2.5 Layer III, 24 kbps @ 11025 Hz CBR frames (frame length 313
+    /// bytes -- matches the value independently verified in
+    /// mp3_duration_test.dart's own MPEG2.5 case).
+    List<int> mpeg25Frames(int frameCount) {
+      const frameLen = 313;
+      final header = [0xFF, 0xE3, 0x30, 0x00]; // versionBits=0, layerBits=1(III), bitrateIndex=3, sampleRateIndex=0
+      final out = <int>[];
+      for (var i = 0; i < frameCount; i++) {
+        out.addAll(header);
+        out.addAll(List.filled(frameLen - header.length, 0x00));
+      }
+      return out;
+    }
+
+    test('a null-duration mp3 (per the tag parser) gets a duration from the '
+        'stream-header fallback, and is marked durationProbed', () async {
+      final tmp = await Directory.systemTemp.createTemp('mp3_fallback');
+      final f = File('${tmp.path}/Some Artist - Some Title.mp3');
+      await f.writeAsBytes([
+        ...id3v2Frames({'TIT2': 'Some Title', 'TPE1': 'Some Artist', 'TALB': 'Some Album'}),
+        ...mpeg25Frames(20), // 6260 bytes @ 24kbps -> 2086667us, see mp3_duration_test.dart
+      ]);
+
+      final t = await readTags(f);
+      expect(t.title, 'Some Title');
+      expect(t.artist, 'Some Artist');
+      expect(t.album, 'Some Album');
+      expect(t.durationMs, 2086); // 2086667us truncated to whole ms
+      expect(t.durationProbed, isTrue);
+      await tmp.delete(recursive: true);
+    });
+
+    test('a non-mp3 filename never reaches the fallback, even with the same '
+        'MPEG2.5 bytes the .mp3 case above uses', () async {
+      final tmp = await Directory.systemTemp.createTemp('mp3_fallback_ext');
+      // audio_metadata_reader's MP3Parser is chosen purely by ID3 tag
+      // presence, not extension -- so this still gets parsed as an mp3
+      // container, but readTags's own extension gate (see [isMp3Path]) must
+      // still refuse to run the fallback because the *file* isn't `.mp3`.
+      final f = File('${tmp.path}/Some Artist - Some Title.wav');
+      await f.writeAsBytes([
+        ...id3v2Frames({'TIT2': 'Some Title', 'TPE1': 'Some Artist'}),
+        ...mpeg25Frames(20),
+      ]);
+
+      final t = await readTags(f);
+      expect(t.title, 'Some Title');
+      expect(t.durationMs, isNull);
+      expect(t.durationProbed, isFalse);
+      await tmp.delete(recursive: true);
+    });
+
+    test('an mp3 whose tag parser DID find a duration is left alone -- no '
+        'fallback attempted, durationProbed stays false', () async {
+      final tmp = await Directory.systemTemp.createTemp('mp3_fallback_skip');
+      // Plain MPEG1 CBR audio with a trailing ID3v1 tag (no ID3v2 -- MP3Parser
+      // dispatches on hasID3v1Tag instead, then runs its own audio-frame
+      // scan): audio_metadata_reader's own CBR bytes-over-bitrate fallback
+      // (mp3.dart, `_parseAudioFrames`'s final `else if`) *does* compute a
+      // duration for this shape (no Xing header, a directly-tabulated
+      // MPEG1/LayerIII bitrate), so ours must not override it.
+      const frameLen = 417; // MPEG1 L3 128kbps/44100 -- see mp3_duration_test.dart
+      final header = [0xFF, 0xFB, 0x90, 0x00];
+      final f = File('${tmp.path}/track.mp3');
+      final bytes = <int>[];
+      for (var i = 0; i < 50; i++) {
+        bytes.addAll(header);
+        bytes.addAll(List.filled(frameLen - header.length, 0x00));
+      }
+      bytes.addAll([0x54, 0x41, 0x47, ...List.filled(125, 0x00)]); // ID3v1 "TAG" trailer
+      await f.writeAsBytes(bytes);
+
+      final t = await readTags(f);
+      expect(t.durationMs, isNotNull);
+      expect(t.durationProbed, isFalse,
+          reason: 'the tag parser already produced a duration; the '
+              'estimator must not have been invoked at all');
+      await tmp.delete(recursive: true);
+    });
   });
 
   group('TrackTags json round-trip', () {

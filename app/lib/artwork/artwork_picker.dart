@@ -204,24 +204,44 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
 
   @override
   Widget build(BuildContext context) {
-    final current =
-        widget.services.currentSelectionId(widget.track, widget.albumKey);
+    final current = widget.services.currentSelectionId(
+      widget.track,
+      widget.albumKey,
+    );
     return Column(
       key: const Key('artwork-picker'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-          child: Text(
-            widget.albumLabel,
-            key: const Key('artwork-picker-title'),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.ink,
-            ),
+          padding: const EdgeInsets.fromLTRB(4, 0, 0, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  widget.albumLabel,
+                  key: const Key('artwork-picker-title'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.ink,
+                  ),
+                ),
+              ),
+              // Explicit dismiss: the dialog is barrier-dismissible and
+              // Esc works, but neither is discoverable -- there was no
+              // visible way out of the picker.
+              IconButton(
+                key: const Key('artwork-picker-close'),
+                tooltip: 'Close',
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                icon: const Icon(Icons.close, color: AppColors.inkSecondary),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ],
           ),
         ),
         Expanded(child: _body(current)),

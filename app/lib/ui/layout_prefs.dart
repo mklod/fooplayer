@@ -22,6 +22,11 @@ const Duration kLayoutPrefsSaveDebounce = Duration(milliseconds: 500);
 class LayoutPrefs extends ChangeNotifier {
   double _sidebarWidth;
   double _filterHeight;
+
+  /// Whether the Folder/Artist/Album filter row is collapsed away, leaving
+  /// the track list the full height. Persisted like the sizes so the choice
+  /// survives a restart.
+  bool _filtersCollapsed;
   final void Function(Map<String, dynamic> ui)? _writer;
   final Duration _debounce;
   Timer? _saveTimer;
@@ -29,17 +34,23 @@ class LayoutPrefs extends ChangeNotifier {
   LayoutPrefs({
     double sidebarWidth = kSidebarWidthDefault,
     double filterHeight = kFilterHeightDefault,
+    bool filtersCollapsed = false,
     void Function(Map<String, dynamic> ui)? writer,
     Duration debounce = kLayoutPrefsSaveDebounce,
-  })  : _sidebarWidth = _clampSidebarWidth(sidebarWidth),
-        _filterHeight = _clampFilterHeight(filterHeight),
-        // Can't use `this._writer`/`this._debounce` initializing formals
-        // here: that would make the private field name itself the public
-        // named-parameter name, which callers in other files couldn't pass.
-        // ignore: prefer_initializing_formals
-        _writer = writer,
-        // ignore: prefer_initializing_formals
-        _debounce = debounce;
+  }) : _sidebarWidth = _clampSidebarWidth(sidebarWidth),
+       _filterHeight = _clampFilterHeight(filterHeight),
+       // Same reason as _writer/_debounce below: a `this._filtersCollapsed`
+       // initializing formal would expose the private name as the public
+       // parameter name.
+       // ignore: prefer_initializing_formals
+       _filtersCollapsed = filtersCollapsed,
+       // Can't use `this._writer`/`this._debounce` initializing formals
+       // here: that would make the private field name itself the public
+       // named-parameter name, which callers in other files couldn't pass.
+       // ignore: prefer_initializing_formals
+       _writer = writer,
+       // ignore: prefer_initializing_formals
+       _debounce = debounce;
 
   /// Builds a [LayoutPrefs] from the already-decoded `"ui"` map read out of
   /// config.json (or `null` if the key was absent / the file didn't
@@ -53,9 +64,11 @@ class LayoutPrefs extends ChangeNotifier {
         (ui?['sidebarWidth'] as num?)?.toDouble() ?? kSidebarWidthDefault;
     final filterHeight =
         (ui?['filterHeight'] as num?)?.toDouble() ?? kFilterHeightDefault;
+    final filtersCollapsed = ui?['filtersCollapsed'] == true;
     return LayoutPrefs(
       sidebarWidth: sidebarWidth,
       filterHeight: filterHeight,
+      filtersCollapsed: filtersCollapsed,
       writer: writer,
       debounce: debounce,
     );
@@ -63,6 +76,18 @@ class LayoutPrefs extends ChangeNotifier {
 
   double get sidebarWidth => _sidebarWidth;
   double get filterHeight => _filterHeight;
+  bool get filtersCollapsed => _filtersCollapsed;
+
+  /// Collapses/expands the filter row (the stored height is kept, so
+  /// expanding restores exactly the size the user had dragged to).
+  void setFiltersCollapsed(bool collapsed) {
+    if (collapsed == _filtersCollapsed) return;
+    _filtersCollapsed = collapsed;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  void toggleFiltersCollapsed() => setFiltersCollapsed(!_filtersCollapsed);
 
   static double _clampSidebarWidth(double v) =>
       v.clamp(kSidebarWidthMin, kSidebarWidthMax);
@@ -87,8 +112,11 @@ class LayoutPrefs extends ChangeNotifier {
 
   /// The current `"ui"` map, suitable for writing straight into
   /// config.json under that key.
-  Map<String, dynamic> toJson() =>
-      {'sidebarWidth': _sidebarWidth, 'filterHeight': _filterHeight};
+  Map<String, dynamic> toJson() => {
+    'sidebarWidth': _sidebarWidth,
+    'filterHeight': _filterHeight,
+    'filtersCollapsed': _filtersCollapsed,
+  };
 
   void _scheduleSave() {
     final writer = _writer;

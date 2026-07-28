@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:path/path.dart' as p;
 import 'isolate_io.dart';
+import 'mp3_duration.dart';
 
 class TrackTags {
   final String? title;
@@ -11,20 +12,34 @@ class TrackTags {
   final String? genre;
   // Playback duration in whole milliseconds, when the format's parser
   // metadata exposed one (see the per-format dispatch in `_readRawTags`
-  // below); null when the file's tags/stream headers didn't carry it.
+  // below), or -- for an .mp3 the parser gave no duration for -- when the
+  // stream-header fallback in `mp3_duration.dart` computed one instead (see
+  // [readTags]); null when neither source produced one.
   final int? durationMs;
   // 1-based position within its album, when the format's parser metadata
   // exposed one (see the per-format dispatch in `_readRawTags` below) or --
   // failing that -- when [parseFromFilename] found a leading "NN " / "NN - "
   // number prefix on the filename; null when neither source had one.
   final int? trackNumber;
+  // True once [readTags] has attempted the mp3_duration.dart stream-header
+  // fallback for this entry -- regardless of whether it actually found a
+  // duration. Only ever set for .mp3 files that reached that fallback (see
+  // [readTags]); always false for every other format, and false for an mp3
+  // whose [durationMs] came from the tag parser directly (no fallback
+  // needed). This is what lets a cache entry's null [durationMs] be
+  // re-checked exactly ONCE (see `meta_cache.dart`'s `needsDurationProbe`)
+  // instead of forever: a file whose stream headers genuinely can't be
+  // measured (e.g. malformed audio data) stays `durationMs: null` but
+  // `durationProbed: true`, so later loads stop retrying it.
+  final bool durationProbed;
   const TrackTags(
       {this.title,
       this.artist,
       this.album,
       this.genre,
       this.durationMs,
-      this.trackNumber});
+      this.trackNumber,
+      this.durationProbed = false});
 
   bool get isEmpty =>
       (title == null || title!.isEmpty) &&
@@ -38,6 +53,7 @@ class TrackTags {
         'genre': genre,
         'durationMs': durationMs,
         'trackNumber': trackNumber,
+        'durationProbed': durationProbed,
       };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
         title: j['title'] as String?,
@@ -46,8 +62,21 @@ class TrackTags {
         genre: j['genre'] as String?,
         durationMs: j['durationMs'] as int?,
         trackNumber: j['trackNumber'] as int?,
+        // Absent on every cache entry written before this field existed
+        // (format bump, not a staleness signal -- see `meta_cache.dart`'s
+        // `needsDurationProbe` doc for why that's deliberately NOT treated
+        // as cause to evict the whole entry from the loaded cache, unlike
+        // durationMs/trackNumber's own key-presence checks below).
+        durationProbed: j['durationProbed'] as bool? ?? false,
       );
 }
+
+/// True when [path]'s extension is `.mp3` (case-insensitive) -- the only
+/// format [readTags] runs the `mp3_duration.dart` stream-header duration
+/// fallback for. Shared with `meta_cache.dart`'s `needsDurationProbe` so
+/// both sides of the one-time-reprobe feature agree on exactly which files
+/// qualify.
+bool isMp3Path(String path) => p.extension(path).toLowerCase() == '.mp3';
 
 /// Matches a leading track-number prefix on a bare (extension-stripped)
 /// filename -- "03 " or "07 - " style -- so [parseFromFilename] can split it
@@ -224,30 +253,64 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
   }
 }
 
+/// Resolves the duration to actually use for [audioFile], falling back to
+/// the `mp3_duration.dart` stream-header estimator when [parsedDurationMs]
+/// -- whatever the format-specific tag parser in `_readRawTags` produced --
+/// is null/zero AND the file is an .mp3 (the only format this fallback
+/// covers; see [isMp3Path]). Returns `(duration, probed)`: `probed` is true
+/// whenever the fallback was actually attempted, independent of whether it
+/// found a usable duration -- see [TrackTags.durationProbed]'s doc for why
+/// that distinction matters (it's what makes the cache re-check one-time
+/// rather than forever).
+///
+/// Swallows any error from the estimator itself (file I/O can fail for
+/// reasons unrelated to parsing -- permissions, a file removed mid-scan --
+/// and [estimateMp3DurationForFile] already doesn't throw on parse
+/// failures, so this is a pure defensive backstop): [readTags]'s own outer
+/// catch would otherwise turn a duration-only failure into a full filename
+/// fallback that also discards perfectly good title/artist/album tags
+/// already extracted from [audioFile] before this runs.
+Future<(int?, bool)> _resolveDuration(File audioFile, int? parsedDurationMs) async {
+  if (parsedDurationMs != null && parsedDurationMs > 0) {
+    return (parsedDurationMs, false);
+  }
+  if (!isMp3Path(audioFile.path)) return (parsedDurationMs, false);
+  try {
+    final estimated = await estimateMp3DurationForFile(audioFile);
+    return (estimated?.inMilliseconds ?? parsedDurationMs, true);
+  } catch (_) {
+    return (parsedDurationMs, true); // attempted, even though it failed
+  }
+}
+
 Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
   try {
     final raw = _readRawTags(audioFile, fetchImage: false);
     if (raw == null) return parseFromFilename(relPath ?? audioFile.path);
+    final (durationMs, durationProbed) =
+        await _resolveDuration(audioFile, raw.durationMs);
     final fromTags = TrackTags(
       title: _blankAsNull(raw.title),
       artist: _blankAsNull(raw.artist),
       album: _blankAsNull(raw.album),
       genre: _blankAsNull(raw.genre),
-      durationMs: raw.durationMs,
+      durationMs: durationMs,
       trackNumber: raw.trackNumber,
     );
     if (fromTags.isEmpty) {
       // No usable title/artist/album tags, but the duration came from the
-      // parsed stream headers, not the tag block -- still worth keeping
-      // even though everything else falls back to the filename.
+      // parsed stream headers (or the fallback estimator), not the tag
+      // block -- still worth keeping even though everything else falls
+      // back to the filename.
       final fb = parseFromFilename(relPath ?? audioFile.path);
       return TrackTags(
         title: fb.title,
         artist: fb.artist,
         album: fb.album,
         genre: fb.genre,
-        durationMs: raw.durationMs,
+        durationMs: durationMs,
         trackNumber: fromTags.trackNumber ?? fb.trackNumber,
+        durationProbed: durationProbed,
       );
     }
     // Fill gaps (e.g. tagged title but no artist) from the filename.
@@ -259,6 +322,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       genre: fromTags.genre,
       durationMs: fromTags.durationMs,
       trackNumber: fromTags.trackNumber ?? fb.trackNumber,
+      durationProbed: durationProbed,
     );
   } catch (_) {
     return parseFromFilename(relPath ?? audioFile.path);

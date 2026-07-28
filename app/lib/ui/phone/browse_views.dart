@@ -269,22 +269,29 @@ class PlaylistsView extends StatelessWidget {
   });
 
   Future<void> _create(BuildContext context) async {
+    // Captured before the name dialog opens -- see showPlaylistError's doc.
+    final messenger = ScaffoldMessenger.of(context);
     final name = await showPlaylistNameDialog(context, store: store);
     if (name == null) return;
     try {
       await store.createPlaylist(name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
   }
 
   Future<void> _delete(BuildContext context, String name) async {
+    // Captured before the confirm dialog opens -- matters here specifically
+    // because a SUCCESSFUL delete removes this very playlist row from the
+    // list a rebuild produces, but a refused delete must still be able to
+    // report through a messenger that doesn't depend on that row surviving.
+    final messenger = ScaffoldMessenger.of(context);
     final confirmed = await confirmDeletePlaylist(context, name);
-    if (!confirmed || !context.mounted) return;
+    if (!confirmed) return;
     try {
       await store.deletePlaylist(name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
   }
 

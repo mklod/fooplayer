@@ -184,4 +184,122 @@ void main() {
     expect(results['missing-id']!.artist, 'Artist X');
     expect(results['missing-id']!.title, 'Gone');
   });
+
+  group('needsDurationProbe', () {
+    test('true only for a null-duration, not-yet-probed .mp3 entry', () {
+      expect(
+        needsDurationProbe(const TrackTags(title: 'T'), 'song.mp3'),
+        isTrue,
+      );
+    });
+
+    test('false once durationMs is known, regardless of durationProbed', () {
+      expect(
+        needsDurationProbe(const TrackTags(title: 'T', durationMs: 1000), 'song.mp3'),
+        isFalse,
+      );
+    });
+
+    test('false once durationProbed is already true, even with a null duration '
+        '(the one-time budget is spent)', () {
+      expect(
+        needsDurationProbe(
+            const TrackTags(title: 'T', durationProbed: true), 'song.mp3'),
+        isFalse,
+      );
+    });
+
+    test('false for a non-mp3 path, regardless of duration/probed state', () {
+      expect(
+        needsDurationProbe(const TrackTags(title: 'T'), 'song.flac'),
+        isFalse,
+      );
+    });
+  });
+
+  group('fillMetadata: one-time mp3 duration reprobe', () {
+    /// MPEG2.5 Layer III, 24 kbps @ 11025 Hz CBR frames (frame length 313
+    /// bytes). `audio_metadata_reader`'s own MP3Parser can never compute a
+    /// duration for MPEG2.5 (no branch for it in its bitrate/samples-per-
+    /// frame tables -- see tags_test.dart's fallback-wiring group for the
+    /// full explanation), so a cache entry seeded with `durationMs: null`
+    /// for a file actually made of these bytes matches the real-world shape
+    /// this feature targets, deterministically and without needing the
+    /// `L:\music` fixture.
+    List<int> mpeg25Frames(int frameCount) {
+      const frameLen = 313;
+      final header = [0xFF, 0xE3, 0x30, 0x00];
+      final out = <int>[];
+      for (var i = 0; i < frameCount; i++) {
+        out.addAll(header);
+        out.addAll(List.filled(frameLen - header.length, 0x00));
+      }
+      // A trailing ID3v1 "TAG" tag so audio_metadata_reader's MP3Parser
+      // actually recognizes this as an mp3 it can parse at all (its
+      // `canUserParser` requires an ID3v2 OR ID3v1 tag to be present --
+      // plain frame bytes alone don't match any container parser, which
+      // would take a different, uninteresting code path: _readRawTags
+      // returning null and readTags never reaching the duration fallback).
+      out.addAll([0x54, 0x41, 0x47, ...List.filled(125, 0x00)]);
+      return out;
+    }
+
+    test('a cache-hit mp3 with durationMs:null and no prior probe is '
+        're-read once, gaining a duration and durationProbed:true', () async {
+      final root = await Directory('${tmp.path}/lib8').create();
+      await File('${root.path}/song.mp3').writeAsBytes(mpeg25Frames(20));
+      final cache = MetaCache.load(File('${tmp.path}/mc8.json'));
+      // Shaped exactly like a pre-existing cache entry from before this
+      // feature existed: real tags, durationMs null, no durationProbed key
+      // (TrackTags.fromJson defaults that to false).
+      cache.entries['id'] = const TrackTags(
+          title: 'Cached Title', artist: 'Cached Artist', album: 'Cached Album');
+
+      final filled =
+          await fillMetadata([tr('id', 'song.mp3', rootPath: root.path)], cache);
+
+      expect(filled.single.durationMs, 2086); // see mp3_duration_test.dart
+      expect(cache.entries['id']!.durationProbed, isTrue);
+      // Title/artist/album come from readTags' own filename-fallback merge
+      // this time (the synthetic file has no ID3 tags of its own) -- the
+      // important thing is the entry was genuinely re-read, not just
+      // patched in place.
+    });
+
+    test('re-probing again after durationProbed:true is a no-op (the file '
+        'is never re-read a second time)', () async {
+      final root = await Directory('${tmp.path}/lib9').create();
+      final path = '${root.path}/song.mp3';
+      await File(path).writeAsBytes(mpeg25Frames(20));
+      final cache = MetaCache.load(File('${tmp.path}/mc9.json'));
+      cache.entries['id'] = const TrackTags(
+          title: 'Real Title', durationMs: null, durationProbed: true);
+
+      final filled =
+          await fillMetadata([tr('id', 'song.mp3', rootPath: root.path)], cache);
+
+      // Untouched: still null duration, still the original cached title --
+      // proof the file was never opened a second time.
+      expect(filled.single.durationMs, isNull);
+      expect(filled.single.title, 'Real Title');
+    });
+
+    test('a null-duration mp3 entry whose file no longer exists keeps its '
+        'cached tags untouched rather than downgrading to a filename '
+        'placeholder', () async {
+      final root = await Directory('${tmp.path}/lib10').create();
+      // Deliberately never created on disk.
+      final cache = MetaCache.load(File('${tmp.path}/mc10.json'));
+      cache.entries['id'] = const TrackTags(
+          title: 'Real Enriched Title', artist: 'Real Enriched Artist');
+
+      final filled = await fillMetadata(
+          [tr('id', 'gone.mp3', rootPath: root.path)], cache);
+
+      expect(filled.single.title, 'Real Enriched Title');
+      expect(filled.single.artist, 'Real Enriched Artist');
+      expect(cache.entries['id']!.durationProbed, isFalse,
+          reason: 'nothing was actually probed -- the file is missing');
+    });
+  });
 }

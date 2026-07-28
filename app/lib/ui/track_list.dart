@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_picker.dart';
 import '../artwork/picker_seams.dart';
@@ -89,7 +90,7 @@ void _launchInExplorer(Track track) {
   );
 }
 
-class TrackListView extends StatelessWidget {
+class TrackListView extends StatefulWidget {
   final LibraryModel library;
   final PlayerService player;
 
@@ -132,80 +133,131 @@ class TrackListView extends StatelessWidget {
     this.artwork,
   });
 
+  @override
+  State<TrackListView> createState() => _TrackListViewState();
+}
+
+class _TrackListViewState extends State<TrackListView> {
+  /// Owns keyboard focus for the track-list area so Ctrl+A
+  /// ([LibraryModel.selectAll]) has somewhere to land. Grabbed on any
+  /// pointer-down anywhere in the list (header or a row) via the
+  /// [Listener] in [build], independent of each row's own tap/double-tap
+  /// gesture recognition -- so requesting focus never interferes with
+  /// click/double-click disambiguation, which needs the full
+  /// [kDoubleTapTimeout] window to resolve.
+  final FocusNode _focusNode = FocusNode(debugLabel: 'TrackListView');
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
   void _play(List<Track> tracks, int index) {
-    final play = onPlayTrack;
+    final play = widget.onPlayTrack;
     if (play != null) {
       play(tracks, index);
     } else {
-      player.playFrom(tracks, index);
+      widget.player.playFrom(tracks, index);
     }
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.keyA &&
+        HardwareKeyboard.instance.isControlPressed) {
+      widget.library.selectAll();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   @override
   Widget build(BuildContext context) {
-    final store = playlistStore ?? PlaylistStore(library: library);
-    return ListenableBuilder(
-      listenable: Listenable.merge([library, player]),
-      builder: (context, _) {
-        final tracks = library.visibleTracks;
-        // The '#' column only earns its place when it means something
-        // unambiguous: exactly one album's own track order (selected in
-        // the Albums pane OR as a single album folder in the Folder pane
-        // -- see LibraryModel.folderSelectionIsSingleAlbum), or a
-        // playlist's curated position. Anywhere else (the full library, a
-        // genre/artist filter spanning many albums, or several albums
-        // selected at once) track numbers from different albums would
-        // collide meaninglessly, so the column stays hidden.
-        final isPlaylist = library.activePlaylist != null;
-        final showTrackNumber = isPlaylist ||
-            library.albumFilters.length == 1 ||
-            library.folderSelectionIsSingleAlbum;
-        return Column(
-          children: [
-            _TrackListHeader(
-              library: library,
-              showTrackNumber: showTrackNumber,
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: tracks.length,
-                itemBuilder: (context, i) {
-                  final t = tracks[i];
-                  final isCurrent = player.current?.contentId == t.contentId;
-                  final isSelected = library.selectedTrackId == t.contentId;
-                  return _TrackRow(
-                    track: t,
-                    isCurrent: isCurrent,
-                    isSelected: isSelected,
-                    // Single click selects only -- no playback.
-                    onSelect: () => library.selectTrack(t.contentId),
-                    // Double click plays *and* selects (mirrors clicking a
-                    // now-playing track elsewhere in the app).
-                    onPlay: () {
-                      library.selectTrack(t.contentId);
-                      _play(tracks, i);
+    final library = widget.library;
+    final player = widget.player;
+    final store = widget.playlistStore ?? PlaylistStore(library: library);
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: _handleKeyEvent,
+      child: Listener(
+        onPointerDown: (_) => _focusNode.requestFocus(),
+        child: ListenableBuilder(
+          listenable: Listenable.merge([library, player]),
+          builder: (context, _) {
+            final tracks = library.visibleTracks;
+            // The '#' column only earns its place when it means something
+            // unambiguous: exactly one album's own track order (selected in
+            // the Albums pane OR as a single album folder in the Folder pane
+            // -- see LibraryModel.folderSelectionIsSingleAlbum), or a
+            // playlist's curated position. Anywhere else (the full library, a
+            // genre/artist filter spanning many albums, or several albums
+            // selected at once) track numbers from different albums would
+            // collide meaninglessly, so the column stays hidden.
+            final isPlaylist = library.activePlaylist != null;
+            final showTrackNumber =
+                isPlaylist ||
+                library.albumFilters.length == 1 ||
+                library.folderSelectionIsSingleAlbum;
+            return Column(
+              children: [
+                _TrackListHeader(
+                  library: library,
+                  showTrackNumber: showTrackNumber,
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: tracks.length,
+                    itemBuilder: (context, i) {
+                      final t = tracks[i];
+                      final isCurrent =
+                          player.current?.contentId == t.contentId;
+                      final isSelected =
+                          library.selectedTrackIds.contains(t.contentId);
+                      return _TrackRow(
+                        track: t,
+                        isCurrent: isCurrent,
+                        isSelected: isSelected,
+                        // Single click: standard Explorer/foobar
+                        // click/Ctrl+click/Shift+click/Ctrl+Shift+click
+                        // selection semantics -- no playback. See
+                        // LibraryModel.selectTrackClick.
+                        onSelect: () => library.selectTrackClick(
+                          t.contentId,
+                          ctrl: HardwareKeyboard.instance.isControlPressed,
+                          shift: HardwareKeyboard.instance.isShiftPressed,
+                          visibleOrder: tracks,
+                        ),
+                        // Double click plays *and* selects only this row
+                        // (mirrors clicking a now-playing track elsewhere in
+                        // the app), regardless of any wider selection.
+                        onPlay: () {
+                          library.selectTrack(t.contentId);
+                          _play(tracks, i);
+                        },
+                        launchExplorer: widget.launchExplorer,
+                        library: library,
+                        playlistStore: store,
+                        artwork: widget.artwork,
+                        showTrackNumber: showTrackNumber,
+                        // Playlist order is curator-defined, not tag-derived, so
+                        // '#' shows where the track sits in that order (1-based)
+                        // rather than its (possibly nonexistent, possibly
+                        // unrelated) tag track number.
+                        trackNumberText: showTrackNumber
+                            ? (isPlaylist
+                                  ? '${i + 1}'
+                                  : t.trackNumber?.toString() ?? '')
+                            : null,
+                      );
                     },
-                    launchExplorer: launchExplorer,
-                    library: library,
-                    playlistStore: store,
-                    artwork: artwork,
-                    showTrackNumber: showTrackNumber,
-                    // Playlist order is curator-defined, not tag-derived, so
-                    // '#' shows where the track sits in that order (1-based)
-                    // rather than its (possibly nonexistent, possibly
-                    // unrelated) tag track number.
-                    trackNumberText: showTrackNumber
-                        ? (isPlaylist
-                              ? '${i + 1}'
-                              : t.trackNumber?.toString() ?? '')
-                        : null,
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 }
@@ -283,7 +335,7 @@ class _TrackListHeader extends StatelessWidget {
                 alignEnd: true,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: 32),
             SizedBox(
               width: _kDateColumnWidth,
               child: _HeaderCell(
@@ -299,7 +351,7 @@ class _TrackListHeader extends StatelessWidget {
   }
 }
 
-class _HeaderCell extends StatelessWidget {
+class _HeaderCell extends StatefulWidget {
   final String label;
   final SortColumn column;
   final LibraryModel library;
@@ -312,9 +364,26 @@ class _HeaderCell extends StatelessWidget {
   });
 
   @override
+  State<_HeaderCell> createState() => _HeaderCellState();
+}
+
+/// Header cells are sort controls, so they need to *look* clickable: hovering
+/// tints the cell and darkens its label (the resting label is deliberately
+/// quiet inkSecondary, which on its own reads as static text).
+class _HeaderCellState extends State<_HeaderCell> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final label = widget.label;
+    final column = widget.column;
+    final library = widget.library;
+    final alignEnd = widget.alignEnd;
     final active = library.sortColumn == column;
-    final style = Theme.of(context).textTheme.labelLarge;
+    final baseStyle = Theme.of(context).textTheme.labelLarge;
+    final style = _hovered
+        ? baseStyle?.copyWith(color: AppColors.ink)
+        : baseStyle;
     final arrowSpan = TextSpan(
       text: library.sortAscending ? '▲' : '▼',
       style: style?.copyWith(color: AppColors.accent),
@@ -324,21 +393,30 @@ class _HeaderCell extends StatelessWidget {
     // too-narrow fixed column (Time/Date) clips with an ellipsis instead of
     // throwing a hard RenderFlex overflow -- the label carries [style]'s
     // normal color throughout; only the arrow span is accent-colored.
-    return InkWell(
-      onTap: () => library.setSort(column),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: Text.rich(
-          TextSpan(
-            children: alignEnd && active
-                ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
-                : active
-                ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
-                : [labelSpan],
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: InkWell(
+        onTap: () => library.setSort(column),
+        child: Container(
+          decoration: BoxDecoration(
+            color: _hovered ? AppColors.hairline.withValues(alpha: 0.55) : null,
+            borderRadius: BorderRadius.circular(3),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+          child: Text.rich(
+            TextSpan(
+              children: alignEnd && active
+                  ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
+                  : active
+                  ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
+                  : [labelSpan],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: alignEnd ? TextAlign.right : TextAlign.left,
+          ),
         ),
       ),
     );
@@ -413,6 +491,12 @@ class _TrackRow extends StatelessWidget {
         // feedback is untouched).
         splashFactory: NoSplash.splashFactory,
         highlightColor: Colors.transparent,
+        // Individual rows must NOT grab keyboard focus on tap -- the
+        // enclosing [TrackListView] owns one list-wide [FocusNode] so
+        // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
+        // regardless of which row was last clicked; a per-row focus node
+        // would otherwise steal primary focus away from it on every click.
+        canRequestFocus: false,
         child: AnimatedContainer(
           duration: _kSelectionAnimationDuration,
           curve: Curves.easeOut,
@@ -480,7 +564,7 @@ class _TrackRow extends StatelessWidget {
                     style: _kRowTextStyle,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 32),
                 SizedBox(
                   width: _kDateColumnWidth,
                   child: Text(
@@ -509,19 +593,34 @@ enum _TrackMenuAction {
 }
 
 /// Shows the row's right-click context menu at [globalPosition] (from
-/// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]):
+/// [InkWell.onSecondaryTapDown]'s [TapDownDetails.globalPosition]).
 ///
-/// - "View in folder" invokes [launchExplorer] with [track];
+/// Explorer-style selection-aware targeting: if [track] is already part of
+/// [LibraryModel.selectedTrackIds], the menu's playlist actions act on the
+/// WHOLE selection; otherwise right-clicking an unselected row first
+/// replaces the selection with just that row ([LibraryModel.selectTrack]),
+/// same as Explorer/foobar, so the menu always acts on exactly what's
+/// highlighted afterward.
+///
+/// - "View in folder" invokes [launchExplorer] with [track] specifically --
+///   always single-target (opening N Explorer windows for a multi-selection
+///   would be nonsensical), labelled "(this track)" when a wider selection
+///   is active so that's unambiguous;
 /// - "Add to playlist" opens a follow-up menu (a poor-man's submenu, shown
 ///   at the same anchor) listing every merged playlist plus "New
-///   playlist..." -- see [_showAddToPlaylistMenu];
+///   playlist..." and adds every selected track -- see
+///   [_showAddToPlaylistMenu];
 /// - "Remove from playlist" appears only in playlist view (an active
-///   playlist) and removes [track] from it;
-/// - "Album artwork..." (Plan 4 A3) opens the shared [ArtworkPicker] in a
-///   dialog -- shown only when [artwork] services were injected.
+///   playlist) and removes every selected track from it, in one manifest
+///   write ([PlaylistStore.removeTracks]);
+/// - "Album artwork..." (Plan 4 A3) opens the shared [ArtworkPicker] for
+///   [track] specifically -- also always single-target, same "(this
+///   track)" labelling -- shown only when [artwork] services were injected.
 ///
 /// Store refusals ([PlaylistStoreException] -- e.g. the target playlist
-/// lives in another root's manifest) surface via SnackBar, never silently.
+/// lives in another root's manifest) surface via SnackBar, never silently;
+/// successful batch adds/removes report how many tracks were affected the
+/// same way.
 Future<void> _showTrackContextMenu({
   required BuildContext context,
   required Offset globalPosition,
@@ -531,6 +630,24 @@ Future<void> _showTrackContextMenu({
   required PlaylistStore playlistStore,
   ArtworkServices? artwork,
 }) async {
+  // Captured BEFORE the popup menu opens (and reused by every action below,
+  // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
+  // later store-error report never depends on this row's own BuildContext
+  // still being mounted -- see showPlaylistError's doc.
+  final messenger = ScaffoldMessenger.of(context);
+  if (!library.selectedTrackIds.contains(track.contentId)) {
+    library.selectTrack(track.contentId);
+  }
+  final selectedIds = library.selectedTrackIds;
+  final selectedTracks =
+      library.visibleTracks.where((t) => selectedIds.contains(t.contentId)).toList();
+  // Defensive fallback: the right-clicked track should always end up in
+  // selectedTracks (either it was already selected, or the line above just
+  // selected it), but if selection and the visible list ever disagree,
+  // still act on at least the row the user actually clicked.
+  final tracks = selectedTracks.isNotEmpty ? selectedTracks : [track];
+  final multi = tracks.length > 1;
+
   final overlayBox =
       Overlay.of(context).context.findRenderObject() as RenderBox;
   final activePlaylist = library.activePlaylist;
@@ -541,9 +658,9 @@ Future<void> _showTrackContextMenu({
       Offset.zero & overlayBox.size,
     ),
     items: [
-      const PopupMenuItem(
+      PopupMenuItem(
         value: _TrackMenuAction.viewInFolder,
-        child: Text('View in folder'),
+        child: Text(multi ? 'View in folder (this track)' : 'View in folder'),
       ),
       const PopupMenuItem(
         value: _TrackMenuAction.addToPlaylist,
@@ -555,9 +672,10 @@ Future<void> _showTrackContextMenu({
           child: Text('Remove from playlist'),
         ),
       if (artwork != null)
-        const PopupMenuItem(
+        PopupMenuItem(
           value: _TrackMenuAction.albumArtwork,
-          child: Text('Album artwork...'),
+          child: Text(
+              multi ? 'Album artwork... (this track)' : 'Album artwork...'),
         ),
     ],
   );
@@ -568,25 +686,28 @@ Future<void> _showTrackContextMenu({
     case _TrackMenuAction.addToPlaylist:
       await _showAddToPlaylistMenu(
         context: context,
+        messenger: messenger,
         globalPosition: globalPosition,
-        track: track,
+        tracks: tracks,
         library: library,
         playlistStore: playlistStore,
       );
     case _TrackMenuAction.removeFromPlaylist:
       if (activePlaylist == null) return; // unreachable; item not shown
       try {
-        await playlistStore.removeTrack(activePlaylist, track.contentId);
+        final removed = await playlistStore.removeTracks(
+            activePlaylist, [for (final t in tracks) t.contentId]);
+        showPlaylistInfo(
+            messenger,
+            removed == 1
+                ? 'Removed 1 track from the playlist'
+                : 'Removed $removed tracks from the playlist');
       } on PlaylistStoreException catch (e) {
-        if (context.mounted) showPlaylistError(context, e);
+        showPlaylistError(messenger, e);
       }
     case _TrackMenuAction.albumArtwork:
       if (artwork == null) return; // unreachable; item not shown
-      await showArtworkPickerDialog(
-        context,
-        track: track,
-        services: artwork,
-      );
+      await showArtworkPickerDialog(context, track: track, services: artwork);
     case null:
       return;
   }
@@ -594,13 +715,17 @@ Future<void> _showTrackContextMenu({
 
 /// The "Add to playlist" follow-up menu: every merged playlist by display
 /// name, then "New playlist..." (which runs the shared name dialog, creates
-/// the playlist, and adds [track] to it in one flow). Values are indices
-/// into the captured playlist list (-1 for "new") so a playlist literally
-/// named "New playlist..." can't be confused with the affordance.
+/// the playlist, and adds every one of [tracks] to it in one flow). Values
+/// are indices into the captured playlist list (-1 for "new") so a playlist
+/// literally named "New playlist..." can't be confused with the affordance.
+/// Adding is always a single manifest write for the whole batch
+/// ([PlaylistStore.addTracks]), and reports how many tracks were actually
+/// appended (a track already in the target playlist doesn't count twice).
 Future<void> _showAddToPlaylistMenu({
   required BuildContext context,
+  required ScaffoldMessengerState messenger,
   required Offset globalPosition,
-  required Track track,
+  required List<Track> tracks,
   required LibraryModel library,
   required PlaylistStore playlistStore,
 }) async {
@@ -620,18 +745,33 @@ Future<void> _showAddToPlaylistMenu({
       const PopupMenuItem(value: -1, child: Text('New playlist...')),
     ],
   );
-  if (choice == null || !context.mounted) return;
+  if (choice == null) return; // menu dismissed without a choice
+  final ids = [for (final t in tracks) t.contentId];
   try {
+    late final String playlistName;
+    late final int added;
     if (choice >= 0) {
-      await playlistStore.addTrack(playlists[choice].name, track.contentId);
+      // Existing playlist: no further context needed, so this proceeds (and
+      // reports via [messenger]) even if [context] became unmounted while
+      // the menu above was open.
+      playlistName = playlists[choice].name;
+      added = await playlistStore.addTracks(playlistName, ids);
     } else {
-      final name =
-          await showPlaylistNameDialog(context, store: playlistStore);
+      // "New playlist...": genuinely needs a live context for the name
+      // dialog's Navigator.
+      if (!context.mounted) return;
+      final name = await showPlaylistNameDialog(context, store: playlistStore);
       if (name == null) return;
       await playlistStore.createPlaylist(name);
-      await playlistStore.addTrack(name, track.contentId);
+      playlistName = name;
+      added = await playlistStore.addTracks(name, ids);
     }
+    showPlaylistInfo(
+        messenger,
+        added == 1
+            ? 'Added 1 track to "$playlistName"'
+            : 'Added $added tracks to "$playlistName"');
   } on PlaylistStoreException catch (e) {
-    if (context.mounted) showPlaylistError(context, e);
+    showPlaylistError(messenger, e);
   }
 }

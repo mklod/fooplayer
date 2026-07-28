@@ -118,8 +118,34 @@ Future<bool> confirmDeletePlaylist(BuildContext context, String name) async {
   return confirmed ?? false;
 }
 
-/// Surfaces a [PlaylistStoreException]'s message (SnackBar) -- the shared
-/// error path for every store call made from the UI.
-void showPlaylistError(BuildContext context, PlaylistStoreException e) {
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+/// Surfaces a [PlaylistStoreException]'s message (SnackBar) via [messenger]
+/// -- the shared error path for every store call made from the UI.
+///
+/// Takes an already-resolved [ScaffoldMessengerState] rather than a
+/// [BuildContext] on purpose: every caller here runs a store mutation after
+/// at least one `await` (a popup menu, a name dialog, the store call
+/// itself), and a successful mutation can itself trigger a rebuild
+/// (`PlaylistStore` mutations end in `LibraryModel.reloadPlaylists`,
+/// `notifyListeners()`) that removes the very row/tile that triggered the
+/// action from the tree before its `catch` block runs. Resolving
+/// `ScaffoldMessenger.of(context)` AT THAT POINT would either find nothing
+/// (behind an `if (context.mounted)` guard, silently skipping the report --
+/// the original bug this signature closes off) or throw outright (calling
+/// `.of`/`.maybeOf` on a deactivated context is a Flutter error, not a null
+/// result). Capturing the messenger with `ScaffoldMessenger.of(context)`
+/// BEFORE the first `await` sidesteps both: the messenger is tied to the
+/// enclosing `Scaffold`, which outlives any one row/tile, so the report is
+/// guaranteed to land regardless of what the mutation's own success
+/// path does to the widget that kicked it off.
+void showPlaylistError(ScaffoldMessengerState messenger, PlaylistStoreException e) {
+  messenger.showSnackBar(SnackBar(content: Text(e.message)));
+}
+
+/// Surfaces a plain informational [message] (SnackBar) via [messenger] --
+/// used by the track list's multi-select context-menu actions to report how
+/// many tracks a batch add/remove actually affected (see
+/// `ui/track_list.dart`'s `_showAddToPlaylistMenu`). Same capture-before-
+/// the-first-`await` discipline as [showPlaylistError] -- see its doc.
+void showPlaylistInfo(ScaffoldMessengerState messenger, String message) {
+  messenger.showSnackBar(SnackBar(content: Text(message)));
 }

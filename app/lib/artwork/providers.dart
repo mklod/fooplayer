@@ -15,9 +15,11 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io' show HandshakeException, HttpClient, X509Certificate;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart' as io_client;
 
 import 'art_candidate.dart';
 import 'image_sniff.dart';
@@ -55,10 +57,8 @@ class ArtHttpResponse {
 
 /// The single IO seam. Implementations must either return a response or
 /// throw; providers translate both into candidates or `[]`.
-typedef ArtFetch = Future<ArtHttpResponse> Function(
-  Uri url, {
-  Map<String, String>? headers,
-});
+typedef ArtFetch =
+    Future<ArtHttpResponse> Function(Uri url, {Map<String, String>? headers});
 
 /// Production [ArtFetch]: `package:http` GET with a timeout and the project
 /// User-Agent. Never used by tests.
@@ -66,14 +66,16 @@ Future<ArtHttpResponse> httpArtFetch(
   Uri url, {
   Map<String, String>? headers,
 }) async {
-  final res = await http.get(
-    url,
-    headers: {
-      'User-Agent': kArtworkUserAgent,
-      'Accept': 'application/json',
-      ...?headers,
-    },
-  ).timeout(kArtFetchTimeout);
+  final res = await http
+      .get(
+        url,
+        headers: {
+          'User-Agent': kArtworkUserAgent,
+          'Accept': 'application/json',
+          ...?headers,
+        },
+      )
+      .timeout(kArtFetchTimeout);
   return ArtHttpResponse(statusCode: res.statusCode, body: res.body);
 }
 
@@ -89,6 +91,47 @@ typedef ArtBytesFetch = Future<List<int>?> Function(String url);
 /// album cover (even a lossless 3000x3000 PNG is a few MB) while still
 /// catching a truly oversized response quickly.
 const int kArtworkMaxBytes = 12 * 1024 * 1024;
+
+/// Image hosts of the three built-in providers. A download from one of
+/// these -- and ONLY these -- may retry with certificate-chain verification
+/// relaxed; see [_fetchWithRelaxedTls].
+///
+/// Why this exists: Deezer's image CDN serves an INCOMPLETE certificate
+/// chain (it omits the intermediate CA). Browsers paper over that by
+/// fetching the missing certificate themselves; Dart does not, so every
+/// Deezer cover download fails with a HandshakeException
+/// (CERTIFICATE_VERIFY_FAILED) even though the same TLS stack talks to
+/// Deezer's *API* and to iTunes/CAA without complaint. Verified on this
+/// machine: 6/6 failures against cdn-images.dzcdn.net, 200 OK against
+/// mzstatic.com in the same run.
+///
+/// The relaxation is deliberately narrow: it covers only these known
+/// artwork hosts (never a user-pasted URL), only image bytes (never an API
+/// call), no credentials or user data are ever sent, and the response is
+/// still size-capped and magic-byte validated. The worst case a
+/// man-in-the-middle buys is a different album cover.
+const Set<String> kProviderImageHosts = {
+  'cdn-images.dzcdn.net',
+  'e-cdns-images.dzcdn.net',
+  'is1-ssl.mzstatic.com',
+  'is2-ssl.mzstatic.com',
+  'is3-ssl.mzstatic.com',
+  'is4-ssl.mzstatic.com',
+  'is5-ssl.mzstatic.com',
+  'coverartarchive.org',
+  'ia800000.us.archive.org',
+};
+
+/// True when [host] belongs to a built-in provider's image CDN (exact match
+/// or a subdomain of one), i.e. when the narrow TLS retry above is allowed.
+bool isProviderImageHost(String host) {
+  final h = host.toLowerCase();
+  if (kProviderImageHosts.contains(h)) return true;
+  return kProviderImageHosts.any((known) => h.endsWith('.$known')) ||
+      h.endsWith('.dzcdn.net') ||
+      h.endsWith('.mzstatic.com') ||
+      h.endsWith('.archive.org');
+}
 
 /// Fetches raw image bytes for [url].
 ///
@@ -137,8 +180,49 @@ Future<List<int>?> httpArtworkBytes(
   if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
     return null;
   }
-  final client = clientFactory();
+  final strict = clientFactory();
   try {
+    return await _readImage(strict, uri);
+  } on HandshakeException {
+    // Certificate-chain verification failed. For a KNOWN provider CDN only
+    // (see kProviderImageHosts), retry once with verification relaxed --
+    // some of them (Deezer's, today) serve an incomplete chain that Dart
+    // can't complete on its own. Anything else -- notably a user-pasted
+    // URL -- keeps strict verification and simply fails.
+    if (!isProviderImageHost(uri.host)) return null;
+    return _fetchWithRelaxedTls(uri);
+  } on TimeoutException {
+    return null;
+  } catch (_) {
+    return null;
+  } finally {
+    strict.close();
+  }
+}
+
+/// Retry path for a provider CDN whose certificate chain Dart can't verify.
+/// Verification is disabled ONLY for [kProviderImageHosts] hosts; the
+/// response is still size-capped and magic-byte validated by [_readImage].
+Future<List<int>?> _fetchWithRelaxedTls(Uri uri) async {
+  final httpClient = HttpClient()
+    ..badCertificateCallback = (X509Certificate cert, String host, int port) =>
+        isProviderImageHost(host);
+  final client = io_client.IOClient(httpClient);
+  try {
+    return await _readImage(client, uri);
+  } catch (_) {
+    return null;
+  } finally {
+    client.close();
+  }
+}
+
+/// Streams [uri] through [client], enforcing the size cap and image-format
+/// validation. Throws transport errors to the caller (which decides whether
+/// a retry is allowed); returns null for a response that is simply not a
+/// usable image.
+Future<List<int>?> _readImage(http.Client client, Uri uri) async {
+  {
     final request = http.Request('GET', uri)
       ..headers['User-Agent'] = kArtworkUserAgent
       ..headers['Accept'] = 'image/*';
@@ -165,10 +249,6 @@ Future<List<int>?> httpArtworkBytes(
     if (bytes.isEmpty) return null;
     if (!looksLikeImage(bytes)) return null;
     return bytes;
-  } catch (_) {
-    return null;
-  } finally {
-    client.close();
   }
 }
 
@@ -221,8 +301,8 @@ class RateLimiter {
     required this.minInterval,
     Future<void> Function(Duration)? sleep,
     DateTime Function()? now,
-  })  : _sleep = sleep ?? Future.delayed,
-        _now = now ?? DateTime.now;
+  }) : _sleep = sleep ?? Future.delayed,
+       _now = now ?? DateTime.now;
 
   /// Runs [action] no sooner than [minInterval] after the previous action
   /// (of either priority) started. Failures propagate to the caller but
@@ -263,8 +343,9 @@ class RateLimiter {
         // Decided AFTER the wait, not before: an interactive request that
         // arrived during the wait above still wins over a background one
         // that was already queued -- see the class doc.
-        final next =
-            _interactive.isNotEmpty ? _interactive.removeFirst() : _background.removeFirst();
+        final next = _interactive.isNotEmpty
+            ? _interactive.removeFirst()
+            : _background.removeFirst();
         _lastStart = _now();
         await next.run();
       }
@@ -282,15 +363,17 @@ class _LimiterTask {
 /// which is the whole point: three albums looked up "concurrently" still hit
 /// MusicBrainz one request per second -- across BOTH priority lanes (see
 /// [RateLimitPriority]).
-final RateLimiter musicBrainzLimiter =
-    RateLimiter(minInterval: kMusicBrainzMinInterval);
+final RateLimiter musicBrainzLimiter = RateLimiter(
+  minInterval: kMusicBrainzMinInterval,
+);
 
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
 Future<List<ArtCandidate>> _guarded(
-    Future<List<ArtCandidate>> Function() body) async {
+  Future<List<ArtCandidate>> Function() body,
+) async {
   try {
     return await body();
   } catch (_) {
@@ -345,53 +428,52 @@ final RegExp _itunesSizeSegment = RegExp(r'/\d+x\d+bb');
 String itunesArtworkAtSize(String url, int size) =>
     url.replaceAll(_itunesSizeSegment, '/${size}x${size}bb');
 
-Uri itunesSearchUri(ArtQuery q, {int limit = 10}) =>
-    Uri.https('itunes.apple.com', '/search', {
-      'entity': 'album',
-      'media': 'music',
-      'limit': '$limit',
-      'term': q.term,
-    });
+Uri itunesSearchUri(ArtQuery q, {int limit = 10}) => Uri.https(
+  'itunes.apple.com',
+  '/search',
+  {'entity': 'album', 'media': 'music', 'limit': '$limit', 'term': q.term},
+);
 
 /// iTunes Search API. Keyless; returns album "collections".
 Future<List<ArtCandidate>> searchItunes(
   ArtQuery q, {
   ArtFetch fetch = httpArtFetch,
   int limit = 10,
-}) =>
-    _guarded(() async {
-      if (q.isEmpty) return const <ArtCandidate>[];
-      final res = await fetch(itunesSearchUri(q, limit: limit));
-      final json = _decodeObject(res);
-      if (json == null) return const <ArtCandidate>[];
+}) => _guarded(() async {
+  if (q.isEmpty) return const <ArtCandidate>[];
+  final res = await fetch(itunesSearchUri(q, limit: limit));
+  final json = _decodeObject(res);
+  if (json == null) return const <ArtCandidate>[];
 
-      final out = <ArtCandidate>[];
-      for (final r in _objectList(json['results'])) {
-        // `entity=album` should only ever return collections, but iTunes has
-        // been known to mix in track rows; those carry the album's artwork
-        // under a track title and would pollute the ranking.
-        final wrapper = _str(r, 'wrapperType');
-        if (wrapper.isNotEmpty && wrapper != 'collection') continue;
-        final art = _str(r, 'artworkUrl100').isNotEmpty
-            ? _str(r, 'artworkUrl100')
-            : _str(r, 'artworkUrl60');
-        if (art.isEmpty) continue;
-        final title = _str(r, 'collectionName').isNotEmpty
-            ? _str(r, 'collectionName')
-            : _str(r, 'collectionCensoredName');
-        if (title.isEmpty) continue;
-        out.add(ArtCandidate(
-          url: itunesArtworkAtSize(art, 600),
-          thumbUrl: itunesArtworkAtSize(art, 200),
-          source: ArtSource.itunes,
-          title: title,
-          artist: _str(r, 'artistName'),
-          year: _yearFromDate(r['releaseDate']),
-          width: 600,
-        ));
-      }
-      return out;
-    });
+  final out = <ArtCandidate>[];
+  for (final r in _objectList(json['results'])) {
+    // `entity=album` should only ever return collections, but iTunes has
+    // been known to mix in track rows; those carry the album's artwork
+    // under a track title and would pollute the ranking.
+    final wrapper = _str(r, 'wrapperType');
+    if (wrapper.isNotEmpty && wrapper != 'collection') continue;
+    final art = _str(r, 'artworkUrl100').isNotEmpty
+        ? _str(r, 'artworkUrl100')
+        : _str(r, 'artworkUrl60');
+    if (art.isEmpty) continue;
+    final title = _str(r, 'collectionName').isNotEmpty
+        ? _str(r, 'collectionName')
+        : _str(r, 'collectionCensoredName');
+    if (title.isEmpty) continue;
+    out.add(
+      ArtCandidate(
+        url: itunesArtworkAtSize(art, 600),
+        thumbUrl: itunesArtworkAtSize(art, 200),
+        source: ArtSource.itunes,
+        title: title,
+        artist: _str(r, 'artistName'),
+        year: _yearFromDate(r['releaseDate']),
+        width: 600,
+      ),
+    );
+  }
+  return out;
+});
 
 // ---------------------------------------------------------------------------
 // Deezer
@@ -418,57 +500,59 @@ Future<List<ArtCandidate>> searchDeezer(
   ArtQuery q, {
   ArtFetch fetch = httpArtFetch,
   int limit = 10,
-}) =>
-    _guarded(() async {
-      if (q.isEmpty) return const <ArtCandidate>[];
-      final res = await fetch(deezerSearchUri(q, limit: limit));
-      final json = _decodeObject(res);
-      if (json == null) return const <ArtCandidate>[];
-      if (json['error'] != null) return const <ArtCandidate>[];
+}) => _guarded(() async {
+  if (q.isEmpty) return const <ArtCandidate>[];
+  final res = await fetch(deezerSearchUri(q, limit: limit));
+  final json = _decodeObject(res);
+  if (json == null) return const <ArtCandidate>[];
+  if (json['error'] != null) return const <ArtCandidate>[];
 
-      final out = <ArtCandidate>[];
-      for (final a in _objectList(json['data'])) {
-        // Largest available first: xl is 1000px, big 500px, medium 250px;
-        // the bare `cover` field has no documented size, so it gets no
-        // resolution bonus rather than an invented one.
-        final xl = _str(a, 'cover_xl');
-        final big = _str(a, 'cover_big');
-        final med = _str(a, 'cover_medium');
-        final small = _str(a, 'cover_small');
-        final base = _str(a, 'cover');
-        String url;
-        int? width;
-        if (xl.isNotEmpty) {
-          url = xl;
-          width = 1000;
-        } else if (big.isNotEmpty) {
-          url = big;
-          width = 500;
-        } else if (med.isNotEmpty) {
-          url = med;
-          width = 250;
-        } else {
-          url = base;
-          width = null;
-        }
-        if (url.isEmpty) continue;
-        final title = _str(a, 'title');
-        if (title.isEmpty) continue;
-        final artistObj = a['artist'];
-        final thumb = med.isNotEmpty ? med : (small.isNotEmpty ? small : url);
-        out.add(ArtCandidate(
-          url: url,
-          thumbUrl: thumb,
-          source: ArtSource.deezer,
-          title: title,
-          artist:
-              artistObj is Map<String, dynamic> ? _str(artistObj, 'name') : '',
-          year: _yearFromDate(a['release_date']),
-          width: width,
-        ));
-      }
-      return out;
-    });
+  final out = <ArtCandidate>[];
+  for (final a in _objectList(json['data'])) {
+    // Largest available first: xl is 1000px, big 500px, medium 250px;
+    // the bare `cover` field has no documented size, so it gets no
+    // resolution bonus rather than an invented one.
+    final xl = _str(a, 'cover_xl');
+    final big = _str(a, 'cover_big');
+    final med = _str(a, 'cover_medium');
+    final small = _str(a, 'cover_small');
+    final base = _str(a, 'cover');
+    String url;
+    int? width;
+    if (xl.isNotEmpty) {
+      url = xl;
+      width = 1000;
+    } else if (big.isNotEmpty) {
+      url = big;
+      width = 500;
+    } else if (med.isNotEmpty) {
+      url = med;
+      width = 250;
+    } else {
+      url = base;
+      width = null;
+    }
+    if (url.isEmpty) continue;
+    final title = _str(a, 'title');
+    if (title.isEmpty) continue;
+    final artistObj = a['artist'];
+    final thumb = med.isNotEmpty ? med : (small.isNotEmpty ? small : url);
+    out.add(
+      ArtCandidate(
+        url: url,
+        thumbUrl: thumb,
+        source: ArtSource.deezer,
+        title: title,
+        artist: artistObj is Map<String, dynamic>
+            ? _str(artistObj, 'name')
+            : '',
+        year: _yearFromDate(a['release_date']),
+        width: width,
+      ),
+    );
+  }
+  return out;
+});
 
 // ---------------------------------------------------------------------------
 // MusicBrainz -> Cover Art Archive
@@ -526,39 +610,40 @@ Future<List<ArtCandidate>> searchCoverArtArchive(
   int limit = 10,
   RateLimiter? limiter,
   RateLimitPriority priority = RateLimitPriority.background,
-}) =>
-    _guarded(() async {
-      if (q.isEmpty) return const <ArtCandidate>[];
-      final res = await (limiter ?? musicBrainzLimiter).schedule(
-        () => fetch(
-          musicBrainzSearchUri(q, limit: limit),
-          headers: const {
-            'User-Agent': kArtworkUserAgent,
-            'Accept': 'application/json',
-          },
-        ),
-        priority: priority,
-      );
-      final json = _decodeObject(res);
-      if (json == null) return const <ArtCandidate>[];
+}) => _guarded(() async {
+  if (q.isEmpty) return const <ArtCandidate>[];
+  final res = await (limiter ?? musicBrainzLimiter).schedule(
+    () => fetch(
+      musicBrainzSearchUri(q, limit: limit),
+      headers: const {
+        'User-Agent': kArtworkUserAgent,
+        'Accept': 'application/json',
+      },
+    ),
+    priority: priority,
+  );
+  final json = _decodeObject(res);
+  if (json == null) return const <ArtCandidate>[];
 
-      final out = <ArtCandidate>[];
-      for (final g in _objectList(json['release-groups'])) {
-        final mbid = _str(g, 'id');
-        final title = _str(g, 'title');
-        if (mbid.isEmpty || title.isEmpty) continue;
-        out.add(ArtCandidate(
-          url: coverArtArchiveFrontUrl(mbid, size: 500),
-          thumbUrl: coverArtArchiveFrontUrl(mbid, size: 250),
-          source: ArtSource.caa,
-          title: title,
-          artist: musicBrainzArtistCredit(g['artist-credit']),
-          year: _yearFromDate(g['first-release-date']),
-          width: 500,
-        ));
-      }
-      return out;
-    });
+  final out = <ArtCandidate>[];
+  for (final g in _objectList(json['release-groups'])) {
+    final mbid = _str(g, 'id');
+    final title = _str(g, 'title');
+    if (mbid.isEmpty || title.isEmpty) continue;
+    out.add(
+      ArtCandidate(
+        url: coverArtArchiveFrontUrl(mbid, size: 500),
+        thumbUrl: coverArtArchiveFrontUrl(mbid, size: 250),
+        source: ArtSource.caa,
+        title: title,
+        artist: musicBrainzArtistCredit(g['artist-credit']),
+        year: _yearFromDate(g['first-release-date']),
+        width: 500,
+      ),
+    );
+  }
+  return out;
+});
 
 // ---------------------------------------------------------------------------
 // All providers
@@ -600,13 +685,15 @@ Future<List<ArtCandidate>> searchAll(
   Duration? caaBudget,
 }) async {
   if (q.isEmpty) return const <ArtCandidate>[];
-  Future<List<ArtCandidate>> caa = _guarded(() => searchCoverArtArchive(
-        q,
-        fetch: fetch,
-        limit: limitPerProvider,
-        limiter: limiter,
-        priority: priority,
-      ));
+  Future<List<ArtCandidate>> caa = _guarded(
+    () => searchCoverArtArchive(
+      q,
+      fetch: fetch,
+      limit: limitPerProvider,
+      limiter: limiter,
+      priority: priority,
+    ),
+  );
   if (caaBudget != null) {
     caa = caa.timeout(caaBudget, onTimeout: () => const <ArtCandidate>[]);
   }

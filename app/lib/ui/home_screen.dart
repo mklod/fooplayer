@@ -81,15 +81,18 @@ class HomeScreen extends StatelessWidget {
                     child: Material(
                       color: AppColors.panelBg,
                       child: _Sidebar(
-                          library: library,
-                          libraryRootsPrefs: libraryRootsPrefs,
-                          playlistStore: store),
+                        artworkBackfill: artworkBackfill,
+                        library: library,
+                        libraryRootsPrefs: libraryRootsPrefs,
+                        playlistStore: store,
+                      ),
                     ),
                   ),
                   VerticalDragDivider(
                     key: const Key('sidebar-divider'),
-                    onDragDelta: (dx) => layoutPrefs
-                        .setSidebarWidth(layoutPrefs.sidebarWidth + dx),
+                    onDragDelta: (dx) => layoutPrefs.setSidebarWidth(
+                      layoutPrefs.sidebarWidth + dx,
+                    ),
                   ),
                   Expanded(
                     child: Column(
@@ -100,108 +103,126 @@ class HomeScreen extends StatelessWidget {
                             children: [
                               Expanded(child: _SearchField(library: library)),
                               const SizedBox(width: 4),
-                              _RefreshButton(
-                                library: library,
-                                artworkBackfill: artworkBackfill,
+                              // Collapse/expand the Folder/Artist/Album row.
+                              // The dragged height is remembered, so
+                              // expanding restores the same size.
+                              IconButton(
+                                key: const Key('filters-collapse'),
+                                tooltip: layoutPrefs.filtersCollapsed
+                                    ? 'Show filters'
+                                    : 'Hide filters',
+                                icon: Icon(
+                                  layoutPrefs.filtersCollapsed
+                                      ? Icons.unfold_more
+                                      : Icons.unfold_less,
+                                  size: 18,
+                                  color: AppColors.inkSecondary,
+                                ),
+                                onPressed: layoutPrefs.toggleFiltersCollapsed,
                               ),
                             ],
                           ),
                         ),
-                        SizedBox(
-                          key: const Key('filter-panel'),
-                          height: layoutPrefs.filterHeight,
-                          // Same reasoning as the sidebar: Material, not
-                          // Container, so the filter panels' ListTile
-                          // selection/ink still paints correctly.
-                          child: Material(
-                            color: AppColors.panelBg,
-                            child: ListenableBuilder(
-                              listenable: library,
-                              builder: (context, _) => Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Expanded(
-                                    child: FilterPanel(
-                                      key: const Key('folder-filter-panel'),
-                                      title: 'Folder',
-                                      // Drill-down navigator (see
-                                      // LibraryModel.folderEntries): plain
-                                      // click selects AND descends into a
-                                      // folder, Ctrl+click toggles siblings
-                                      // at the current level, the pinned ✕
-                                      // resets to the root list. Entries
-                                      // are full root paths only at the top
-                                      // level (shown by basename); below
-                                      // that they're already bare names.
-                                      values: library.folderEntries,
-                                      selected: library.folderSiblings,
-                                      onSelect: library.setFolderSiblings,
-                                      onDrill: library.drillIntoFolder,
-                                      // Step-wise breadcrumb: a leading
-                                      // 'All' segment (full reset) plus one
-                                      // segment per drill-down step, each
-                                      // ancestor clickable. The 'All'
-                                      // prepend keeps UI segment index ==
-                                      // popFolderTo depth (0 = roots); the
-                                      // trailing sibling/'N selected'
-                                      // segment, when present, is the
-                                      // non-clickable last one, so the
-                                      // deepest clickable index is at most
-                                      // folderPath.length -- which
-                                      // popFolderTo treats as "keep the
-                                      // path, drop the sibling selection".
-                                      headerSegments:
-                                          library.folderBreadcrumbs.isEmpty
-                                              ? null
-                                              : [
-                                                  'All',
-                                                  ...library.folderBreadcrumbs,
-                                                ],
-                                      onHeaderSegmentTap: library.popFolderTo,
-                                      onClearHeader:
-                                          library.clearFolderSelection,
-                                      displayName: library.folderPath.isEmpty
-                                          ? p.basename
-                                          : null,
+                        if (!layoutPrefs.filtersCollapsed)
+                          SizedBox(
+                            key: const Key('filter-panel'),
+                            height: layoutPrefs.filterHeight,
+                            // Same reasoning as the sidebar: Material, not
+                            // Container, so the filter panels' ListTile
+                            // selection/ink still paints correctly.
+                            child: Material(
+                              color: AppColors.panelBg,
+                              child: ListenableBuilder(
+                                listenable: library,
+                                builder: (context, _) => Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(
+                                      child: FilterPanel(
+                                        key: const Key('folder-filter-panel'),
+                                        title: 'Folder',
+                                        // Drill-down navigator (see
+                                        // LibraryModel.folderEntries): plain
+                                        // click selects AND descends into a
+                                        // folder, Ctrl+click toggles siblings
+                                        // at the current level, the pinned ✕
+                                        // resets to the root list. Entries
+                                        // are full root paths only at the top
+                                        // level (shown by basename); below
+                                        // that they're already bare names.
+                                        values: library.folderEntries,
+                                        selected: library.folderSiblings,
+                                        onSelect: library.setFolderSiblings,
+                                        onDrill: library.drillIntoFolder,
+                                        // Step-wise breadcrumb: a leading
+                                        // 'All' segment (full reset) plus one
+                                        // segment per drill-down step, each
+                                        // ancestor clickable. The 'All'
+                                        // prepend keeps UI segment index ==
+                                        // popFolderTo depth (0 = roots); the
+                                        // trailing sibling/'N selected'
+                                        // segment, when present, is the
+                                        // non-clickable last one, so the
+                                        // deepest clickable index is at most
+                                        // folderPath.length -- which
+                                        // popFolderTo treats as "keep the
+                                        // path, drop the sibling selection".
+                                        headerSegments:
+                                            library.folderBreadcrumbs.isEmpty
+                                            ? null
+                                            : [
+                                                'All',
+                                                ...library.folderBreadcrumbs,
+                                              ],
+                                        onHeaderSegmentTap: library.popFolderTo,
+                                        onClearHeader:
+                                            library.clearFolderSelection,
+                                        displayName: library.folderPath.isEmpty
+                                            ? p.basename
+                                            : null,
+                                      ),
                                     ),
-                                  ),
-                                  const VerticalDivider(width: 1),
-                                  Expanded(
-                                    child: FilterPanel(
-                                      key: const Key('artist-filter-panel'),
-                                      title: 'Artist',
-                                      values: library.artists,
-                                      selected: library.artistFilters,
-                                      onSelect: library.setArtists,
+                                    const VerticalDivider(width: 1),
+                                    Expanded(
+                                      child: FilterPanel(
+                                        key: const Key('artist-filter-panel'),
+                                        title: 'Artist',
+                                        values: library.artists,
+                                        selected: library.artistFilters,
+                                        onSelect: library.setArtists,
+                                      ),
                                     ),
-                                  ),
-                                  const VerticalDivider(width: 1),
-                                  Expanded(
-                                    child: FilterPanel(
-                                      key: const Key('album-filter-panel'),
-                                      title: 'Album',
-                                      values: library.albums,
-                                      selected: library.albumFilters,
-                                      onSelect: library.setAlbums,
+                                    const VerticalDivider(width: 1),
+                                    Expanded(
+                                      child: FilterPanel(
+                                        key: const Key('album-filter-panel'),
+                                        title: 'Album',
+                                        values: library.albums,
+                                        selected: library.albumFilters,
+                                        onSelect: library.setAlbums,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        HorizontalDragDivider(
-                          key: const Key('filter-divider'),
-                          onDragDelta: (dy) => layoutPrefs
-                              .setFilterHeight(layoutPrefs.filterHeight + dy),
-                        ),
+                        if (!layoutPrefs.filtersCollapsed)
+                          HorizontalDragDivider(
+                            key: const Key('filter-divider'),
+                            onDragDelta: (dy) => layoutPrefs.setFilterHeight(
+                              layoutPrefs.filterHeight + dy,
+                            ),
+                          ),
                         Expanded(
-                            child: TrackListView(
-                                library: library,
-                                player: player,
-                                playlistStore: store,
-                                artwork: artworkServices)),
-                        _StatusBar(library: library),
+                          child: TrackListView(
+                            library: library,
+                            player: player,
+                            playlistStore: store,
+                            artwork: artworkServices,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -220,20 +241,61 @@ class _Sidebar extends StatelessWidget {
   final LibraryModel library;
   final LibraryRootsPrefs libraryRootsPrefs;
   final PlaylistStore playlistStore;
+
+  /// Background best-guess artwork pass, driven by the "Enrich artwork"
+  /// entry pinned at the sidebar bottom. Null hides that entry (widget
+  /// tests that build the screen without the artwork feature wired).
+  final ArtworkBackfill? artworkBackfill;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
     required this.playlistStore,
+    this.artworkBackfill,
   });
 
   Future<void> _createPlaylist(BuildContext context) async {
+    // Captured before the name dialog opens -- see showPlaylistError's doc.
+    final messenger = ScaffoldMessenger.of(context);
     final name = await showPlaylistNameDialog(context, store: playlistStore);
-    if (name == null || !context.mounted) return;
+    if (name == null) return;
     try {
       await playlistStore.createPlaylist(name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
+  }
+
+  /// Kicks the background best-guess pass over every album that still has
+  /// no artwork. Safe to press repeatedly: the pass dedupes per album and
+  /// skips albums that already resolved.
+  void _enrichArtwork(BuildContext context) {
+    final backfill = artworkBackfill;
+    if (backfill == null) return;
+    backfill.run(artworkBackfillRequests(library.allTracks));
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Looking up artwork for albums without a cover…'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  /// Manual rescan of every library root, queueing an artwork pass for any
+  /// newly-found tracks (same path as the periodic timer and launch scan).
+  void _rescan() {
+    final backfill = artworkBackfill;
+    if (backfill == null) {
+      unawaited(library.rescan());
+      return;
+    }
+    unawaited(
+      rescanThenBackfill(
+        rescan: library.rescan,
+        backfill: backfill,
+        tracks: () => library.allTracks,
+      ),
+    );
   }
 
   void _openSettings(BuildContext context) {
@@ -289,12 +351,37 @@ class _Sidebar extends StatelessWidget {
           ),
           const Divider(height: 1),
           // Pinned at the sidebar bottom (outside the scrolling ListView
-          // above) so it's always reachable regardless of playlist count.
+          // above) so these stay reachable regardless of playlist count:
+          // the library status line, the manual artwork pass, then Settings.
+          ListTile(
+            key: const Key('rescan-library'),
+            leading: const Icon(Icons.refresh, size: 18),
+            title: const Text('Rescan library'),
+            enabled: !library.busy,
+            onTap: library.busy ? null : () => _rescan(),
+          ),
+          if (artworkBackfill != null)
+            ListTile(
+              key: const Key('enrich-artwork'),
+              leading: const Icon(Icons.image_search_outlined, size: 18),
+              title: const Text('Enrich artwork'),
+              onTap: () => _enrichArtwork(context),
+            ),
           ListTile(
             key: const Key('settings-gear'),
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
             onTap: () => _openSettings(context),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+            child: Text(
+              '${library.status} — ${library.visibleTracks.length} tracks',
+              key: const Key('sidebar-status'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ],
       ),
@@ -323,6 +410,12 @@ class _PlaylistTile extends StatelessWidget {
   });
 
   Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    // Captured before the popup menu opens -- see showPlaylistError's doc.
+    // Matters here specifically: a SUCCESSFUL delete removes this very tile
+    // (LibraryModel.reloadPlaylists rebuilds the sidebar's playlist list
+    // without it), but a refused delete must still be able to report
+    // through a messenger that doesn't depend on this tile still existing.
+    final messenger = ScaffoldMessenger.of(context);
     final overlayBox =
         Overlay.of(context).context.findRenderObject() as RenderBox;
     final action = await showMenu<String>(
@@ -337,11 +430,11 @@ class _PlaylistTile extends StatelessWidget {
     );
     if (action != 'delete' || !context.mounted) return;
     final confirmed = await confirmDeletePlaylist(context, playlist.name);
-    if (!confirmed || !context.mounted) return;
+    if (!confirmed) return;
     try {
       await store.deletePlaylist(playlist.name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
   }
 
@@ -352,8 +445,11 @@ class _PlaylistTile extends StatelessWidget {
       onSecondaryTapDown: (details) =>
           _showContextMenu(context, details.globalPosition),
       child: ListTile(
-        title: Text(playlist.name,
-            maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(
+          playlist.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         selected: active,
         // Toggle: a tap on the already-active playlist clears back to the
         // Library view instead of being a dead click.
@@ -361,8 +457,11 @@ class _PlaylistTile extends StatelessWidget {
         trailing: active
             ? IconButton(
                 key: Key('clear-playlist-${playlist.name}'),
-                icon: const Icon(Icons.close,
-                    size: 14, color: AppColors.inkSecondary),
+                icon: const Icon(
+                  Icons.close,
+                  size: 14,
+                  color: AppColors.inkSecondary,
+                ),
                 tooltip: 'Back to Library',
                 onPressed: () => library.setPlaylist(null),
               )
@@ -412,78 +511,16 @@ class _SearchFieldState extends State<_SearchField> {
               ? null
               : IconButton(
                   key: const Key('search-clear'),
-                  icon: const Icon(Icons.close,
-                      size: 16, color: AppColors.inkSecondary),
+                  icon: const Icon(
+                    Icons.close,
+                    size: 16,
+                    color: AppColors.inkSecondary,
+                  ),
                   tooltip: 'Clear search',
                   onPressed: _clear,
                 ),
         ),
         onChanged: widget.library.setSearch,
-      ),
-    );
-  }
-}
-
-/// Manual trigger for [LibraryModel.rescan] (the other two triggers --
-/// launch and the 5-minute periodic timer -- are wired in main.dart).
-/// Disabled (and grayed out, standard [IconButton] behavior for a `null`
-/// `onPressed`) while [LibraryModel.busy] so a tap can't queue up a second
-/// overlapping rescan; [LibraryModel.rescan] itself would just no-op it
-/// anyway, but disabling communicates that visually instead of silently
-/// swallowing the tap.
-///
-/// When [artworkBackfill] is supplied, the rescan is chained through
-/// [rescanThenBackfill] so any newly-discovered tracks get an automatic
-/// artwork pass queued once the rescan settles -- without this, a manual
-/// refresh (like the periodic timer) never triggered a backfill at all, so
-/// an album added after launch showed no art until the app was restarted.
-class _RefreshButton extends StatelessWidget {
-  final LibraryModel library;
-  final ArtworkBackfill? artworkBackfill;
-  const _RefreshButton({required this.library, this.artworkBackfill});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: library,
-      builder: (context, _) => IconButton(
-        key: const Key('refresh-library'),
-        icon: const Icon(Icons.refresh),
-        tooltip: 'Rescan library folders',
-        onPressed: library.busy
-            ? null
-            : () {
-                final backfill = artworkBackfill;
-                if (backfill == null) {
-                  library.rescan();
-                } else {
-                  unawaited(rescanThenBackfill(
-                    rescan: library.rescan,
-                    backfill: backfill,
-                    tracks: () => library.allTracks,
-                  ));
-                }
-              },
-      ),
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  final LibraryModel library;
-  const _StatusBar({required this.library});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: library,
-      builder: (context, _) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Text(
-          '${library.status} — ${library.visibleTracks.length} tracks',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
       ),
     );
   }

@@ -105,8 +105,8 @@ void main() {
     // only advances on an explicit pump().
     await tester.runAsync(() async {
       final button =
-          tester.widget<IconButton>(find.byKey(const Key('refresh-library')));
-      button.onPressed!();
+          tester.widget<ListTile>(find.byKey(const Key('rescan-library')));
+      button.onTap!();
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (searched.isEmpty && DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -141,7 +141,7 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('refresh-library')));
+    await tester.tap(find.byKey(const Key('rescan-library')));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
