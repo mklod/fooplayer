@@ -1414,6 +1414,14 @@ class LibraryModel extends ChangeNotifier {
     }
   }
 
+  /// Tells listeners to repaint without changing any library state.
+  ///
+  /// Used when something the UI DERIVES from outside this model changes --
+  /// specifically the artwork sidecars, which the library view's "Art" column
+  /// reads synchronously. Loading a sidecar changes no track, but the column
+  /// is wrong until the rows rebuild.
+  void notifyDerivedChanged() => notifyListeners();
+
   /// Attempts to take the [busy] flag for a short external manifest write
   /// (PlaylistStore's load-mutate-save cycle on the first root's
   /// `.library.json`). Returns false -- caller should retry shortly -- when

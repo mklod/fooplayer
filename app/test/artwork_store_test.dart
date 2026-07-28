@@ -660,4 +660,45 @@ void main() {
       expect(identical(reg.forRoot(p.join(tmp.path, 'other')), a), isFalse);
     });
   });
+
+  group('entryFor before the sidecar is loaded', () {
+    // Regression: the library view's "Art" column reads entryFor
+    // SYNCHRONOUSLY, and nothing in that view ever triggered a load -- so an
+    // album whose cover came from the sidecar (a harvested local file, or an
+    // online lookup like Gorillaz "El Manana") showed a blank Art cell
+    // however much artwork it had. The store answered honestly; it had never
+    // read the file. main.dart now preloads every root's sidecar at startup.
+    test(
+      'answers "nothing recorded" until ensureLoaded, then the truth',
+      () async {
+        final tmp = await Directory.systemTemp.createTemp('sidecarload');
+        addTearDown(() => tmp.delete(recursive: true));
+        final root = await Directory('${tmp.path}/root').create();
+        await File('${root.path}/$artworkSidecarName').writeAsString(
+          jsonEncode({
+            'schema': artworkSidecarSchema,
+            'art': {
+              'gorillaz|el manana': {
+                'file': 'abc.jpg',
+                'source': 'itunes',
+                'pickedAt': '2026-07-28T00:00:00.000Z',
+              },
+            },
+            'misses': <String, dynamic>{},
+          }),
+        );
+
+        final store = ArtworkStore(root: root, appDataDir: tmp);
+        expect(
+          store.entryFor('gorillaz|el manana'),
+          isNull,
+          reason: 'not yet loaded -- this is the state the column hit',
+        );
+
+        await store.ensureLoaded();
+        expect(store.entryFor('gorillaz|el manana'), isNotNull);
+        expect(store.entryFor('gorillaz|el manana')!.source, 'itunes');
+      },
+    );
+  });
 }

@@ -177,6 +177,28 @@ void main() async {
     // synchronous and run() serializes behind it, so this can't delay the
     // reload or double up on provider traffic.
     artworkBackfill.cancel();
+
+    // Load every root's artwork sidecar. The library view's "Art" column asks
+    // the store synchronously (`entryFor`), and a store that has never been
+    // loaded answers "nothing recorded" -- so without this, an album whose
+    // cover came from a sidecar (a harvested local file, or an online lookup
+    // like Gorillaz "El Manana") showed a blank Art cell however much artwork
+    // it had.
+    //
+    // Started BEFORE the load rather than after it: load() does not return
+    // until background tag enrichment finishes, which is minutes on this
+    // library -- the column would have stayed wrong for all of it.
+    unawaited(() async {
+      for (final root in libraryRootsPrefs.roots) {
+        try {
+          await artwork.stores.forRoot(root).ensureLoaded();
+        } catch (_) {
+          // An unreadable sidecar just means "no recorded picks" here.
+        }
+      }
+      library.notifyDerivedChanged();
+    }());
+
     await library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,

@@ -729,6 +729,7 @@ class _TrackRow extends StatelessWidget {
             library: library,
             playlistStore: playlistStore,
             artwork: artwork,
+            artworkResolver: artworkResolver,
           ),
           // Every Material overlay off. The splash and pressed highlight took
           // hundreds of ms to play out, which made selection feel sluggish;
@@ -999,6 +1000,7 @@ Future<void> _showTrackContextMenu({
   required LibraryModel library,
   required PlaylistStore playlistStore,
   ArtworkServices? artwork,
+  ArtworkResolver? artworkResolver,
 }) async {
   // Captured BEFORE the popup menu opens (and reused by every action below,
   // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
@@ -1086,7 +1088,12 @@ Future<void> _showTrackContextMenu({
       }
     case _TrackMenuAction.albumArtwork:
       if (artwork == null) return; // unreachable; item not shown
-      await showArtworkPickerDialog(context, track: track, services: artwork);
+      await showArtworkPickerDialog(
+        context,
+        track: track,
+        services: artwork,
+        resolver: artworkResolver,
+      );
     case null:
       return;
   }

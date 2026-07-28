@@ -435,6 +435,7 @@ class _LcdCluster extends StatelessWidget {
                 context,
                 track: track,
                 services: artwork!,
+                resolver: resolver,
               ),
               child: AlbumArt(
                 contentId: track.contentId,

@@ -15,12 +15,14 @@
 // this file performs NO network I/O, opens no native dialog of its own,
 // and never touches the filesystem or the sidecar. That is what lets the
 // tests drive the whole flow with fakes.
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
 import '../model/track.dart';
 import '../ui/app_theme.dart';
+import 'artwork_resolver.dart';
 import 'picker_seams.dart';
 
 /// How a picker session ended -- the value its route pops with.
@@ -47,6 +49,11 @@ String artworkPickerLabelForTrack(Track track) {
 
 /// The shared picker body. Bounded by its parent (a sized [Dialog] on
 /// desktop, a [Scaffold] body on phone) -- it fills whatever box it gets.
+/// Candidate tile geometry, shared with the hero so "the same size as a 2x2
+/// block of options" stays true if either changes.
+const double _kTileExtent = 148;
+const double _kTileSpacing = 10;
+
 class ArtworkPicker extends StatefulWidget {
   /// The track the picker was opened from. Handed to every service seam
   /// because artwork storage is per LIBRARY ROOT: the album key alone can't
@@ -66,6 +73,11 @@ class ArtworkPicker extends StatefulWidget {
 
   final ArtworkServices services;
 
+  /// Resolves the cover currently in force for [track] -- embedded art, a
+  /// sidecar pick, or a sibling file -- for the hero image at the top of the
+  /// dialog. Null simply omits the hero (widget tests build it that way).
+  final ArtworkResolver? resolver;
+
   /// Called when the session ends. Defaults to popping the enclosing route
   /// with the [ArtworkPickerOutcome] -- overridden by tests that pump the
   /// picker bare (no route to pop) and by hosts that want to stay open.
@@ -79,6 +91,7 @@ class ArtworkPicker extends StatefulWidget {
     required this.query,
     required this.services,
     this.onFinished,
+    this.resolver,
   });
 
   @override
@@ -86,6 +99,9 @@ class ArtworkPicker extends StatefulWidget {
 }
 
 class _ArtworkPickerState extends State<ArtworkPicker> {
+  /// Bytes of the cover currently in force, for the hero. Null while loading
+  /// or when there is no art at all.
+  Uint8List? _heroBytes;
   List<PickerCandidate> _candidates = const [];
   bool _loading = true;
 
@@ -101,7 +117,25 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadHero());
     _search();
+  }
+
+  /// Loads whatever cover is in force right now, for the hero. Failures are
+  /// silent: the hero is context, not function, and a picker that refused to
+  /// open because the current art wouldn't load would be absurd.
+  Future<void> _loadHero() async {
+    final resolver = widget.resolver;
+    if (resolver == null) return;
+    try {
+      final bytes = await resolver.resolve(
+        ArtworkRequest.forTrack(widget.track),
+      );
+      if (!mounted || bytes == null || bytes.isEmpty) return;
+      setState(() => _heroBytes = Uint8List.fromList(bytes));
+    } catch (_) {
+      // no hero, no problem
+    }
   }
 
   Future<void> _search({bool forceRefresh = false}) async {
@@ -244,7 +278,15 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
             ],
           ),
         ),
-        Expanded(child: _body(current)),
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_heroBytes != null) ...[_hero(), const SizedBox(width: 16)],
+              Expanded(child: _body(current)),
+            ],
+          ),
+        ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.only(top: 6),
@@ -256,6 +298,44 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
           ),
         const SizedBox(height: 8),
         _actions(),
+      ],
+    );
+  }
+
+  /// The cover currently in force, shown at the size of a 2x2 block of
+  /// candidate tiles (2 x [_kTileExtent] plus the grid's spacing).
+  ///
+  /// Off to the side rather than inline with the title: at thumbnail size it
+  /// was indistinguishable from the options it is meant to be compared
+  /// against, which defeated the point of showing it.
+  Widget _hero() {
+    const side = _kTileExtent * 2 + _kTileSpacing;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: Image.memory(
+            _heroBytes!,
+            key: const Key('artwork-picker-hero'),
+            width: side,
+            height: side,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'CURRENT',
+          style: TextStyle(
+            fontSize: 10.5,
+            letterSpacing: 0.8,
+            fontWeight: FontWeight.w600,
+            color: AppColors.inkSecondary,
+          ),
+        ),
       ],
     );
   }
@@ -284,9 +364,9 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       key: const Key('artwork-candidate-grid'),
       padding: const EdgeInsets.all(2),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 148,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+        maxCrossAxisExtent: _kTileExtent,
+        crossAxisSpacing: _kTileSpacing,
+        mainAxisSpacing: _kTileSpacing,
         childAspectRatio: 0.76,
       ),
       itemCount: _candidates.length,
@@ -557,23 +637,28 @@ Future<ArtworkPickerOutcome?> showArtworkPickerDialog(
   BuildContext context, {
   required Track track,
   required ArtworkServices services,
+  ArtworkResolver? resolver,
 }) {
   return showDialog<ArtworkPickerOutcome>(
     context: context,
     builder: (ctx) => Dialog(
       key: const Key('artwork-picker-dialog'),
       backgroundColor: AppColors.windowBg,
+      // Tighter corners than Material's default 28 -- at that radius the
+      // dialog reads as a phone sheet rather than a desktop panel.
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: SizedBox(
-        width: 560,
-        height: 480,
+        width: 800,
+        height: 600,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+          padding: const EdgeInsets.all(24),
           child: ArtworkPicker(
             track: track,
             albumKey: services.albumKey(track),
             albumLabel: artworkPickerLabelForTrack(track),
             query: artworkQueryForTrack(track),
             services: services,
+            resolver: resolver,
           ),
         ),
       ),

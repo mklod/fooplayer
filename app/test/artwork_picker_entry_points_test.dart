@@ -10,9 +10,14 @@
 // the entry entirely, so a build without A1/A2 wired never offers a dead
 // affordance. Everything below runs on fakes -- no network, no native file
 // dialog, no disk (see test/support/artwork_fakes.dart).
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:fooplayer_app/artwork/artwork_resolver.dart';
+import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/artwork/artwork_picker.dart';
 import 'package:fooplayer_app/artwork/picker_seams.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
@@ -422,4 +427,67 @@ void main() {
       expect(find.byKey(const Key('now-playing-art-tap')), findsNothing);
     });
   });
+
+  group('the picker hero', () {
+    testWidgets('shows the cover currently in force, so you can see what you '
+        'are replacing', (tester) async {
+      // A resolver that hands back a real (1x1) PNG, so Image.memory decodes.
+      final resolver = _HeroResolver(onePixelPng);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: ArtworkPicker(
+              track: artworkFixtureTrack(),
+              albumKey: 'muse|absolution',
+              albumLabel: 'Muse — Absolution',
+              query: const ArtworkQuery(artist: 'Muse', album: 'Absolution'),
+              services: fakeArtworkServices(
+                search: FakeArtworkSearch([[]]),
+                store: FakeArtworkStore(),
+              ),
+              resolver: resolver,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('artwork-picker-hero')), findsOneWidget);
+    });
+
+    testWidgets('without a resolver there is simply no hero', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: ArtworkPicker(
+              track: artworkFixtureTrack(),
+              albumKey: 'muse|absolution',
+              albumLabel: 'Muse — Absolution',
+              query: const ArtworkQuery(artist: 'Muse', album: 'Absolution'),
+              services: fakeArtworkServices(
+                search: FakeArtworkSearch([[]]),
+                store: FakeArtworkStore(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('artwork-picker-hero')), findsNothing);
+      expect(find.byKey(const Key('artwork-picker-title')), findsOneWidget);
+    });
+  });
+}
+
+/// Minimal [ArtworkResolver] that always resolves to the same bytes.
+class _HeroResolver extends ArtworkResolver {
+  final Uint8List _bytes;
+  _HeroResolver(this._bytes)
+    : super(stores: ArtworkStoreRegistry(appDataDir: Directory.systemTemp));
+
+  @override
+  Future<List<int>?> resolve(ArtworkRequest req) async => _bytes;
 }
