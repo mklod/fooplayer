@@ -43,7 +43,29 @@ ASSIGNMENTS = {
     "Kanye West - Freshmen Adjustment [2005]": "2007-09",
     "Citizen Cope - Citizen Cope": "2008",
     "Citizen Cope - The Clarence Greenwood Recordings": "2008",
+    # Nothing by them anywhere else in the collection, so the release year is
+    # the only floor there is -- Mike accepted it as the answer.
+    "Dead Confederate - Wrecking Ball (2008)": "2008",
+    # Placed by life event rather than by evidence: when Mike moved to
+    # California.
+    "Just Jack - All Night Cinema": "2015-08",
+    # Evidence-backed: 2007-11-11 is carried by three folders in the whole
+    # collection and all three are Rehab (.m4a copies outside the fooplayer
+    # roots, so untouched by any tagger or by tonight's stamping). Discovering
+    # the band and grabbing the back catalogue in one evening.
+    "Rehab - Graffiti The World": "2007-11",
+    "Rehab - Southern Discomfort": "2007-11",
+    # Inference, not a surviving timestamp: every Streets copy outside the
+    # roots sits on a bulk copy event, so the only real signal is the canon
+    # monthly burst of 2009-02 (Original Bootleg Material). Everything Is
+    # Borrowed released 2008-09 and All Got Our Runnins is a 2009 mixtape.
+    "The Streets - Everything Is Borrowed": "2009-02",
+    "The Streets - all got our runnins EP": "2009-02",
 }
+
+# Ruled correct as-is, deliberately NOT reassigned:
+#   Everclear - Return To Santa Monica (2011)  -> 2026-01 accepted
+#   Echos x2, Little Miss Sunshine, Swim Surreal -> genuinely recent
 
 
 def iso(value):
