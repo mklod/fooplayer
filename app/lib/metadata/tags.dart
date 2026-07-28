@@ -124,6 +124,10 @@ TrackTags parseFromFilename(String relPath) {
   );
 }
 
+/// Public alias of [_blankAsNull] for callers outside this file (the
+/// enrichment pass's tag-recovery path).
+String? blankAsNull(String? s) => _blankAsNull(s);
+
 String? _blankAsNull(String? s) =>
     (s == null || s.trim().isEmpty) ? null : s.trim();
 

@@ -35,15 +35,35 @@ class MetaCache {
   /// change that only affected one field. Never again.
   final Set<String> staleIds;
 
-  MetaCache._(this.entries, this.staleIds);
+  /// The revision each entry carried when it was loaded, so an entry that is
+  /// kept but NOT re-read is written back with the revision it actually has.
+  ///
+  /// Without this, [save] stamped every entry with the current revision --
+  /// including the stale ones it was serving untouched -- so the first flush
+  /// (every 5 batches, i.e. within the first 1000 files) silently marked the
+  /// whole library as refreshed. Everything after that looked current, and
+  /// 57 tracks with tags the old parser had dropped were never re-read at
+  /// all. The staleness marker must survive a save.
+  final Map<String, int> _loadedRev;
+
+  MetaCache._(this.entries, this.staleIds, this._loadedRev);
+
+  /// Records that [id] has been re-read at the current revision, so [save]
+  /// stops treating it as stale. Called by the enrichment pass as each
+  /// refreshed entry replaces its predecessor.
+  void markRefreshed(String id) {
+    staleIds.remove(id);
+    _loadedRev.remove(id);
+  }
 
   factory MetaCache.load(File f) {
-    if (!f.existsSync()) return MetaCache._({}, {});
+    if (!f.existsSync()) return MetaCache._({}, {}, {});
     try {
       final j = jsonDecode(f.readAsStringSync());
-      if (j is! Map<String, dynamic>) return MetaCache._({}, {});
+      if (j is! Map<String, dynamic>) return MetaCache._({}, {}, {});
       final entries = <String, TrackTags>{};
       final stale = <String>{};
+      final loadedRev = <String, int>{};
       for (final entry in j.entries) {
         final v = entry.value;
         if (v is! Map<String, dynamic>) continue;
@@ -62,12 +82,15 @@ class MetaCache {
         // album and duration, and blanking all of that to correct one field
         // is a far worse experience than showing it while a background pass
         // refreshes it.
-        if (v['rev'] != kMetaCacheRevision) stale.add(entry.key);
+        if (v['rev'] != kMetaCacheRevision) {
+          stale.add(entry.key);
+          loadedRev[entry.key] = (v['rev'] as num?)?.toInt() ?? 0;
+        }
         entries[entry.key] = TrackTags.fromJson(v);
       }
-      return MetaCache._(entries, stale);
+      return MetaCache._(entries, stale, loadedRev);
     } catch (_) {
-      return MetaCache._({}, {});
+      return MetaCache._({}, {}, {});
     }
   }
 
@@ -76,7 +99,15 @@ class MetaCache {
     await f.writeAsString(
       jsonEncode(
         entries.map(
-          (k, v) => MapEntry(k, {...v.toJson(), 'rev': kMetaCacheRevision}),
+          (k, v) => MapEntry(k, {
+            ...v.toJson(),
+            // An entry still flagged stale was never re-read, so it keeps
+            // the revision it came in with -- otherwise saving would erase
+            // the very fact that it needs refreshing.
+            'rev': staleIds.contains(k)
+                ? (_loadedRev[k] ?? 0)
+                : kMetaCacheRevision,
+          }),
         ),
       ),
     );
