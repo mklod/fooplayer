@@ -15,8 +15,7 @@ void main() {
   setUp(() async => tmp = await Directory.systemTemp.createTemp('rescan'));
   tearDown(() async => tmp.delete(recursive: true));
 
-  test(
-      'rescan finds a new file, merges it into allTracks with a fresh '
+  test('rescan finds a new file, merges it into allTracks with a fresh '
       'dateAdded, and the manifest on disk gains the entry', () async {
     final root = await Directory('${tmp.path}/lib').create();
 
@@ -46,8 +45,9 @@ void main() {
     // Drop a genuinely new file into the root -- junk bytes, not real MP3
     // audio, so the merge step's filename-fallback metadata path (see
     // rescan()'s doc comment) is exercised end to end.
-    await File('${root.path}/Artist - Junk File.mp3')
-        .writeAsBytes(List<int>.filled(200, 0));
+    await File(
+      '${root.path}/Artist - Junk File.mp3',
+    ).writeAsBytes(List<int>.filled(200, 0));
 
     final before = DateTime.now();
     await model.rescan().timeout(const Duration(seconds: 30));
@@ -57,15 +57,20 @@ void main() {
     expect(model.busy, isFalse);
     expect(model.allTracks, hasLength(2));
 
-    final added = model.allTracks
-        .firstWhere((t) => t.relPath == 'Artist - Junk File.mp3');
+    final added = model.allTracks.firstWhere(
+      (t) => t.relPath == 'Artist - Junk File.mp3',
+    );
     expect(added.rootPath, root.path);
-    expect(added.title, 'Junk File'); // filename fallback: junk bytes, unparseable
+    expect(
+      added.title,
+      'Junk File',
+    ); // filename fallback: junk bytes, unparseable
     expect(added.artist, 'Artist');
     expect(
       added.dateAdded.isAfter(before.subtract(const Duration(seconds: 2))),
       isTrue,
-      reason: 'the new track must be stamped with a dateAdded from this '
+      reason:
+          'the new track must be stamped with a dateAdded from this '
           'rescan, not some stale/default value',
     );
     expect(
@@ -74,8 +79,9 @@ void main() {
     );
 
     // The pre-existing track is untouched -- its original stamp survives.
-    final existing =
-        model.allTracks.firstWhere((t) => t.contentId == existingId);
+    final existing = model.allTracks.firstWhere(
+      (t) => t.contentId == existingId,
+    );
     expect(existing.dateAdded, DateTime.utc(2020, 1, 1));
 
     // The manifest file on disk gained the new entry too, not just the
@@ -83,14 +89,14 @@ void main() {
     final onDisk = loadManifest(root);
     expect(onDisk.tracks, hasLength(2));
     expect(
-      onDisk.tracks.values
-          .any((e) => e.paths.contains('Artist - Junk File.mp3')),
+      onDisk.tracks.values.any(
+        (e) => e.paths.contains('Artist - Junk File.mp3'),
+      ),
       isTrue,
     );
   });
 
-  test(
-      'a timed-out root rescan is KILLED, not left as a zombie -- it must '
+  test('a timed-out root rescan is KILLED, not left as a zombie -- it must '
       'never save the manifest after the timeout fired (batch2 review: '
       'Isolate.run(...).timeout() does not cancel the isolate, so the old '
       'wiring let a stalled scan call saveManifest at an arbitrary later '
@@ -120,8 +126,9 @@ void main() {
     // orphaned scan cycle had real work to finish before its late
     // saveManifest -- and so a late save is unmistakable: 40 extra entries.
     for (var i = 0; i < 40; i++) {
-      await File('${root.path}/Artist - New Track $i.mp3')
-          .writeAsBytes(List<int>.filled(200, i + 1));
+      await File(
+        '${root.path}/Artist - New Track $i.mp3',
+      ).writeAsBytes(List<int>.filled(200, i + 1));
     }
 
     final statuses = <String>[];
@@ -134,8 +141,11 @@ void main() {
         .rescan(rootTimeout: Duration.zero)
         .timeout(const Duration(seconds: 30));
 
-    expect(statuses, contains('rescan of lib timed out'),
-        reason: 'the zero-budget root must have hit the timeout path');
+    expect(
+      statuses,
+      contains('rescan of lib timed out'),
+      reason: 'the zero-budget root must have hit the timeout path',
+    );
     expect(model.busy, isFalse);
     // The timed-out root contributed nothing to the in-memory library.
     expect(model.allTracks, hasLength(1));
@@ -147,10 +157,14 @@ void main() {
     final deadline = DateTime.now().add(const Duration(seconds: 3));
     while (DateTime.now().isBefore(deadline)) {
       final onDisk = loadManifest(root);
-      expect(onDisk.tracks, hasLength(1),
-          reason: 'a manifest write after the timeout means the rescan '
-              'isolate survived as a zombie -- the exact lost-update bug '
-              'this test pins down');
+      expect(
+        onDisk.tracks,
+        hasLength(1),
+        reason:
+            'a manifest write after the timeout means the rescan '
+            'isolate survived as a zombie -- the exact lost-update bug '
+            'this test pins down',
+      );
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
   });
@@ -174,8 +188,9 @@ void main() {
         .load(libraryRoots: [root], cacheFile: cacheFile)
         .timeout(const Duration(seconds: 30));
 
-    await File('${root.path}/Artist - New File.mp3')
-        .writeAsBytes(List<int>.filled(200, 0));
+    await File(
+      '${root.path}/Artist - New File.mp3',
+    ).writeAsBytes(List<int>.filled(200, 0));
 
     expect(model.busy, isFalse);
     final first = model.rescan().timeout(const Duration(seconds: 30));

@@ -31,8 +31,11 @@ void main() {
   group('subfolderNames', () {
     test('derives immediate subdirectories at the root level; a track '
         'directly at that level yields no phantom entry', () {
-      expect(subfolderNames(all, rootPath: r'L:\Music\monthly'),
-          ['2007-08', '2007-09', '2007-11']); // sorted; no 'loose.mp3' entry
+      expect(subfolderNames(all, rootPath: r'L:\Music\monthly'), [
+        '2007-08',
+        '2007-09',
+        '2007-11',
+      ]); // sorted; no 'loose.mp3' entry
     });
 
     test('only tracks of the given root contribute', () {
@@ -41,31 +44,38 @@ void main() {
 
     test('nested prefix lists the next level down only', () {
       expect(
-          subfolderNames(all, rootPath: r'L:\Music\monthly', prefix: '2007-09'),
-          ['sub']);
+        subfolderNames(all, rootPath: r'L:\Music\monthly', prefix: '2007-09'),
+        ['sub'],
+      );
       // 2007-08 holds files directly -- a leaf: no entries at all.
       expect(
-          subfolderNames(all, rootPath: r'L:\Music\monthly', prefix: '2007-08'),
-          isEmpty);
+        subfolderNames(all, rootPath: r'L:\Music\monthly', prefix: '2007-08'),
+        isEmpty,
+      );
     });
 
     test('prefix matching is segment-safe: "2007-08" does not swallow a '
         'sibling named "2007-081"', () {
       final withTrap = [...monthly, tr('trap', '2007-081/trap.mp3')];
-      expect(subfolderNames(withTrap, rootPath: r'L:\Music\monthly'),
-          ['2007-08', '2007-081', '2007-09', '2007-11']);
+      expect(subfolderNames(withTrap, rootPath: r'L:\Music\monthly'), [
+        '2007-08',
+        '2007-081',
+        '2007-09',
+        '2007-11',
+      ]);
       expect(
-          subfolderNames(withTrap,
-              rootPath: r'L:\Music\monthly', prefix: '2007-08'),
-          isEmpty,
-          reason: '2007-081/trap.mp3 must not leak into 2007-08');
+        subfolderNames(
+          withTrap,
+          rootPath: r'L:\Music\monthly',
+          prefix: '2007-08',
+        ),
+        isEmpty,
+        reason: '2007-081/trap.mp3 must not leak into 2007-08',
+      );
     });
 
     test('names dedupe case-insensitively, first casing seen wins', () {
-      final mixed = [
-        tr('m1', 'Mixes/one.mp3'),
-        tr('m2', 'mixes/two.mp3'),
-      ];
+      final mixed = [tr('m1', 'Mixes/one.mp3'), tr('m2', 'mixes/two.mp3')];
       expect(subfolderNames(mixed, rootPath: r'L:\Music\monthly'), ['Mixes']);
     });
   });
@@ -77,41 +87,54 @@ void main() {
 
     test('a root-only scope (empty sub) matches every track of that root, '
         'and only that root', () {
-      final got = applyFilters(all, folders: [(root: r'L:\Music\albums', sub: '')]);
+      final got = applyFilters(
+        all,
+        folders: [(root: r'L:\Music\albums', sub: '')],
+      );
       expect(got.map((t) => t.contentId), ['x1']);
     });
 
     test('a sub scope matches tracks at or below the sub prefix, '
         'segment-safely', () {
       final withTrap = [...all, tr('trap', '2007-081/trap.mp3')];
-      final got = applyFilters(withTrap,
-          folders: [(root: r'L:\Music\monthly', sub: '2007-08')]);
+      final got = applyFilters(
+        withTrap,
+        folders: [(root: r'L:\Music\monthly', sub: '2007-08')],
+      );
       expect(got.map((t) => t.contentId).toSet(), {'a1', 'a2'}); // not 'trap'
     });
 
     test('multiple scopes (Ctrl-selected siblings) OR together', () {
-      final got = applyFilters(all, folders: [
-        (root: r'L:\Music\monthly', sub: '2007-08'),
-        (root: r'L:\Music\monthly', sub: '2007-11'),
-      ]);
+      final got = applyFilters(
+        all,
+        folders: [
+          (root: r'L:\Music\monthly', sub: '2007-08'),
+          (root: r'L:\Music\monthly', sub: '2007-11'),
+        ],
+      );
       expect(got.map((t) => t.contentId).toSet(), {'a1', 'a2', 'c1'});
     });
 
     test('scope root comparison is exact (no cross-root leakage), and a '
         'nested sub matches deeper descendants too', () {
       expect(
-          applyFilters(all, folders: [(root: r'L:\Music\MONTHLY', sub: '')]),
-          isEmpty,
-          reason: 'root paths compare exactly, like the rootPath filter');
-      final deep = applyFilters(all,
-          folders: [(root: r'L:\Music\monthly', sub: '2007-09')]);
+        applyFilters(all, folders: [(root: r'L:\Music\MONTHLY', sub: '')]),
+        isEmpty,
+        reason: 'root paths compare exactly, like the rootPath filter',
+      );
+      final deep = applyFilters(
+        all,
+        folders: [(root: r'L:\Music\monthly', sub: '2007-09')],
+      );
       expect(deep.single.contentId, 'b1'); // 2007-09/sub/track3.mp3 matches
     });
 
     test('folders AND with the other criteria (search)', () {
-      final got = applyFilters(all,
-          folders: [(root: r'L:\Music\monthly', sub: '2007-08')],
-          search: 'a2');
+      final got = applyFilters(
+        all,
+        folders: [(root: r'L:\Music\monthly', sub: '2007-08')],
+        search: 'a2',
+      );
       expect(got.single.contentId, 'a2');
     });
   });

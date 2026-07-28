@@ -16,7 +16,7 @@ class LibraryRootsPrefs extends ChangeNotifier {
   final void Function(List<String> roots) writer;
 
   LibraryRootsPrefs({required List<String> roots, required this.writer})
-      : roots = List<String>.of(roots);
+    : roots = List<String>.of(roots);
 
   /// Adds [path] if it isn't already configured. No-op (and no write/reload)
   /// on a duplicate.

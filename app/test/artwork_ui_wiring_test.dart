@@ -44,7 +44,7 @@ const onePixelPng = <int>[
 /// futures, which a widget test's fake clock would never deliver).
 class FakeResolver extends ArtworkResolver {
   FakeResolver()
-      : super(stores: ArtworkStoreRegistry(appDataDir: Directory('.')));
+    : super(stores: ArtworkStoreRegistry(appDataDir: Directory('.')));
 
   final List<ArtworkRequest> requests = [];
   List<int>? bytes;
@@ -66,37 +66,39 @@ Track track({
   String id = 'a',
   String album = 'Album A',
   String title = 'Song A',
-}) =>
-    Track(
-      contentId: id,
-      relPath: '$title.mp3',
-      rootPath: r'L:\Music',
-      dateAdded: DateTime.utc(2026, 7, 1),
-      title: title,
-      artist: 'Artist A',
-      album: album,
-    );
+}) => Track(
+  contentId: id,
+  relPath: '$title.mp3',
+  rootPath: r'L:\Music',
+  dateAdded: DateTime.utc(2026, 7, 1),
+  title: title,
+  artist: 'Artist A',
+  album: album,
+);
 
 void main() {
   group('AlbumArt source selection', () {
-    testWidgets('with a resolver+track it resolves, never touching loader',
-        (tester) async {
+    testWidgets('with a resolver+track it resolves, never touching loader', (
+      tester,
+    ) async {
       var loaderCalls = 0;
       final resolver = FakeResolver();
       final t = track();
 
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          loader: (_) async {
-            loaderCalls++;
-            return null;
-          },
-          resolver: resolver,
-          track: t,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
+            contentId: t.contentId,
+            file: File('unused.mp3'),
+            loader: (_) async {
+              loaderCalls++;
+              return null;
+            },
+            resolver: resolver,
+            track: t,
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       expect(loaderCalls, 0);
@@ -105,19 +107,22 @@ void main() {
       expect(resolver.requests.single.rootPath, r'L:\Music');
     });
 
-    testWidgets('with no resolver it still uses loader (pre-Plan-4 behavior)',
-        (tester) async {
+    testWidgets('with no resolver it still uses loader (pre-Plan-4 behavior)', (
+      tester,
+    ) async {
       var loaderCalls = 0;
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: 'a',
-          file: File('unused.mp3'),
-          loader: (_) async {
-            loaderCalls++;
-            return null;
-          },
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
+            contentId: 'a',
+            file: File('unused.mp3'),
+            loader: (_) async {
+              loaderCalls++;
+              return null;
+            },
+          ),
         ),
-      ));
+      );
       await tester.pump();
       expect(loaderCalls, 1);
     });
@@ -125,71 +130,94 @@ void main() {
     testWidgets('renders the resolved bytes', (tester) async {
       final resolver = FakeResolver()..bytes = onePixelPng;
       final t = track();
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          resolver: resolver,
-          track: t,
-        ),
-      ));
-      await tester.pump();
-
-      final image = tester.widget<Image>(find.byType(Image));
-      expect(image.gaplessPlayback, isTrue,
-          reason: 'gapless keeps the old cover up while the next one loads');
-      expect(find.byIcon(Icons.album), findsNothing);
-    });
-
-    testWidgets(
-        'bytes that fail to decode fall back to the placeholder icon, not '
-        'an unhandled error (adversarial review finding 6)', (tester) async {
-      // Not any recognized image format -- something that made it through
-      // resolution (an already-on-disk sidecar/embedded/sibling file from
-      // before the store's write-time validation existed, or any other way
-      // bad bytes could reach this widget) but can't actually be decoded.
-      final resolver = FakeResolver()..bytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-      final t = track();
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          resolver: resolver,
-          track: t,
-        ),
-      ));
-      // The resolve() future, then the async image decode failure.
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-
-      expect(tester.takeException(), isNull,
-          reason: 'a decode failure must be caught by errorBuilder, never '
-              'surface as an unhandled framework error');
-      expect(find.byIcon(Icons.album), findsOneWidget,
-          reason: 'errorBuilder must render the same placeholder the '
-              '"no art yet" state uses');
-    });
-  });
-
-  group('stale-request / caching guards survive the resolver wiring', () {
-    testWidgets('parent rebuilds with the same contentId do not re-resolve',
-        (tester) async {
-      final resolver = FakeResolver();
-      var t = track();
-      late StateSetter setState;
-
-      await tester.pumpWidget(MaterialApp(
-        home: StatefulBuilder(builder: (context, setter) {
-          setState = setter;
-          return AlbumArt(
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
             contentId: t.contentId,
             file: File('unused.mp3'),
             resolver: resolver,
             track: t,
-          );
-        }),
-      ));
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect(
+        image.gaplessPlayback,
+        isTrue,
+        reason: 'gapless keeps the old cover up while the next one loads',
+      );
+      expect(find.byKey(const Key('album-art-placeholder')), findsNothing);
+    });
+
+    testWidgets(
+      'bytes that fail to decode fall back to the placeholder icon, not '
+      'an unhandled error (adversarial review finding 6)',
+      (tester) async {
+        // Not any recognized image format -- something that made it through
+        // resolution (an already-on-disk sidecar/embedded/sibling file from
+        // before the store's write-time validation existed, or any other way
+        // bad bytes could reach this widget) but can't actually be decoded.
+        final resolver = FakeResolver()
+          ..bytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        final t = track();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AlbumArt(
+              contentId: t.contentId,
+              file: File('unused.mp3'),
+              resolver: resolver,
+              track: t,
+            ),
+          ),
+        );
+        // The resolve() future, then the async image decode failure.
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'a decode failure must be caught by errorBuilder, never '
+              'surface as an unhandled framework error',
+        );
+        expect(
+          find.byKey(const Key('album-art-placeholder')),
+          findsOneWidget,
+          reason:
+              'errorBuilder must render the same placeholder the '
+              '"no art yet" state uses',
+        );
+      },
+    );
+  });
+
+  group('stale-request / caching guards survive the resolver wiring', () {
+    testWidgets('parent rebuilds with the same contentId do not re-resolve', (
+      tester,
+    ) async {
+      final resolver = FakeResolver();
+      var t = track();
+      late StateSetter setState;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StatefulBuilder(
+            builder: (context, setter) {
+              setState = setter;
+              return AlbumArt(
+                contentId: t.contentId,
+                file: File('unused.mp3'),
+                resolver: resolver,
+                track: t,
+              );
+            },
+          ),
+        ),
+      );
       await tester.pump();
       expect(resolver.resolveCalls, 1);
 
@@ -210,17 +238,21 @@ void main() {
       expect(resolver.requests.last.albumKey, 'artist a|album b');
     });
 
-    testWidgets('an unchanged result does not rebuild the image', (tester) async {
+    testWidgets('an unchanged result does not rebuild the image', (
+      tester,
+    ) async {
       final resolver = FakeResolver()..bytes = onePixelPng;
       final t = track();
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          resolver: resolver,
-          track: t,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
+            contentId: t.contentId,
+            file: File('unused.mp3'),
+            resolver: resolver,
+            track: t,
+          ),
         ),
-      ));
+      );
       await tester.pump();
       final first = tester.widget<Image>(find.byType(Image)).image;
 
@@ -233,8 +265,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(identical(tester.widget<Image>(find.byType(Image)).image, first),
-          isTrue);
+      expect(
+        identical(tester.widget<Image>(find.byType(Image)).image, first),
+        isTrue,
+      );
     });
   });
 
@@ -242,17 +276,19 @@ void main() {
     testWidgets('an applied pick re-resolves the visible art', (tester) async {
       final resolver = FakeResolver();
       final t = track();
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          resolver: resolver,
-          track: t,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
+            contentId: t.contentId,
+            file: File('unused.mp3'),
+            resolver: resolver,
+            track: t,
+          ),
         ),
-      ));
+      );
       await tester.pump();
       expect(resolver.resolveCalls, 1);
-      expect(find.byIcon(Icons.album), findsOneWidget);
+      expect(find.byKey(const Key('album-art-placeholder')), findsOneWidget);
 
       resolver.bytes = onePixelPng;
       resolver.invalidate('artist a|album a');
@@ -261,20 +297,24 @@ void main() {
 
       expect(resolver.resolveCalls, 2);
       expect(find.byType(Image), findsOneWidget);
-      expect(find.byIcon(Icons.album), findsNothing);
+      expect(find.byKey(const Key('album-art-placeholder')), findsNothing);
     });
 
-    testWidgets('the listener is detached on dispose (no leak)', (tester) async {
+    testWidgets('the listener is detached on dispose (no leak)', (
+      tester,
+    ) async {
       final resolver = FakeResolver();
       final t = track();
-      await tester.pumpWidget(MaterialApp(
-        home: AlbumArt(
-          contentId: t.contentId,
-          file: File('unused.mp3'),
-          resolver: resolver,
-          track: t,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumArt(
+            contentId: t.contentId,
+            file: File('unused.mp3'),
+            resolver: resolver,
+            track: t,
+          ),
         ),
-      ));
+      );
       await tester.pump();
       expect(resolver.listenerAttached, isTrue);
 
@@ -329,8 +369,7 @@ void main() {
         tester,
         (p) => Scaffold(
           body: const SizedBox.expand(),
-          bottomNavigationBar:
-              MiniPlayer(player: p, artworkResolver: resolver),
+          bottomNavigationBar: MiniPlayer(player: p, artworkResolver: resolver),
         ),
       );
 
@@ -353,8 +392,9 @@ void main() {
       expect(art.track?.contentId, 'a');
     });
 
-    testWidgets('MiniPlayer hands the resolver on to the page it pushes',
-        (tester) async {
+    testWidgets('MiniPlayer hands the resolver on to the page it pushes', (
+      tester,
+    ) async {
       await tester.binding.setSurfaceSize(const Size(390, 844));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final resolver = FakeResolver();
@@ -362,8 +402,7 @@ void main() {
         tester,
         (p) => Scaffold(
           body: const SizedBox.expand(),
-          bottomNavigationBar:
-              MiniPlayer(player: p, artworkResolver: resolver),
+          bottomNavigationBar: MiniPlayer(player: p, artworkResolver: resolver),
         ),
       );
 

@@ -100,8 +100,9 @@ Future<bool> confirmDeletePlaylist(BuildContext context, String name) async {
     builder: (ctx) => AlertDialog(
       title: const Text('Delete playlist?'),
       content: Text(
-          'Delete "$name"? The tracks themselves are not removed from the '
-          'library.'),
+        'Delete "$name"? The tracks themselves are not removed from the '
+        'library.',
+      ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(ctx).pop(false),
@@ -137,7 +138,10 @@ Future<bool> confirmDeletePlaylist(BuildContext context, String name) async {
 /// enclosing `Scaffold`, which outlives any one row/tile, so the report is
 /// guaranteed to land regardless of what the mutation's own success
 /// path does to the widget that kicked it off.
-void showPlaylistError(ScaffoldMessengerState messenger, PlaylistStoreException e) {
+void showPlaylistError(
+  ScaffoldMessengerState messenger,
+  PlaylistStoreException e,
+) {
   messenger.showSnackBar(SnackBar(content: Text(e.message)));
 }
 

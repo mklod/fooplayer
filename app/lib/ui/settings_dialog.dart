@@ -67,13 +67,18 @@ class LibraryRootsEditor extends StatelessWidget {
                   ListTile(
                     key: Key('root-tile-$root'),
                     dense: true,
-                    title: Text(root, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    title: Text(
+                      root,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     subtitle: missing.contains(root)
                         ? const Text('no library manifest — seed with foolib')
                         : failed.contains(root)
-                            ? const Text(
-                                'library manifest is corrupt — reseed with foolib to repair')
-                            : null,
+                        ? const Text(
+                            'library manifest is corrupt — reseed with foolib to repair',
+                          )
+                        : null,
                     trailing: IconButton(
                       key: Key('remove-root-$root'),
                       icon: const Icon(Icons.remove_circle_outline),

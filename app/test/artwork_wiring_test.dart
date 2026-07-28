@@ -58,16 +58,15 @@ Track trackAt(
   String album = 'The Dark Side of the Moon',
   String title = 'Time',
   String contentId = 't1',
-}) =>
-    Track(
-      contentId: contentId,
-      relPath: relPath,
-      rootPath: root.path,
-      dateAdded: DateTime.utc(2024, 1, 1),
-      title: title,
-      artist: artist,
-      album: album,
-    );
+}) => Track(
+  contentId: contentId,
+  relPath: relPath,
+  rootPath: root.path,
+  dateAdded: DateTime.utc(2024, 1, 1),
+  title: title,
+  artist: artist,
+  album: album,
+);
 
 /// 1x1 transparent PNG -- valid image bytes without any asset access.
 final Uint8List pngBytes = Uint8List.fromList(const [
@@ -129,9 +128,8 @@ void main() {
     );
   }
 
-  FakeArtFetch itunesOnly(String fixture) => FakeArtFetch.bodies({
-        'itunes.apple.com': loadArtFixture(fixture),
-      });
+  FakeArtFetch itunesOnly(String fixture) =>
+      FakeArtFetch.bodies({'itunes.apple.com': loadArtFixture(fixture)});
 
   group('one normalizer, one album key', () {
     test('picker, scorer and store all derive the same key for a track', () {
@@ -144,22 +142,36 @@ void main() {
       );
       final fromPicker = albumKeyForTrack(t);
       final fromResolver = ArtworkRequest.forTrack(t).albumKey;
-      final fromScorer =
-          scoring.albumKey(artist: t.artist, album: t.album, title: t.title);
+      final fromScorer = scoring.albumKey(
+        artist: t.artist,
+        album: t.album,
+        title: t.title,
+      );
       expect(fromPicker, fromResolver);
       expect(fromPicker, fromScorer);
       expect(fromPicker, 'sigur ros|agaetis byrjun');
     });
 
-    test(
-        'picker and resolver still agree for a fully-untagged track '
+    test('picker and resolver still agree for a fully-untagged track '
         '(adversarial review finding 7 -- the per-file fallback key)', () {
       // Two untagged rips, same filename-derived title ("01" from
       // "01.mp3"), in two different folders under the same root.
-      final a = trackAt(root, 'Album A/01.mp3',
-          artist: '', album: '', title: '01', contentId: 'a');
-      final b = trackAt(root, 'Album B/01.mp3',
-          artist: '', album: '', title: '01', contentId: 'b');
+      final a = trackAt(
+        root,
+        'Album A/01.mp3',
+        artist: '',
+        album: '',
+        title: '01',
+        contentId: 'a',
+      );
+      final b = trackAt(
+        root,
+        'Album B/01.mp3',
+        artist: '',
+        album: '',
+        title: '01',
+        contentId: 'b',
+      );
 
       // [ArtworkServices.albumKey] (what the picker displays/looks up) and
       // [ArtworkRequest.forTrack] (what the resolver/store actually key
@@ -179,8 +191,10 @@ void main() {
       // "- EP" tails; these two cases are exactly where it diverged.
       expect(normalizeArtworkKeyPart('Björk'), 'bjork');
       expect(normalizeArtworkKeyPart('Bloom - EP'), 'bloom');
-      expect(normalizeArtworkKeyPart('Simon & Garfunkel'),
-          'simon and garfunkel');
+      expect(
+        normalizeArtworkKeyPart('Simon & Garfunkel'),
+        'simon and garfunkel',
+      );
     });
 
     test("a query's derived key matches the track it was built from", () {
@@ -222,11 +236,11 @@ void main() {
       expect(pick.source, 'itunes'); // wire spelling, not Enum.name
     });
 
-    test('a near-tie between two DIFFERENT albums returns null (>=10 margin)',
-        () {
-      final w = buildWiring();
-      final pick = w.autoPick(
-        [
+    test(
+      'a near-tie between two DIFFERENT albums returns null (>=10 margin)',
+      () {
+        final w = buildWiring();
+        final pick = w.autoPick([
           const ArtCandidate(
             url: 'https://x/gh1.jpg',
             source: ArtSource.itunes,
@@ -241,11 +255,10 @@ void main() {
             artist: 'Queen',
             width: 600,
           ),
-        ],
-        const ArtworkQuery(artist: 'Queen', album: 'Greatest Hits'),
-      );
-      expect(pick, isNull, reason: 'ambiguous -> defer to the picker');
-    });
+        ], const ArtworkQuery(artist: 'Queen', album: 'Greatest Hits'));
+        expect(pick, isNull, reason: 'ambiguous -> defer to the picker');
+      },
+    );
 
     test('an empty / non-candidate list is null, never a throw', () {
       final w = buildWiring();
@@ -272,8 +285,7 @@ void main() {
       expect(found.first.title, 'The Dark Side of the Moon');
     });
 
-    test('results are cached per album key; forceRefresh re-queries',
-        () async {
+    test('results are cached per album key; forceRefresh re-queries', () async {
       final provider = itunesOnly('itunes_dark_side.json');
       final w = buildWiring(provider: provider);
       await w.searchCandidates('Pink Floyd', 'The Dark Side of the Moon');
@@ -288,23 +300,23 @@ void main() {
       expect(provider.calls.length, greaterThan(afterFirst));
     });
 
-    test('a transport that throws degrades to [] rather than an exception',
-        () async {
-      final stores = ArtworkStoreRegistry(appDataDir: appData);
-      final w = ArtworkWiring(
-        stores: stores,
-        resolver: ArtworkResolver(stores: stores),
-        fetch: throwingArtFetch,
-        imageFetch: (_) async => null,
-      );
-      expect(await w.searchCandidates('A', 'B'), isEmpty);
-    });
+    test(
+      'a transport that throws degrades to [] rather than an exception',
+      () async {
+        final stores = ArtworkStoreRegistry(appDataDir: appData);
+        final w = ArtworkWiring(
+          stores: stores,
+          resolver: ArtworkResolver(stores: stores),
+          fetch: throwingArtFetch,
+          imageFetch: (_) async => null,
+        );
+        expect(await w.searchCandidates('A', 'B'), isEmpty);
+      },
+    );
 
-    group(
-        'picker priority + CAA budget through the real seam '
+    group('picker priority + CAA budget through the real seam '
         '(adversarial review finding 2)', () {
-      test(
-          "the picker's search jumps a queue of background backfill "
+      test("the picker's search jumps a queue of background backfill "
           'lookups on the shared CAA limiter', () async {
         final clock = FakeClock();
         final limiter = RateLimiter(
@@ -323,16 +335,25 @@ void main() {
         // A handful of queued background lookups, exactly what
         // ArtworkBackfill's own workers would be doing via searchForBackfill.
         for (var i = 0; i < 5; i++) {
-          unawaited(w
-              .searchForBackfill(ArtworkQuery(artist: 'Bg', album: 'Album $i'))
-              .then((_) => order.add('background-$i')));
+          unawaited(
+            w
+                .searchForBackfill(
+                  ArtworkQuery(artist: 'Bg', album: 'Album $i'),
+                )
+                .then((_) => order.add('background-$i')),
+          );
         }
 
         // The user opens the picker for a DIFFERENT album right after.
-        unawaited(w
-            .searchCandidates('Radiohead', 'OK Computer',
-                priority: RateLimitPriority.interactive)
-            .then((_) => order.add('interactive')));
+        unawaited(
+          w
+              .searchCandidates(
+                'Radiohead',
+                'OK Computer',
+                priority: RateLimitPriority.interactive,
+              )
+              .then((_) => order.add('interactive')),
+        );
 
         while (order.length < 6) {
           await Future<void>.delayed(Duration.zero);
@@ -342,36 +363,46 @@ void main() {
         // by the time the interactive request arrived -- everything queued
         // BEHIND it must yield.
         expect(order.first, 'background-0');
-        expect(order[1], 'interactive',
-            reason: "the picker's search must not sit behind several "
-                "already-queued background lookups on MusicBrainz -- "
-                "that's the 'spinner waits minutes' bug this fixes");
+        expect(
+          order[1],
+          'interactive',
+          reason:
+              "the picker's search must not sit behind several "
+              "already-queued background lookups on MusicBrainz -- "
+              "that's the 'spinner waits minutes' bug this fixes",
+        );
       });
 
-      test(
-          'a picker search proceeds with iTunes/Deezer results when CAA '
+      test('a picker search proceeds with iTunes/Deezer results when CAA '
           'never answers, instead of hanging', () async {
         final caaGate = Completer<void>(); // never completed in this test
-        Future<ArtHttpResponse> fetch(Uri url,
-            {Map<String, String>? headers}) async {
+        Future<ArtHttpResponse> fetch(
+          Uri url, {
+          Map<String, String>? headers,
+        }) async {
           if (url.host == mbHost) {
             await caaGate.future;
             return const ArtHttpResponse(statusCode: 200, body: '{}');
           }
           if (url.host == itunesHost) {
             return ArtHttpResponse(
-                statusCode: 200, body: loadArtFixture('itunes_dark_side.json'));
+              statusCode: 200,
+              body: loadArtFixture('itunes_dark_side.json'),
+            );
           }
           return const ArtHttpResponse(statusCode: 200, body: '{"data": []}');
         }
+
         final stores = ArtworkStoreRegistry(appDataDir: appData);
         final w = ArtworkWiring(
           stores: stores,
           resolver: ArtworkResolver(stores: stores),
           fetch: fetch,
           imageFetch: (_) async => null,
-          caaLimiter:
-              RateLimiter(minInterval: Duration.zero, sleep: (_) async {}),
+          caaLimiter: RateLimiter(
+            minInterval: Duration.zero,
+            sleep: (_) async {},
+          ),
           gap: Duration.zero,
         );
 
@@ -386,13 +417,16 @@ void main() {
 
         expect(found.any((c) => c.source == ArtSource.itunes), isTrue);
         expect(found.any((c) => c.source == ArtSource.caa), isFalse);
-        expect(sw.elapsed, lessThan(const Duration(seconds: 2)),
-            reason: 'a picker search must return once its budget for CAA '
-                'expires, not hang on a slow/stuck provider');
+        expect(
+          sw.elapsed,
+          lessThan(const Duration(seconds: 2)),
+          reason:
+              'a picker search must return once its budget for CAA '
+              'expires, not hang on a slow/stuck provider',
+        );
       });
 
-      test(
-          'searchForBackfill (the automatic pass) keeps waiting for CAA -- '
+      test('searchForBackfill (the automatic pass) keeps waiting for CAA -- '
           'no budget applied to the background path', () async {
         final provider = FakeArtFetch.bodies({
           itunesHost: '{"results": []}',
@@ -401,16 +435,21 @@ void main() {
         });
         final w = buildWiring(
           provider: provider,
-          caaLimiter:
-              RateLimiter(minInterval: Duration.zero, sleep: (_) async {}),
+          caaLimiter: RateLimiter(
+            minInterval: Duration.zero,
+            sleep: (_) async {},
+          ),
         );
         final found = await w.searchForBackfill(
           const ArtworkQuery(artist: 'Radiohead', album: 'OK Computer'),
         );
-        expect(found.whereType<ArtCandidate>().any((c) => c.source == ArtSource.caa),
-            isTrue,
-            reason: 'the background pass has nobody waiting on it and must '
-                'still get a CAA answer that arrives promptly');
+        expect(
+          found.whereType<ArtCandidate>().any((c) => c.source == ArtSource.caa),
+          isTrue,
+          reason:
+              'the background pass has nobody waiting on it and must '
+              'still get a CAA answer that arrives promptly',
+        );
       });
     });
   });
@@ -443,10 +482,7 @@ void main() {
       expect(art['query'], 'Pink Floyd The Dark Side of the Moon');
       expect(art['origin'], 'https://x/cover.jpg');
       // Image landed in <root>/.artwork/, never in the album directory.
-      expect(
-        Directory(p.join(root.path, '.artwork')).listSync().length,
-        1,
-      );
+      expect(Directory(p.join(root.path, '.artwork')).listSync().length, 1);
       expect(
         Directory(p.join(root.path, 'Pink Floyd')).existsSync(),
         isFalse,
@@ -487,8 +523,7 @@ void main() {
       );
     });
 
-    test('choose-file reads the local path and records source=local',
-        () async {
+    test('choose-file reads the local path and records source=local', () async {
       final local = File(p.join(tmp.path, 'chosen.png'))
         ..writeAsBytesSync(pngBytes);
       final w = buildWiring(readLocal: readLocalArtworkFile);
@@ -498,8 +533,9 @@ void main() {
         albumKeyForTrack(track),
         ArtworkChoice(source: ArtworkSource.local, localPath: local.path),
       );
-      final entry =
-          w.stores.forRoot(root.path).entryFor(albumKeyForTrack(track));
+      final entry = w.stores
+          .forRoot(root.path)
+          .entryFor(albumKeyForTrack(track));
       expect(entry, isNotNull);
       expect(entry!.source, 'local');
       expect(entry.origin, local.path);
@@ -524,29 +560,34 @@ void main() {
       expect(File(p.join(root.path, '.artwork.json')).existsSync(), isFalse);
     });
 
-    test('currentSelectionId marks the applied candidate; remove clears it',
-        () async {
-      final images = FakeImageFetch({'https://x/cover.jpg': pngBytes});
-      final w = buildWiring(imageFetch: images);
-      final track = trackAt(root, 'a/b.flac');
-      final key = albumKeyForTrack(track);
-      expect(w.services.currentSelectionId(track, key), isNull);
+    test(
+      'currentSelectionId marks the applied candidate; remove clears it',
+      () async {
+        final images = FakeImageFetch({'https://x/cover.jpg': pngBytes});
+        final w = buildWiring(imageFetch: images);
+        final track = trackAt(root, 'a/b.flac');
+        final key = albumKeyForTrack(track);
+        expect(w.services.currentSelectionId(track, key), isNull);
 
-      await w.services.apply(
-        track,
-        key,
-        const ArtworkChoice(
-          source: ArtworkSource.itunes,
-          url: 'https://x/cover.jpg',
-        ),
-      );
-      expect(w.services.currentSelectionId(track, key), 'https://x/cover.jpg');
+        await w.services.apply(
+          track,
+          key,
+          const ArtworkChoice(
+            source: ArtworkSource.itunes,
+            url: 'https://x/cover.jpg',
+          ),
+        );
+        expect(
+          w.services.currentSelectionId(track, key),
+          'https://x/cover.jpg',
+        );
 
-      await w.services.remove(track, key);
-      expect(w.services.currentSelectionId(track, key), isNull);
-      // Idempotent: removing again is a no-op, not an error.
-      await w.services.remove(track, key);
-    });
+        await w.services.remove(track, key);
+        expect(w.services.currentSelectionId(track, key), isNull);
+        // Idempotent: removing again is a no-op, not an error.
+        await w.services.remove(track, key);
+      },
+    );
 
     test('"Search again" bypasses AND clears the negative cache', () async {
       final provider = itunesOnly('itunes_dark_side.json');
@@ -564,35 +605,42 @@ void main() {
         forceRefresh: true,
       );
       expect(found, isNotEmpty);
-      expect(store.isNegative(key), isFalse,
-          reason: 'a user-initiated retry must not stay suppressed');
+      expect(
+        store.isNegative(key),
+        isFalse,
+        reason: 'a user-initiated retry must not stay suppressed',
+      );
     });
 
-    test('the picker search loads the sidecar before the grid is built',
-        () async {
-      // currentSelectionId is synchronous; it can only be right if search()
-      // awaited ensureLoaded(). Write a sidecar behind the store's back and
-      // check the picker still sees it.
-      final key = albumKeyForTrack(trackAt(root, 'a/b.flac'));
-      File(p.join(root.path, '.artwork.json')).writeAsStringSync(jsonEncode({
-        'schema': 1,
-        'art': {
-          key: {
-            'file': 'x.jpg',
-            'source': 'deezer',
-            'pickedAt': DateTime.utc(2026).toIso8601String(),
-            'query': 'q',
-            'origin': 'https://x/prev.jpg',
-          },
-        },
-        'misses': <String, dynamic>{},
-      }));
-      final w = buildWiring(provider: itunesOnly('itunes_empty.json'));
-      final track = trackAt(root, 'a/b.flac');
-      expect(w.services.currentSelectionId(track, key), isNull);
-      await w.services.search(track, artworkQueryForTrack(track));
-      expect(w.services.currentSelectionId(track, key), 'https://x/prev.jpg');
-    });
+    test(
+      'the picker search loads the sidecar before the grid is built',
+      () async {
+        // currentSelectionId is synchronous; it can only be right if search()
+        // awaited ensureLoaded(). Write a sidecar behind the store's back and
+        // check the picker still sees it.
+        final key = albumKeyForTrack(trackAt(root, 'a/b.flac'));
+        File(p.join(root.path, '.artwork.json')).writeAsStringSync(
+          jsonEncode({
+            'schema': 1,
+            'art': {
+              key: {
+                'file': 'x.jpg',
+                'source': 'deezer',
+                'pickedAt': DateTime.utc(2026).toIso8601String(),
+                'query': 'q',
+                'origin': 'https://x/prev.jpg',
+              },
+            },
+            'misses': <String, dynamic>{},
+          }),
+        );
+        final w = buildWiring(provider: itunesOnly('itunes_empty.json'));
+        final track = trackAt(root, 'a/b.flac');
+        expect(w.services.currentSelectionId(track, key), isNull);
+        await w.services.search(track, artworkQueryForTrack(track));
+        expect(w.services.currentSelectionId(track, key), 'https://x/prev.jpg');
+      },
+    );
   });
 
   group('image cache manners', () {
@@ -609,14 +657,16 @@ void main() {
       expect(images.requested, ['u']);
     });
 
-    test('a failed fetch is cached as "no bytes" and not retried in a loop',
-        () async {
-      final images = FakeImageFetch({});
-      final cache = ArtworkImageCache(fetch: images.call);
-      expect(await cache.bytes('gone'), isNull);
-      expect(await cache.bytes('gone'), isNull);
-      expect(images.requested, ['gone']);
-    });
+    test(
+      'a failed fetch is cached as "no bytes" and not retried in a loop',
+      () async {
+        final images = FakeImageFetch({});
+        final cache = ArtworkImageCache(fetch: images.call);
+        expect(await cache.bytes('gone'), isNull);
+        expect(await cache.bytes('gone'), isNull);
+        expect(images.requested, ['gone']);
+      },
+    );
 
     test('never more than maxConcurrent fetches are open at once', () async {
       var open = 0;
@@ -631,9 +681,7 @@ void main() {
           return pngBytes;
         },
       );
-      await Future.wait([
-        for (var i = 0; i < 20; i++) cache.bytes('u$i'),
-      ]);
+      await Future.wait([for (var i = 0; i < 20; i++) cache.bytes('u$i')]);
       expect(peak, lessThanOrEqualTo(3));
     });
 
@@ -657,8 +705,7 @@ void main() {
   });
 
   group('background best-guess pass, end to end', () {
-    test('a confident album is auto-applied from real provider JSON',
-        () async {
+    test('a confident album is auto-applied from real provider JSON', () async {
       final provider = itunesOnly('itunes_dark_side.json');
       final images = FakeImageFetch({});
       final w = buildWiring(provider: provider, imageFetch: images);
@@ -674,8 +721,9 @@ void main() {
       final result = await w.backfill.lookupOne(ArtworkRequest.forTrack(track));
       expect(result, ArtworkLookupResult.applied);
 
-      final entry =
-          w.stores.forRoot(root.path).entryFor(albumKeyForTrack(track));
+      final entry = w.stores
+          .forRoot(root.path)
+          .entryFor(albumKeyForTrack(track));
       expect(entry, isNotNull);
       expect(entry!.source, 'itunes');
       expect(entry.origin, pick.url);
@@ -710,16 +758,18 @@ void main() {
       expect(provider.calls, isEmpty, reason: 'no provider traffic at all');
     });
 
-    test('the pass is off when disabled, but the manual path still works',
-        () async {
-      final provider = itunesOnly('itunes_dark_side.json');
-      final w = buildWiring(provider: provider, backfillEnabled: false);
-      final track = trackAt(root, 'a/b.flac');
-      await w.backfill.run([ArtworkRequest.forTrack(track)]);
-      expect(provider.calls, isEmpty);
-      await w.backfill.lookupOne(ArtworkRequest.forTrack(track));
-      expect(provider.calls, isNotEmpty);
-    });
+    test(
+      'the pass is off when disabled, but the manual path still works',
+      () async {
+        final provider = itunesOnly('itunes_dark_side.json');
+        final w = buildWiring(provider: provider, backfillEnabled: false);
+        final track = trackAt(root, 'a/b.flac');
+        await w.backfill.run([ArtworkRequest.forTrack(track)]);
+        expect(provider.calls, isEmpty);
+        await w.backfill.lookupOne(ArtworkRequest.forTrack(track));
+        expect(provider.calls, isNotEmpty);
+      },
+    );
   });
 
   group('small adapters', () {

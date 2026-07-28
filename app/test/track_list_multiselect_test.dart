@@ -63,12 +63,15 @@ LibraryModel fixtureLibrary() {
         contentId: 't$i',
         relPath: 't$i.mp3',
         dateAdded: DateTime.utc(2024, 1, i),
-        title: 'Song ${String.fromCharCode(64 + i)}', // t1->Song A .. t5->Song E
+        title:
+            'Song ${String.fromCharCode(64 + i)}', // t1->Song A .. t5->Song E
       ),
   ];
   m.playlists = [
     const ManifestPlaylist(
-        name: 'mix', trackIds: ['t1', 't2', 't3', 't4', 't5']),
+      name: 'mix',
+      trackIds: ['t1', 't2', 't3', 't4', 't5'],
+    ),
   ];
   m.status = 'ready';
   return m;
@@ -135,8 +138,10 @@ Future<void> shiftClick(WidgetTester tester, Finder finder) =>
     _modifiedClick(tester, finder, [LogicalKeyboardKey.shiftLeft]);
 
 Future<void> ctrlShiftClick(WidgetTester tester, Finder finder) =>
-    _modifiedClick(tester, finder,
-        [LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.shiftLeft]);
+    _modifiedClick(tester, finder, [
+      LogicalKeyboardKey.controlLeft,
+      LogicalKeyboardKey.shiftLeft,
+    ]);
 
 /// Same double-click simulation as track_list_interaction_test.dart.
 Future<void> doubleTap(WidgetTester tester, Finder finder) async {
@@ -171,8 +176,7 @@ void main() {
       expect(lib.selectedTrackIds, {'t2'});
     });
 
-    testWidgets(
-        'ctrl+click toggles a row into/out of the selection without '
+    testWidgets('ctrl+click toggles a row into/out of the selection without '
         'clearing the rest', (tester) async {
       final lib = fixtureLibrary();
       await pumpTrackList(tester, lib, PlayerService());
@@ -189,63 +193,69 @@ void main() {
     });
 
     testWidgets(
-        'shift+click selects the contiguous visible range from the anchor, '
-        'replacing the selection', (tester) async {
-      final lib = fixtureLibrary();
-      await pumpTrackList(tester, lib, PlayerService());
+      'shift+click selects the contiguous visible range from the anchor, '
+      'replacing the selection',
+      (tester) async {
+        final lib = fixtureLibrary();
+        await pumpTrackList(tester, lib, PlayerService());
 
-      await plainClick(tester, find.text('Song D')); // anchor t4
-      await shiftClick(tester, find.text('Song B'));
-      expect(lib.selectedTrackIds, {'t4', 't3', 't2'});
+        await plainClick(tester, find.text('Song D')); // anchor t4
+        await shiftClick(tester, find.text('Song B'));
+        expect(lib.selectedTrackIds, {'t4', 't3', 't2'});
 
-      expect(_rowFillColor(tester, 'Song D'), AppColors.selectionFill);
-      expect(_rowFillColor(tester, 'Song C'), AppColors.selectionFill);
-      expect(_rowFillColor(tester, 'Song B'), AppColors.selectionFill);
-      expect(_rowFillColor(tester, 'Song A'), isNot(AppColors.selectionFill));
-      expect(_rowFillColor(tester, 'Song E'), isNot(AppColors.selectionFill));
-    });
-
-    testWidgets(
-        'ctrl+shift+click adds the anchor range to the existing selection '
-        'instead of replacing it', (tester) async {
-      final lib = fixtureLibrary();
-      await pumpTrackList(tester, lib, PlayerService());
-
-      await plainClick(tester, find.text('Song E')); // anchor t5
-      await ctrlClick(tester, find.text('Song A')); // {t5,t1}, anchor t1
-      await ctrlShiftClick(tester, find.text('Song C')); // + range t1..t3
-
-      expect(lib.selectedTrackIds, {'t5', 't1', 't2', 't3'});
-    });
+        expect(_rowFillColor(tester, 'Song D'), AppColors.selectionFill);
+        expect(_rowFillColor(tester, 'Song C'), AppColors.selectionFill);
+        expect(_rowFillColor(tester, 'Song B'), AppColors.selectionFill);
+        expect(_rowFillColor(tester, 'Song A'), isNot(AppColors.selectionFill));
+        expect(_rowFillColor(tester, 'Song E'), isNot(AppColors.selectionFill));
+      },
+    );
 
     testWidgets(
-        'double-click plays and selects only the clicked row, collapsing '
-        'any wider selection', (tester) async {
-      final lib = fixtureLibrary();
-      final player = PlayerService();
-      final playedTracks = <Track>[];
-      var playedIndex = -1;
-      await pumpTrackList(
-        tester,
-        lib,
-        player,
-        onPlayTrack: (tracks, index) {
-          playedTracks
-            ..clear()
-            ..addAll(tracks);
-          playedIndex = index;
-        },
-      );
+      'ctrl+shift+click adds the anchor range to the existing selection '
+      'instead of replacing it',
+      (tester) async {
+        final lib = fixtureLibrary();
+        await pumpTrackList(tester, lib, PlayerService());
 
-      await plainClick(tester, find.text('Song E'));
-      await ctrlClick(tester, find.text('Song C'));
-      expect(lib.selectedTrackIds, {'t5', 't3'});
+        await plainClick(tester, find.text('Song E')); // anchor t5
+        await ctrlClick(tester, find.text('Song A')); // {t5,t1}, anchor t1
+        await ctrlShiftClick(tester, find.text('Song C')); // + range t1..t3
 
-      await doubleTap(tester, find.text('Song A'));
+        expect(lib.selectedTrackIds, {'t5', 't1', 't2', 't3'});
+      },
+    );
 
-      expect(lib.selectedTrackIds, {'t1'});
-      expect(playedTracks[playedIndex].contentId, 't1');
-    });
+    testWidgets(
+      'double-click plays and selects only the clicked row, collapsing '
+      'any wider selection',
+      (tester) async {
+        final lib = fixtureLibrary();
+        final player = PlayerService();
+        final playedTracks = <Track>[];
+        var playedIndex = -1;
+        await pumpTrackList(
+          tester,
+          lib,
+          player,
+          onPlayTrack: (tracks, index) {
+            playedTracks
+              ..clear()
+              ..addAll(tracks);
+            playedIndex = index;
+          },
+        );
+
+        await plainClick(tester, find.text('Song E'));
+        await ctrlClick(tester, find.text('Song C'));
+        expect(lib.selectedTrackIds, {'t5', 't3'});
+
+        await doubleTap(tester, find.text('Song A'));
+
+        expect(lib.selectedTrackIds, {'t1'});
+        expect(playedTracks[playedIndex].contentId, 't1');
+      },
+    );
   });
 
   group('selection persistence and clearing', () {
@@ -269,8 +279,9 @@ void main() {
       expect(_rowFillColor(tester, 'Song B'), AppColors.selectionFill);
     });
 
-    testWidgets('selection clears when the search filter changes',
-        (tester) async {
+    testWidgets('selection clears when the search filter changes', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       final player = PlayerService();
       await pumpTrackList(tester, lib, player);
@@ -288,8 +299,9 @@ void main() {
   });
 
   group('Ctrl+A', () {
-    testWidgets('selects every visible track once the list has focus',
-        (tester) async {
+    testWidgets('selects every visible track once the list has focus', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       await pumpTrackList(tester, lib, PlayerService());
 
@@ -310,44 +322,54 @@ void main() {
 
   group('right-click context menu acts on the selection', () {
     testWidgets(
-        'right-click on a row that is part of a 3-track selection adds all '
-        '3 to the chosen playlist in one write', (tester) async {
-      final lib = fixtureLibrary();
-      final spy = SpyPlaylistStore(lib);
-      await pumpTrackList(tester, lib, PlayerService(), playlistStore: spy);
+      'right-click on a row that is part of a 3-track selection adds all '
+      '3 to the chosen playlist in one write',
+      (tester) async {
+        final lib = fixtureLibrary();
+        final spy = SpyPlaylistStore(lib);
+        await pumpTrackList(tester, lib, PlayerService(), playlistStore: spy);
 
-      await plainClick(tester, find.text('Song E'));
-      await ctrlClick(tester, find.text('Song C'));
-      await ctrlClick(tester, find.text('Song A'));
-      expect(lib.selectedTrackIds, {'t5', 't3', 't1'});
+        await plainClick(tester, find.text('Song E'));
+        await ctrlClick(tester, find.text('Song C'));
+        await ctrlClick(tester, find.text('Song A'));
+        expect(lib.selectedTrackIds, {'t5', 't3', 't1'});
 
-      await tester.tap(find.text('Song C'), buttons: kSecondaryButton);
-      await tester.pumpAndSettle();
-      expect(lib.selectedTrackIds, {'t5', 't3', 't1'},
-          reason: 'right-click on an already-selected row must not change '
-              'the selection');
-      // Selection is 3 -- the single-target items are labelled unambiguous.
-      expect(find.text('View in folder (this track)'), findsOneWidget);
+        await tester.tap(find.text('Song C'), buttons: kSecondaryButton);
+        await tester.pumpAndSettle();
+        expect(
+          lib.selectedTrackIds,
+          {'t5', 't3', 't1'},
+          reason:
+              'right-click on an already-selected row must not change '
+              'the selection',
+        );
+        // Selection is 3 -- the single-target items are labelled unambiguous.
+        expect(find.text('View in folder (this track)'), findsOneWidget);
 
-      await tester.tap(find.text('Add to playlist ▸'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('New playlist...'));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-          find.byKey(const Key('playlist-name-field')), 'trio');
-      await tester.tap(find.byKey(const Key('playlist-name-create')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Add to playlist ▸'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('New playlist...'));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const Key('playlist-name-field')),
+          'trio',
+        );
+        await tester.tap(find.byKey(const Key('playlist-name-create')));
+        await tester.pumpAndSettle();
 
-      expect(spy.created, ['trio']);
-      expect(spy.addTracksCalls.length, 1,
-          reason: 'one manifest write for the whole batch, not one per track');
-      expect(spy.addTracksCalls.single.$1, 'trio');
-      expect(spy.addTracksCalls.single.$2.toSet(), {'t5', 't3', 't1'});
-      expect(find.text('Added 3 tracks to "trio"'), findsOneWidget);
-    });
+        expect(spy.created, ['trio']);
+        expect(
+          spy.addTracksCalls.length,
+          1,
+          reason: 'one manifest write for the whole batch, not one per track',
+        );
+        expect(spy.addTracksCalls.single.$1, 'trio');
+        expect(spy.addTracksCalls.single.$2.toSet(), {'t5', 't3', 't1'});
+        expect(find.text('Added 3 tracks to "trio"'), findsOneWidget);
+      },
+    );
 
-    testWidgets(
-        'right-click on a row NOT in the current selection replaces the '
+    testWidgets('right-click on a row NOT in the current selection replaces the '
         'selection with just that row before acting', (tester) async {
       final lib = fixtureLibrary();
       final spy = SpyPlaylistStore(lib);
@@ -366,9 +388,13 @@ void main() {
 
       await tester.tap(find.text('Song A'), buttons: kSecondaryButton);
       await tester.pumpAndSettle();
-      expect(lib.selectedTrackIds, {'t1'},
-          reason: 'Explorer-style: right-click on an unselected row selects '
-              'just it first');
+      expect(
+        lib.selectedTrackIds,
+        {'t1'},
+        reason:
+            'Explorer-style: right-click on an unselected row selects '
+            'just it first',
+      );
       // Single-track selection now -- no "(this track)" disambiguation needed.
       expect(find.text('View in folder'), findsOneWidget);
       expect(find.text('View in folder (this track)'), findsNothing);
@@ -380,28 +406,30 @@ void main() {
     });
 
     testWidgets(
-        'playlist view: "Remove from playlist" on a multi-selection removes '
-        'all of them in one write', (tester) async {
-      final lib = fixtureLibrary();
-      lib.setPlaylist('mix'); // enter playlist view before selecting anything
-      final spy = SpyPlaylistStore(lib);
-      await pumpTrackList(tester, lib, PlayerService(), playlistStore: spy);
+      'playlist view: "Remove from playlist" on a multi-selection removes '
+      'all of them in one write',
+      (tester) async {
+        final lib = fixtureLibrary();
+        lib.setPlaylist('mix'); // enter playlist view before selecting anything
+        final spy = SpyPlaylistStore(lib);
+        await pumpTrackList(tester, lib, PlayerService(), playlistStore: spy);
 
-      await plainClick(tester, find.text('Song A'));
-      await ctrlClick(tester, find.text('Song E'));
-      expect(lib.selectedTrackIds, {'t1', 't5'});
+        await plainClick(tester, find.text('Song A'));
+        await ctrlClick(tester, find.text('Song E'));
+        expect(lib.selectedTrackIds, {'t1', 't5'});
 
-      await tester.tap(find.text('Song A'), buttons: kSecondaryButton);
-      await tester.pumpAndSettle();
-      expect(find.text('Remove from playlist'), findsOneWidget);
+        await tester.tap(find.text('Song A'), buttons: kSecondaryButton);
+        await tester.pumpAndSettle();
+        expect(find.text('Remove from playlist'), findsOneWidget);
 
-      await tester.tap(find.text('Remove from playlist'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Remove from playlist'));
+        await tester.pumpAndSettle();
 
-      expect(spy.removeTracksCalls.length, 1);
-      expect(spy.removeTracksCalls.single.$1, 'mix');
-      expect(spy.removeTracksCalls.single.$2.toSet(), {'t1', 't5'});
-      expect(find.text('Removed 2 tracks from the playlist'), findsOneWidget);
-    });
+        expect(spy.removeTracksCalls.length, 1);
+        expect(spy.removeTracksCalls.single.$1, 'mix');
+        expect(spy.removeTracksCalls.single.$2.toSet(), {'t1', 't5'});
+        expect(find.text('Removed 2 tracks from the playlist'), findsOneWidget);
+      },
+    );
   });
 }

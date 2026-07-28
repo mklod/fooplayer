@@ -25,7 +25,8 @@ import '../model/track.dart';
 import 'album_key.dart';
 import 'artwork_store.dart';
 
-export 'album_key.dart' show ArtworkQuery, normalizeArtworkText, artworkAlbumKey;
+export 'album_key.dart'
+    show ArtworkQuery, normalizeArtworkText, artworkAlbumKey;
 
 /// Reads embedded cover art out of an audio file. Defaults to
 /// [readArtSafe] -- the isolate-bounded, timeout-guarded reader; a
@@ -70,10 +71,8 @@ typedef ArtworkSearch = Future<List<dynamic>> Function(ArtworkQuery query);
 /// Applies A1's deterministic scorer + auto-apply rule (top score >= 75 AND
 /// >= 10 clear of the runner-up) to [candidates], returning the winner or
 /// null when nothing is confident enough to apply automatically. Pure.
-typedef ArtworkAutoPick = ArtworkPick? Function(
-  List<dynamic> candidates,
-  ArtworkQuery query,
-);
+typedef ArtworkAutoPick =
+    ArtworkPick? Function(List<dynamic> candidates, ArtworkQuery query);
 
 /// Sibling image filenames checked beside the audio file, in order. Only
 /// ever READ -- v1 never writes a `folder.jpg` into an album directory.
@@ -107,21 +106,21 @@ class ArtworkRequest {
     // find what the resolver actually stored.
     String? relPath,
   }) : albumKey = artworkAlbumKey(
-          artist: artist,
-          album: album,
-          title: title,
-          rootPath: rootPath,
-          relPath: relPath ?? file.path,
-        );
+         artist: artist,
+         album: album,
+         title: title,
+         rootPath: rootPath,
+         relPath: relPath ?? file.path,
+       );
 
   factory ArtworkRequest.forTrack(Track t) => ArtworkRequest(
-        rootPath: t.rootPath,
-        file: File(p.join(t.rootPath, t.relPath)),
-        artist: t.artist,
-        album: t.album,
-        title: t.title,
-        relPath: t.relPath,
-      );
+    rootPath: t.rootPath,
+    file: File(p.join(t.rootPath, t.relPath)),
+    artist: t.artist,
+    album: t.album,
+    title: t.title,
+    relPath: t.relPath,
+  );
 
   ArtworkQuery get query =>
       ArtworkQuery(artist: artist, album: album, albumKey: albumKey);
@@ -196,7 +195,8 @@ class ArtworkResolver extends ChangeNotifier {
   /// different library roots can neither share nor clobber the other's
   /// cached image. NUL-separated because NUL appears in neither a path nor
   /// a normalized album key, which makes [invalidate]'s `endsWith` exact.
-  String _cacheKey(ArtworkRequest req) => '${req.rootPath}\u0000${req.albumKey}';
+  String _cacheKey(ArtworkRequest req) =>
+      '${req.rootPath}\u0000${req.albumKey}';
 
   /// Resolves [req]'s art. Never throws; returns null when the chain finds
   /// nothing (the caller shows its placeholder).
@@ -300,7 +300,10 @@ class ArtworkResolver extends ChangeNotifier {
     return _siblingBytes(req);
   }
 
-  Future<Uint8List?> _sidecarBytes(ArtworkStore store, ArtworkRequest req) async {
+  Future<Uint8List?> _sidecarBytes(
+    ArtworkStore store,
+    ArtworkRequest req,
+  ) async {
     try {
       final data = await store.readImage(req.albumKey);
       if (data != null && data.isNotEmpty) return _bytes(data);

@@ -13,8 +13,10 @@ void main() {
     });
 
     test('drops bracketed suffixes', () {
-      expect(normalizeArtworkText('Random Access Memories (Deluxe Edition)'),
-          'random access memories');
+      expect(
+        normalizeArtworkText('Random Access Memories (Deluxe Edition)'),
+        'random access memories',
+      );
       expect(normalizeArtworkText('Yeezus [Explicit]'), 'yeezus');
       expect(normalizeArtworkText('Kid A {2009 Remaster}'), 'kid a');
     });
@@ -22,9 +24,14 @@ void main() {
     test('drops trailing dash-qualifiers, including stacked ones', () {
       expect(normalizeArtworkText('Bloom - EP'), 'bloom');
       expect(normalizeArtworkText('Blue Lips - Single'), 'blue lips');
-      expect(normalizeArtworkText('OK Computer - 2017 Remaster'), 'ok computer');
-      expect(normalizeArtworkText('Nevermind - Deluxe Edition - Remastered'),
-          'nevermind');
+      expect(
+        normalizeArtworkText('OK Computer - 2017 Remaster'),
+        'ok computer',
+      );
+      expect(
+        normalizeArtworkText('Nevermind - Deluxe Edition - Remastered'),
+        'nevermind',
+      );
     });
 
     test('folds diacritics', () {
@@ -35,8 +42,10 @@ void main() {
     });
 
     test('strips punctuation so spelling variants converge', () {
-      expect(normalizeArtworkText("Rock 'n' Roll"),
-          normalizeArtworkText('Rock n Roll'));
+      expect(
+        normalizeArtworkText("Rock 'n' Roll"),
+        normalizeArtworkText('Rock n Roll'),
+      );
       expect(normalizeArtworkText('Vol. 2'), normalizeArtworkText('Vol 2'));
       expect(normalizeArtworkText('AC/DC'), 'ac dc');
     });
@@ -60,16 +69,22 @@ void main() {
       );
     });
 
-    test('every track of an album shares one key regardless of edition noise',
-        () {
-      final a = artworkAlbumKey(
-          artist: 'Radiohead', album: 'OK Computer', title: 'Airbag');
-      final b = artworkAlbumKey(
+    test(
+      'every track of an album shares one key regardless of edition noise',
+      () {
+        final a = artworkAlbumKey(
+          artist: 'Radiohead',
+          album: 'OK Computer',
+          title: 'Airbag',
+        );
+        final b = artworkAlbumKey(
           artist: 'radiohead',
           album: 'OK Computer (Deluxe Edition)',
-          title: 'Karma Police');
-      expect(a, b);
-    });
+          title: 'Karma Police',
+        );
+        expect(a, b);
+      },
+    );
 
     test('empty album falls back to a single-track artist|title key', () {
       expect(
@@ -79,16 +94,13 @@ void main() {
       // Two loose files by the same artist must NOT collapse onto one key.
       expect(
         artworkAlbumKey(artist: 'Aphex Twin', album: '', title: 'Avril 14th'),
-        isNot(artworkAlbumKey(
-            artist: 'Aphex Twin', album: '', title: 'Xtal')),
+        isNot(artworkAlbumKey(artist: 'Aphex Twin', album: '', title: 'Xtal')),
       );
     });
 
     group('fully-untagged fallback (adversarial review finding 7)', () {
-      test(
-          'artist AND album both blank: two different files with the SAME '
-          'filename-derived title in DIFFERENT folders no longer collide',
-          () {
+      test('artist AND album both blank: two different files with the SAME '
+          'filename-derived title in DIFFERENT folders no longer collide', () {
         // Exactly the reported scenario: two untagged rips, each named
         // "01.mp3", in two different album folders. Before the fix both
         // produced the identical key '|01' and shared one artwork entry.
@@ -109,27 +121,27 @@ void main() {
         expect(a, isNot(b));
       });
 
-      test('the OLD title-collapsed key is what the pre-fix code produced',
-          () {
+      test('the OLD title-collapsed key is what the pre-fix code produced', () {
         // Documents the exact regression: with no rootPath/relPath at all
         // (the pre-fix call shape), both untagged "01.mp3" files really did
         // collapse onto the same key -- this is the bug, pinned so the fix
         // above is legible against it.
         final withoutFileIdentity = artworkAlbumKey(
-          artist: '', album: '', title: '01',
+          artist: '',
+          album: '',
+          title: '01',
         );
         expect(withoutFileIdentity, '|01');
       });
 
-      test('same file, same call, is idempotent (stable across resolves)',
-          () {
+      test('same file, same call, is idempotent (stable across resolves)', () {
         String key() => artworkAlbumKey(
-              artist: '',
-              album: '',
-              title: '01',
-              rootPath: r'L:\music',
-              relPath: r'Album A\01.mp3',
-            );
+          artist: '',
+          album: '',
+          title: '01',
+          rootPath: r'L:\music',
+          relPath: r'Album A\01.mp3',
+        );
         expect(key(), key());
       });
 

@@ -29,11 +29,7 @@ class FakeArtworkStore {
   /// artwork is stored per LIBRARY ROOT, and the key alone can't say which
   /// root a choice belongs to. The fakes ignore the track; the assertions
   /// below still pin the key.
-  Future<void> apply(
-    Track track,
-    String albumKey,
-    ArtworkChoice choice,
-  ) async {
+  Future<void> apply(Track track, String albumKey, ArtworkChoice choice) async {
     if (applyError != null) throw applyError!;
     appliedTracks.add(track);
     appliedKeys.add(albumKey);

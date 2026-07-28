@@ -19,20 +19,22 @@ LibraryModel fixtureLibrary() {
   final m = LibraryModel();
   m.allTracks = [
     Track(
-        contentId: 'old',
-        relPath: 'old.mp3',
-        dateAdded: DateTime.utc(2020, 1, 1),
-        title: 'Oldest Song',
-        artist: 'Feed Me',
-        album: 'Calamari Tuesday',
-        durationMs: 200000),
+      contentId: 'old',
+      relPath: 'old.mp3',
+      dateAdded: DateTime.utc(2020, 1, 1),
+      title: 'Oldest Song',
+      artist: 'Feed Me',
+      album: 'Calamari Tuesday',
+      durationMs: 200000,
+    ),
     Track(
-        contentId: 'new',
-        relPath: 'new.mp3',
-        dateAdded: DateTime.utc(2026, 7, 1),
-        title: 'Newest Song',
-        artist: 'Muse',
-        album: 'Absolution'),
+      contentId: 'new',
+      relPath: 'new.mp3',
+      dateAdded: DateTime.utc(2026, 7, 1),
+      title: 'Newest Song',
+      artist: 'Muse',
+      album: 'Absolution',
+    ),
   ];
   m.status = 'ready';
   return m;
@@ -46,19 +48,21 @@ Future<void> pumpShell(
   WidgetBuilder? miniPlayerBuilder,
   Map<PhoneView, WidgetBuilder> viewBuilders = const {},
 }) {
-  return tester.pumpWidget(MaterialApp(
-    theme: buildAppTheme(),
-    home: PhoneShell(
-      library: library,
-      player: PlayerService(),
-      // Every test injects a spy (or discards) -- the default would build
-      // a real media_kit Player, which has no natives under `flutter test`.
-      onPlayTrack: onPlayTrack ?? (_, _) {},
-      onTrackLongPress: onTrackLongPress ?? (_, _) {},
-      miniPlayerBuilder: miniPlayerBuilder,
-      viewBuilders: viewBuilders,
+  return tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: PhoneShell(
+        library: library,
+        player: PlayerService(),
+        // Every test injects a spy (or discards) -- the default would build
+        // a real media_kit Player, which has no natives under `flutter test`.
+        onPlayTrack: onPlayTrack ?? (_, _) {},
+        onTrackLongPress: onTrackLongPress ?? (_, _) {},
+        miniPlayerBuilder: miniPlayerBuilder,
+        viewBuilders: viewBuilders,
+      ),
     ),
-  ));
+  );
 }
 
 Future<void> openDrawer(WidgetTester tester) async {
@@ -67,14 +71,17 @@ Future<void> openDrawer(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('feed shows rows newest-first with subtitle and duration',
-      (tester) async {
+  testWidgets('feed shows rows newest-first with subtitle and duration', (
+    tester,
+  ) async {
     await pumpShell(tester, library: fixtureLibrary());
     expect(find.text('Newest Song'), findsOneWidget);
     expect(find.text('Oldest Song'), findsOneWidget);
     // Newest above oldest (date-added desc).
-    expect(tester.getTopLeft(find.text('Newest Song')).dy,
-        lessThan(tester.getTopLeft(find.text('Oldest Song')).dy));
+    expect(
+      tester.getTopLeft(find.text('Newest Song')).dy,
+      lessThan(tester.getTopLeft(find.text('Oldest Song')).dy),
+    );
     // Subtitle format: artist — album.
     expect(find.text('Muse — Absolution'), findsOneWidget);
     // Duration right cell: 200000 ms = 3:20; the duration-less track shows
@@ -85,25 +92,26 @@ void main() {
     expect(find.text('Library'), findsOneWidget);
   });
 
-  testWidgets('tapping a feed row plays it via the injected callback',
-      (tester) async {
+  testWidgets('tapping a feed row plays it via the injected callback', (
+    tester,
+  ) async {
     final played = <(List<Track>, int)>[];
-    await pumpShell(tester,
-        library: fixtureLibrary(),
-        onPlayTrack: (tracks, index) => played.add((tracks, index)));
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      onPlayTrack: (tracks, index) => played.add((tracks, index)),
+    );
     await tester.tap(find.text('Oldest Song'));
     await tester.pump();
     expect(played, hasLength(1));
     final (queue, index) = played.single;
     // The queue is the feed in its on-screen (date-desc) order and the
     // index points at the tapped row.
-    expect(queue.map((t) => t.title).toList(),
-        ['Newest Song', 'Oldest Song']);
+    expect(queue.map((t) => t.title).toList(), ['Newest Song', 'Oldest Song']);
     expect(index, 1);
   });
 
-  testWidgets(
-      'long-press on a feed row opens the real context sheet with both '
+  testWidgets('long-press on a feed row opens the real context sheet with both '
       'plan actions (Add to playlist / View details)', (tester) async {
     final library = fixtureLibrary();
     final store = PlaylistStore(library: library);
@@ -127,8 +135,9 @@ void main() {
     expect(find.text('View in folder'), findsNothing);
   });
 
-  testWidgets('drawer lists all entries and navigation switches the body',
-      (tester) async {
+  testWidgets('drawer lists all entries and navigation switches the body', (
+    tester,
+  ) async {
     await pumpShell(tester, library: fixtureLibrary());
     await openDrawer(tester);
     for (final v in PhoneView.values) {
@@ -136,10 +145,11 @@ void main() {
     }
     // Library is the active entry initially.
     expect(
-        tester
-            .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
-            .selected,
-        isTrue);
+      tester
+          .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
+          .selected,
+      isTrue,
+    );
 
     await tester.tap(find.byKey(const Key('phone-drawer-artists')));
     await tester.pumpAndSettle();
@@ -152,15 +162,17 @@ void main() {
     // Re-open: the active highlight moved to Artists.
     await openDrawer(tester);
     expect(
-        tester
-            .widget<ListTile>(find.byKey(const Key('phone-drawer-artists')))
-            .selected,
-        isTrue);
+      tester
+          .widget<ListTile>(find.byKey(const Key('phone-drawer-artists')))
+          .selected,
+      isTrue,
+    );
     expect(
-        tester
-            .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
-            .selected,
-        isFalse);
+      tester
+          .widget<ListTile>(find.byKey(const Key('phone-drawer-library')))
+          .selected,
+      isFalse,
+    );
 
     // And navigating back to Library restores the feed.
     await tester.tap(find.byKey(const Key('phone-drawer-library')));
@@ -168,11 +180,12 @@ void main() {
     expect(find.text('Newest Song'), findsOneWidget);
   });
 
-  testWidgets('viewBuilders slot overrides a browse view body',
-      (tester) async {
-    await pumpShell(tester, library: fixtureLibrary(), viewBuilders: {
-      PhoneView.folders: (_) => const Text('REAL FOLDERS VIEW'),
-    });
+  testWidgets('viewBuilders slot overrides a browse view body', (tester) async {
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      viewBuilders: {PhoneView.folders: (_) => const Text('REAL FOLDERS VIEW')},
+    );
     await openDrawer(tester);
     await tester.tap(find.byKey(const Key('phone-drawer-folders')));
     await tester.pumpAndSettle();
@@ -180,12 +193,15 @@ void main() {
     expect(find.text('coming soon'), findsNothing);
   });
 
-  testWidgets('miniPlayerBuilder slot renders at the Scaffold bottom',
-      (tester) async {
-    await pumpShell(tester,
-        library: fixtureLibrary(),
-        miniPlayerBuilder: (_) =>
-            const SizedBox(key: Key('mini-player'), height: 64));
+  testWidgets('miniPlayerBuilder slot renders at the Scaffold bottom', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      miniPlayerBuilder: (_) =>
+          const SizedBox(key: Key('mini-player'), height: 64),
+    );
     expect(find.byKey(const Key('mini-player')), findsOneWidget);
   });
 }

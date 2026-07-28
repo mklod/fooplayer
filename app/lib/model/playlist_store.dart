@@ -93,7 +93,8 @@ class PlaylistStore {
         // Model state was stale (e.g. another process wrote the manifest);
         // re-check against the fresh manifest so we never write a dupe.
         throw PlaylistStoreException(
-            'A playlist named "$trimmed" already exists.');
+          'A playlist named "$trimmed" already exists.',
+        );
       }
       manifest.playlists.add(core.Playlist(name: trimmed, trackIds: []));
     });
@@ -194,7 +195,8 @@ class PlaylistStore {
     }
     if (library.playlists.any((pl) => pl.name == name.trim())) {
       throw PlaylistStoreException(
-          'A playlist named "${name.trim()}" already exists.');
+        'A playlist named "${name.trim()}" already exists.',
+      );
     }
   }
 
@@ -230,8 +232,9 @@ class PlaylistStore {
     final root = library.rootWithPath(path);
     if (root == null) {
       throw PlaylistStoreException(
-          'Playlist "${entry.name}" lives in a root ($path) that is no '
-          'longer configured.');
+        'Playlist "${entry.name}" lives in a root ($path) that is no '
+        'longer configured.',
+      );
     }
     return root;
   }
@@ -254,8 +257,9 @@ class PlaylistStore {
     final i = manifest.playlists.indexWhere((pl) => pl.name == sourceName);
     if (i < 0) {
       throw PlaylistStoreException(
-          'Playlist "${entry.name}" is no longer present in the library '
-          'manifest -- it may have been changed outside the app.');
+        'Playlist "${entry.name}" is no longer present in the library '
+        'manifest -- it may have been changed outside the app.',
+      );
     }
     return i;
   }
@@ -266,7 +270,9 @@ class PlaylistStore {
   /// root (see [_ownedRoot]) for everything else. [mutate] may throw a
   /// [PlaylistStoreException] to abort -- nothing is saved in that case.
   Future<void> _withManifest(
-      Directory root, FutureOr<void> Function(core.Manifest manifest) mutate) async {
+    Directory root,
+    FutureOr<void> Function(core.Manifest manifest) mutate,
+  ) async {
     final manifestFile = File(p.join(root.path, core.manifestFileName));
     if (!manifestFile.existsSync()) {
       // Refuse rather than letting loadManifest hand back Manifest.empty()
@@ -274,8 +280,9 @@ class PlaylistStore {
       // make an unseeded root look seeded (and stop the settings dialog
       // reporting it as missing).
       throw PlaylistStoreException(
-          'The library root (${root.path}) has no .library.json yet -- '
-          'seed it with foolib first.');
+        'The library root (${root.path}) has no .library.json yet -- '
+        'seed it with foolib first.',
+      );
     }
     await _acquireBusy();
     try {
@@ -293,7 +300,8 @@ class PlaylistStore {
     while (!library.tryBeginManifestWrite()) {
       if (DateTime.now().isAfter(deadline)) {
         throw PlaylistStoreException(
-            'The library is busy (scanning) -- try again in a moment.');
+          'The library is busy (scanning) -- try again in a moment.',
+        );
       }
       await Future<void>.delayed(busyRetryEvery);
     }

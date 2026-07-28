@@ -19,7 +19,8 @@ Uint8List buildMp3WithNoFrameSync({
 }) {
   final titleBytes = latin1.encode(title);
   final content = Uint8List(1 + titleBytes.length)
-    ..[0] = 0x00 // ISO-8859-1 encoding
+    ..[0] =
+        0x00 // ISO-8859-1 encoding
     ..setRange(1, 1 + titleBytes.length, titleBytes);
 
   final frameHeader = Uint8List(10);

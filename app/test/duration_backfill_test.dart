@@ -21,65 +21,79 @@ Future<Directory> _root(Directory tmp, String name) =>
 Future<void> _writeManifest(
   Directory root, {
   required Map<String, Object?> tracks,
-}) =>
-    File('${root.path}/.library.json').writeAsString(jsonEncode({
-      'schema': 1,
-      'tracks': tracks,
-      'playlists': [],
-    }));
+}) => File(
+  '${root.path}/.library.json',
+).writeAsString(jsonEncode({'schema': 1, 'tracks': tracks, 'playlists': []}));
 
-Map<String, Object?> _trackJson(String path, String dateAdded) =>
-    {'paths': [path], 'date_added': dateAdded};
+Map<String, Object?> _trackJson(String path, String dateAdded) => {
+  'paths': [path],
+  'date_added': dateAdded,
+};
 
 /// A cache entry shaped exactly like the real defect: fully enriched tags
 /// but durationMs persisted as null (key present, value null -- which
 /// MetaCache.load keeps, unlike a missing key).
 Map<String, Object?> _nullDurationEntry() => {
-      'title': 'Automatic (Frost Remix)',
-      'artist': 'ZHU & AlunaGeorge',
-      'album': 'loose tracks - 2020 and later',
-      'genre': null,
-      'durationMs': null,
-      'trackNumber': null,
-    };
+  'title': 'Automatic (Frost Remix)',
+  'artist': 'ZHU & AlunaGeorge',
+  'album': 'loose tracks - 2020 and later',
+  'genre': null,
+  'durationMs': null,
+  'trackNumber': null,
+  'rev': kMetaCacheRevision,
+};
 
 /// Loads a one-track library ('id1') whose cache entry has durationMs:null.
 Future<LibraryModel> _loadNullDurationLibrary(
-    Directory tmp, File cacheFile) async {
+  Directory tmp,
+  File cacheFile,
+) async {
   final root = await _root(tmp, 'lib');
-  await _writeManifest(root, tracks: {
-    'id1': _trackJson('loose tracks - 2020 and later/song.mp3',
-        '2024-01-01T00:00:00Z'),
-  });
+  await _writeManifest(
+    root,
+    tracks: {
+      'id1': _trackJson(
+        'loose tracks - 2020 and later/song.mp3',
+        '2024-01-01T00:00:00Z',
+      ),
+    },
+  );
   await cacheFile.writeAsString(jsonEncode({'id1': _nullDurationEntry()}));
   final model = LibraryModel();
   await model
       .load(libraryRoots: [root], cacheFile: cacheFile)
       .timeout(const Duration(seconds: 30));
-  expect(model.allTracks.single.durationMs, isNull,
-      reason: 'fixture: track must start with no duration');
+  expect(
+    model.allTracks.single.durationMs,
+    isNull,
+    reason: 'fixture: track must start with no duration',
+  );
   return model;
 }
 
 Track _track(String id, {int? durationMs}) => Track(
-      contentId: id,
-      relPath: 'x/$id.mp3',
-      dateAdded: DateTime.utc(2024),
-      title: id,
-      durationMs: durationMs,
-    );
+  contentId: id,
+  relPath: 'x/$id.mp3',
+  dateAdded: DateTime.utc(2024),
+  title: id,
+  durationMs: durationMs,
+);
 
 void main() {
   late Directory tmp;
-  setUp(() async =>
-      tmp = await Directory.systemTemp.createTemp('duration_backfill'));
+  setUp(
+    () async =>
+        tmp = await Directory.systemTemp.createTemp('duration_backfill'),
+  );
   tearDown(() async => tmp.delete(recursive: true));
 
   group('LibraryModel.updateDuration', () {
     test('updates the in-memory track, notifies, and hands the pending '
         'batch to the cache writer on flush', () async {
       final model = await _loadNullDurationLibrary(
-          tmp, File('${tmp.path}/meta_cache.json'));
+        tmp,
+        File('${tmp.path}/meta_cache.json'),
+      );
       final written = <Map<String, int>>[];
       model.durationCacheWriter = (pending) async => written.add(pending);
       var notified = 0;
@@ -95,7 +109,7 @@ void main() {
       expect(written, isEmpty, reason: 'save is debounced, not immediate');
       await model.flushPendingDurationSaves();
       expect(written, [
-        {'id1': 370158}
+        {'id1': 370158},
       ]);
 
       // Nothing left pending: a second flush must not re-write.
@@ -107,7 +121,9 @@ void main() {
     test('coalesces repeated updates for the same track into the latest '
         'value', () async {
       final model = await _loadNullDurationLibrary(
-          tmp, File('${tmp.path}/meta_cache.json'));
+        tmp,
+        File('${tmp.path}/meta_cache.json'),
+      );
       final written = <Map<String, int>>[];
       model.durationCacheWriter = (pending) async => written.add(pending);
 
@@ -116,7 +132,7 @@ void main() {
       await model.flushPendingDurationSaves();
 
       expect(written, [
-        {'id1': 370158}
+        {'id1': 370158},
       ]);
       model.dispose();
     });
@@ -125,7 +141,9 @@ void main() {
         'unknown contentId, a non-positive ms, or the value the track '
         'already has', () async {
       final model = await _loadNullDurationLibrary(
-          tmp, File('${tmp.path}/meta_cache.json'));
+        tmp,
+        File('${tmp.path}/meta_cache.json'),
+      );
       final written = <Map<String, int>>[];
       model.durationCacheWriter = (pending) async => written.add(pending);
 
@@ -147,8 +165,7 @@ void main() {
     });
 
     test('default writer merges the duration into the on-disk cache entry, '
-        'preserving its other tag fields, so it survives a reload',
-        () async {
+        'preserving its other tag fields, so it survives a reload', () async {
       final cacheFile = File('${tmp.path}/meta_cache.json');
       final model = await _loadNullDurationLibrary(tmp, cacheFile);
 
@@ -165,77 +182,95 @@ void main() {
     });
 
     test(
-        'regression (adversarial review, MEDIUM): a track with no cache '
-        'entry yet does not get a fabricated permanent one -- the update '
-        'stays pending until a real (enriched) entry exists to merge into',
-        () async {
-      final cacheFile = File('${tmp.path}/meta_cache.json');
-      final model = await _loadNullDurationLibrary(tmp, cacheFile);
+      'regression (adversarial review, MEDIUM): a track with no cache '
+      'entry yet does not get a fabricated permanent one -- the update '
+      'stays pending until a real (enriched) entry exists to merge into',
+      () async {
+        final cacheFile = File('${tmp.path}/meta_cache.json');
+        final model = await _loadNullDurationLibrary(tmp, cacheFile);
 
-      // Simulate "enrichment hasn't reached this file yet": whatever entry
-      // _loadBody's own enrichment wrote for id1, wipe the cache file back
-      // to knowing nothing about it -- allTracks (already loaded) is
-      // unaffected, exactly matching the real race (a still-in-progress
-      // scan's in-memory cache snapshot simply never touched this id).
-      await cacheFile.writeAsString(jsonEncode(<String, Object?>{}));
-      expect(MetaCache.load(cacheFile).entries['id1'], isNull,
-          reason: 'fixture: id1 must be a genuine cache miss');
+        // Simulate "enrichment hasn't reached this file yet": whatever entry
+        // _loadBody's own enrichment wrote for id1, wipe the cache file back
+        // to knowing nothing about it -- allTracks (already loaded) is
+        // unaffected, exactly matching the real race (a still-in-progress
+        // scan's in-memory cache snapshot simply never touched this id).
+        await cacheFile.writeAsString(jsonEncode(<String, Object?>{}));
+        expect(
+          MetaCache.load(cacheFile).entries['id1'],
+          isNull,
+          reason: 'fixture: id1 must be a genuine cache miss',
+        );
 
-      model.updateDuration('id1', 250000);
-      expect(model.allTracks.single.durationMs, 250000,
-          reason: 'the in-memory track updates regardless of cache state');
-      await model.flushPendingDurationSaves(); // default writer: real file
+        model.updateDuration('id1', 250000);
+        expect(
+          model.allTracks.single.durationMs,
+          250000,
+          reason: 'the in-memory track updates regardless of cache state',
+        );
+        await model.flushPendingDurationSaves(); // default writer: real file
 
-      final afterFirstFlush = MetaCache.load(cacheFile);
-      expect(afterFirstFlush.entries['id1'], isNull,
-          reason: 'a fabricated filename-derived entry would carry '
+        final afterFirstFlush = MetaCache.load(cacheFile);
+        expect(
+          afterFirstFlush.entries['id1'],
+          isNull,
+          reason:
+              'a fabricated filename-derived entry would carry '
               'durationMs+trackNumber and so pass as already-enriched, '
-              'permanently hiding id1 from real tag enrichment');
+              'permanently hiding id1 from real tag enrichment',
+        );
 
-      // Enrichment eventually reaches id1 and writes its real entry --
-      // this particular format's parser still can't derive a duration
-      // (durationMs stays null), exactly the case the backfill feature
-      // exists for.
-      await cacheFile.writeAsString(jsonEncode({
-        'id1': {
-          'title': 'Real Enriched Title',
-          'artist': 'Real Enriched Artist',
-          'album': 'Real Enriched Album',
-          'genre': null,
-          'durationMs': null,
-          'trackNumber': 3,
-        },
-      }));
+        // Enrichment eventually reaches id1 and writes its real entry --
+        // this particular format's parser still can't derive a duration
+        // (durationMs stays null), exactly the case the backfill feature
+        // exists for.
+        await cacheFile.writeAsString(
+          jsonEncode({
+            'id1': {
+              'title': 'Real Enriched Title',
+              'artist': 'Real Enriched Artist',
+              'album': 'Real Enriched Album',
+              'genre': null,
+              'durationMs': null,
+              'trackNumber': 3,
+              'rev': kMetaCacheRevision,
+            },
+          }),
+        );
 
-      // The update that couldn't merge earlier was kept pending, not
-      // dropped -- retried (and this time succeeds) on the next flush.
-      await model.flushPendingDurationSaves();
-      final afterSecondFlush = MetaCache.load(cacheFile);
-      final entry = afterSecondFlush.entries['id1']!;
-      expect(entry.durationMs, 250000);
-      expect(entry.title, 'Real Enriched Title');
-      expect(entry.artist, 'Real Enriched Artist');
-      expect(entry.trackNumber, 3);
-      model.dispose();
-    });
+        // The update that couldn't merge earlier was kept pending, not
+        // dropped -- retried (and this time succeeds) on the next flush.
+        await model.flushPendingDurationSaves();
+        final afterSecondFlush = MetaCache.load(cacheFile);
+        final entry = afterSecondFlush.entries['id1']!;
+        expect(entry.durationMs, 250000);
+        expect(entry.title, 'Real Enriched Title');
+        expect(entry.artist, 'Real Enriched Artist');
+        expect(entry.trackNumber, 3);
+        model.dispose();
+      },
+    );
   });
 
   group('LibraryModel enrichment cache-save merge (adversarial review, '
       'MEDIUM)', () {
-    test(
-        "enrichment's own cache.save (Part B) does not clobber a duration "
+    test("enrichment's own cache.save (Part B) does not clobber a duration "
         'backfill for an unrelated, already-cached track', () async {
       final cacheFile = File('${tmp.path}/meta_cache.json');
       final root = await _root(tmp, 'lib');
-      await _writeManifest(root, tracks: {
-        // Already a cache hit (durationMs:null) -- Part B's enrichment loop
-        // never revisits it, only cache-miss entries.
-        'known': _trackJson('known/song.mp3', '2024-01-01T00:00:00Z'),
-        // A genuine cache miss, so Part B enrichment (and its periodic/
-        // final cache.save) actually runs.
-        'miss': _trackJson('miss/other.mp3', '2024-01-02T00:00:00Z'),
-      });
-      await cacheFile.writeAsString(jsonEncode({'known': _nullDurationEntry()}));
+      await _writeManifest(
+        root,
+        tracks: {
+          // Already a cache hit (durationMs:null) -- Part B's enrichment loop
+          // never revisits it, only cache-miss entries.
+          'known': _trackJson('known/song.mp3', '2024-01-01T00:00:00Z'),
+          // A genuine cache miss, so Part B enrichment (and its periodic/
+          // final cache.save) actually runs.
+          'miss': _trackJson('miss/other.mp3', '2024-01-02T00:00:00Z'),
+        },
+      );
+      await cacheFile.writeAsString(
+        jsonEncode({'known': _nullDurationEntry()}),
+      );
 
       final model = LibraryModel();
       await model
@@ -254,18 +289,25 @@ void main() {
           .timeout(const Duration(seconds: 30));
 
       expect(
-          model.allTracks
-              .singleWhere((t) => t.contentId == 'known')
-              .durationMs,
-          555000);
+        model.allTracks.singleWhere((t) => t.contentId == 'known').durationMs,
+        555000,
+      );
 
       final onDisk = MetaCache.load(cacheFile);
-      expect(onDisk.entries['known']!.durationMs, 555000,
-          reason: "enrichment's own cache.save must not overwrite this "
-              'with the stale null it loaded at start of load()');
-      expect(onDisk.entries['known']!.title, 'Automatic (Frost Remix)',
-          reason: 'the merge must only touch durationMs, not the rest of '
-              "the entry's already-enriched fields");
+      expect(
+        onDisk.entries['known']!.durationMs,
+        555000,
+        reason:
+            "enrichment's own cache.save must not overwrite this "
+            'with the stale null it loaded at start of load()',
+      );
+      expect(
+        onDisk.entries['known']!.title,
+        'Automatic (Frost Remix)',
+        reason:
+            'the merge must only touch durationMs, not the rest of '
+            "the entry's already-enriched fields",
+      );
       // Sanity: the actual cache-miss track was enriched too (nothing else
       // broken by the merge).
       expect(onDisk.entries['miss'], isNotNull);
@@ -307,8 +349,7 @@ void main() {
       expect(observed, isEmpty);
     });
 
-    test('does not report for a track whose durationMs is already known',
-        () {
+    test('does not report for a track whose durationMs is already known', () {
       final ps = PlayerService();
       ps.queueController.setQueue([_track('id1', durationMs: 231072)], 0);
       ps.debugMarkOpened('id1');
@@ -350,11 +391,9 @@ void main() {
       expect(observed, isEmpty, reason: 'duration is not correlated to id1');
     });
 
-    test(
-        'regression (adversarial review, HIGH): a stale duration event left '
+    test('regression (adversarial review, HIGH): a stale duration event left '
         'over from a track already skipped past is dropped, not '
-        'misattributed to whatever is current now',
-        () {
+        'misattributed to whatever is current now', () {
       // Models rapid next/next/next (A -> B -> C): current has already
       // advanced to C, but B's open() never resolved (its duration event
       // is the "late" one arriving now) -- only A's open() ever finished.
@@ -369,12 +408,19 @@ void main() {
       // B's engine duration event arrives late, after current == C.
       ps.handleDurationChange(const Duration(minutes: 4));
 
-      expect(observed, isEmpty,
-          reason: 'stale event for a track no longer opened must be dropped, '
-              'not applied to the now-current track');
+      expect(
+        observed,
+        isEmpty,
+        reason:
+            'stale event for a track no longer opened must be dropped, '
+            'not applied to the now-current track',
+      );
       expect(ps.current!.contentId, 'c');
-      expect(ps.current!.durationMs, isNull,
-          reason: 'C must not have inherited a wrong duration');
+      expect(
+        ps.current!.durationMs,
+        isNull,
+        reason: 'C must not have inherited a wrong duration',
+      );
 
       // Once C's own open() genuinely resolves and its real duration
       // arrives, it's still correctly reported.

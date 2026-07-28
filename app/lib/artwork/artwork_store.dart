@@ -41,7 +41,14 @@ const defaultArtworkNegativeTtl = Duration(days: 14);
 /// Image file extensions we are willing to reuse for the cached copy. The
 /// extension is cosmetic (`Image.memory` sniffs the real format), but keeping
 /// a PNG named `.png` makes the `.artwork/` dir legible to a human.
-const _knownImageExtensions = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'};
+const _knownImageExtensions = {
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.bmp',
+};
 
 /// Extension to store [urlOrPath]'s bytes under; `.jpg` when it isn't
 /// obvious (every provider we use serves JPEG).
@@ -98,13 +105,13 @@ class ArtworkEntry {
   });
 
   Map<String, dynamic> toJson() => {
-        'file': file,
-        'source': source,
-        'pickedAt': pickedAt.toUtc().toIso8601String(),
-        'query': query,
-        if (origin.isNotEmpty) 'origin': origin,
-        if (external) 'external': true,
-      };
+    'file': file,
+    'source': source,
+    'pickedAt': pickedAt.toUtc().toIso8601String(),
+    'query': query,
+    if (origin.isNotEmpty) 'origin': origin,
+    if (external) 'external': true,
+  };
 
   /// Tolerant parse: a malformed/partial entry yields null rather than
   /// throwing, so one bad record can't take the whole sidecar down.
@@ -153,12 +160,12 @@ class ArtworkMiss {
   });
 
   Map<String, dynamic> toJson() => {
-        'at': at.toUtc().toIso8601String(),
-        'query': query,
-        // Additive, like `misses` itself: an older reader ignores the key
-        // (and simply expires the record after the TTL).
-        if (suppressed) 'suppressed': true,
-      };
+    'at': at.toUtc().toIso8601String(),
+    'query': query,
+    // Additive, like `misses` itself: an older reader ignores the key
+    // (and simply expires the record after the TTL).
+    if (suppressed) 'suppressed': true,
+  };
 
   static ArtworkMiss? fromJson(Object? raw) {
     if (raw is! Map) return null;
@@ -182,17 +189,17 @@ class ArtworkSidecar {
     this.schema = artworkSidecarSchema,
     Map<String, ArtworkEntry>? art,
     Map<String, ArtworkMiss>? misses,
-  })  : art = art ?? {},
-        misses = misses ?? {};
+  }) : art = art ?? {},
+       misses = misses ?? {};
 
   Map<String, dynamic> toJson() => {
-        'schema': artworkSidecarSchema,
-        'art': art.map((k, v) => MapEntry(k, v.toJson())),
-        // Additive to the plan's documented shape; readers that don't know
-        // about it simply ignore the key, and a sidecar written by an older
-        // build (no `misses`) parses fine below.
-        'misses': misses.map((k, v) => MapEntry(k, v.toJson())),
-      };
+    'schema': artworkSidecarSchema,
+    'art': art.map((k, v) => MapEntry(k, v.toJson())),
+    // Additive to the plan's documented shape; readers that don't know
+    // about it simply ignore the key, and a sidecar written by an older
+    // build (no `misses`) parses fine below.
+    'misses': misses.map((k, v) => MapEntry(k, v.toJson())),
+  };
 
   /// Tolerant parse. Anything unrecognizable (wrong schema, non-object,
   /// junk entries) degrades to "no data" rather than throwing: a corrupt
@@ -293,7 +300,8 @@ class ArtworkStore {
   /// The `<appDataDir>/artwork/<rootHash>/` bucket used by the read-only
   /// fallback. Computed, not created, until a fallback write happens.
   Directory get externalDir => Directory(
-      p.join(appDataDir.path, 'artwork', artworkHash(_canonicalRootPath)));
+    p.join(appDataDir.path, 'artwork', artworkHash(_canonicalRootPath)),
+  );
 
   /// False for the placeholder empty root some test fixtures carry
   /// ([Track.rootPath] defaults to `''`). Without this guard an empty root
@@ -325,10 +333,7 @@ class ArtworkStore {
 
   Future<void> _load() async {
     final merged = ArtworkSidecar();
-    final sources = [
-      if (_hasRoot) _rootSidecarFile,
-      _externalSidecarFile,
-    ];
+    final sources = [if (_hasRoot) _rootSidecarFile, _externalSidecarFile];
     for (final file in sources) {
       try {
         if (!await file.exists()) continue;
@@ -628,14 +633,14 @@ class ArtworkStoreRegistry {
   final Map<String, ArtworkStore> _stores = {};
 
   ArtworkStore forRoot(String rootPath) => _stores.putIfAbsent(
-        Platform.isWindows ? rootPath.toLowerCase() : rootPath,
-        () => ArtworkStore(
-          root: Directory(rootPath),
-          appDataDir: appDataDir,
-          negativeTtl: negativeTtl,
-          now: now,
-        ),
-      );
+    Platform.isWindows ? rootPath.toLowerCase() : rootPath,
+    () => ArtworkStore(
+      root: Directory(rootPath),
+      appDataDir: appDataDir,
+      negativeTtl: negativeTtl,
+      now: now,
+    ),
+  );
 
   Iterable<ArtworkStore> get stores => _stores.values;
 }

@@ -35,7 +35,7 @@ class FetchCall {
   final Map<String, String> headers;
 
   FetchCall(this.url, Map<String, String>? headers)
-      : headers = Map.unmodifiable(headers ?? const {});
+    : headers = Map.unmodifiable(headers ?? const {});
 
   @override
   String toString() => 'FetchCall($url, $headers)';
@@ -51,13 +51,13 @@ class FakeArtFetch {
   final calls = <FetchCall>[];
 
   FakeArtFetch(Map<String, ArtHttpResponse Function(Uri url)> byHost)
-      : _byHost = byHost;
+    : _byHost = byHost;
 
   /// Convenience: map each host directly to a 200 + body string.
   factory FakeArtFetch.bodies(Map<String, String> byHost) => FakeArtFetch({
-        for (final e in byHost.entries)
-          e.key: (_) => ArtHttpResponse(statusCode: 200, body: e.value),
-      });
+    for (final e in byHost.entries)
+      e.key: (_) => ArtHttpResponse(statusCode: 200, body: e.value),
+  });
 
   ArtFetch get fetch => _call;
 
@@ -72,17 +72,18 @@ class FakeArtFetch {
 
   /// The single call made to [host]; fails the caller if there wasn't exactly
   /// one.
-  FetchCall callTo(String host) =>
-      calls.singleWhere((c) => c.url.host == host);
+  FetchCall callTo(String host) => calls.singleWhere((c) => c.url.host == host);
 
   bool wasCalled(String host) => calls.any((c) => c.url.host == host);
 }
 
 /// An [ArtFetch] that always throws -- stands in for "no network at all".
-Future<ArtHttpResponse> throwingArtFetch(Uri url,
-        {Map<String, String>? headers}) =>
-    Future<ArtHttpResponse>.error(
-        const SocketException('Failed host lookup (test)'));
+Future<ArtHttpResponse> throwingArtFetch(
+  Uri url, {
+  Map<String, String>? headers,
+}) => Future<ArtHttpResponse>.error(
+  const SocketException('Failed host lookup (test)'),
+);
 
 /// Deterministic clock + sleep pair for driving [RateLimiter] without
 /// spending real seconds. Every `sleep(d)` advances the fake clock by `d` and

@@ -35,7 +35,9 @@ Future<T> runIsolateWithTimeout<T, M>(
     resultPort.close();
     if (response == null) {
       completer.completeError(
-          StateError('isolate exited without a result'), StackTrace.current);
+        StateError('isolate exited without a result'),
+        StackTrace.current,
+      );
       return;
     }
     final list = response as List<Object?>;
@@ -48,7 +50,8 @@ Future<T> runIsolateWithTimeout<T, M>(
         // Two strings from the isolate's own onError handler (an uncaught
         // async error) rather than from entryPoint's own try/catch.
         completer.completeError(
-            RemoteError(error.toString(), stack.toString()));
+          RemoteError(error.toString(), stack.toString()),
+        );
       }
     } else {
       completer.complete(list[0] as T);

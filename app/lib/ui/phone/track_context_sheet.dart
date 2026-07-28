@@ -37,13 +37,19 @@ Widget _detailRow(String label, String value) {
       children: [
         SizedBox(
           width: 72,
-          child: Text(label,
-              style: const TextStyle(
-                  fontSize: 11.5, color: AppColors.inkSecondary)),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              color: AppColors.inkSecondary,
+            ),
+          ),
         ),
         Expanded(
-          child: Text(value,
-              style: const TextStyle(fontSize: 12.5, color: AppColors.ink)),
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
+          ),
         ),
       ],
     ),
@@ -55,8 +61,10 @@ Widget _detailRow(String label, String value) {
 /// is the app-wide resolution rule `p.join(rootPath, relPath)` (see
 /// [Track.rootPath]); shown for reference even though there's no explorer
 /// to open it in on Android.
-Future<void> showTrackDetailsDialog(BuildContext context,
-    {required Track track}) {
+Future<void> showTrackDetailsDialog(
+  BuildContext context, {
+  required Track track,
+}) {
   final path = track.rootPath.isEmpty
       ? track.relPath
       : p.join(track.rootPath, track.relPath);
@@ -119,7 +127,11 @@ Future<void> showTrackContextSheet(
         children: [
           ListTile(
             enabled: false,
-            title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            title: Text(
+              track.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             subtitle: subtitle.isEmpty
                 ? null
                 : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -172,8 +184,11 @@ Future<void> showTrackContextSheet(
             ListTile(
               key: Key('sheet-playlist-${pl.name}'),
               leading: const Icon(Icons.queue_music),
-              title:
-                  Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              title: Text(
+                pl.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               onTap: () => Navigator.of(ctx).pop(pl.name),
             ),
           ListTile(

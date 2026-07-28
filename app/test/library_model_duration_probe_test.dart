@@ -16,15 +16,14 @@ Future<Directory> _root(Directory tmp, String name) =>
 Future<void> _writeManifest(
   Directory root, {
   required Map<String, Object?> tracks,
-}) =>
-    File('${root.path}/.library.json').writeAsString(jsonEncode({
-      'schema': 1,
-      'tracks': tracks,
-      'playlists': [],
-    }));
+}) => File(
+  '${root.path}/.library.json',
+).writeAsString(jsonEncode({'schema': 1, 'tracks': tracks, 'playlists': []}));
 
-Map<String, Object?> _trackJson(String path, String dateAdded) =>
-    {'paths': [path], 'date_added': dateAdded};
+Map<String, Object?> _trackJson(String path, String dateAdded) => {
+  'paths': [path],
+  'date_added': dateAdded,
+};
 
 /// MPEG2.5 Layer III, 24 kbps @ 11025 Hz CBR frames plus a trailing ID3v1
 /// tag -- see tags_test.dart's fallback-wiring group for why this shape
@@ -47,33 +46,40 @@ List<int> _nullUpstreamDurationMp3Bytes() {
 
 void main() {
   late Directory tmp;
-  setUp(() async =>
-      tmp = await Directory.systemTemp.createTemp('duration_probe_wiring'));
+  setUp(
+    () async =>
+        tmp = await Directory.systemTemp.createTemp('duration_probe_wiring'),
+  );
   tearDown(() async => tmp.delete(recursive: true));
 
-  test(
-      'a cache-hit mp3 with durationMs:null and no prior probe is queued for '
+  test('a cache-hit mp3 with durationMs:null and no prior probe is queued for '
       "Part B's background enrichment, ending with a real duration and "
       'durationProbed:true on disk', () async {
     final root = await _root(tmp, 'lib');
-    await File('${root.path}/song.mp3').writeAsBytes(_nullUpstreamDurationMp3Bytes());
-    await _writeManifest(root, tracks: {
-      'id1': _trackJson('song.mp3', '2024-01-01T00:00:00Z'),
-    });
+    await File(
+      '${root.path}/song.mp3',
+    ).writeAsBytes(_nullUpstreamDurationMp3Bytes());
+    await _writeManifest(
+      root,
+      tracks: {'id1': _trackJson('song.mp3', '2024-01-01T00:00:00Z')},
+    );
     final cacheFile = File('${tmp.path}/meta_cache.json');
     // Shaped exactly like a cache entry written before this feature
     // existed: real tags, durationMs null, no durationProbed key at all
     // (TrackTags.fromJson defaults that to false).
-    await cacheFile.writeAsString(jsonEncode({
-      'id1': {
-        'title': 'Cached Title',
-        'artist': 'Cached Artist',
-        'album': 'Cached Album',
-        'genre': null,
-        'durationMs': null,
-        'trackNumber': null,
-      }
-    }));
+    await cacheFile.writeAsString(
+      jsonEncode({
+        'id1': {
+          'title': 'Cached Title',
+          'artist': 'Cached Artist',
+          'album': 'Cached Album',
+          'genre': null,
+          'durationMs': null,
+          'trackNumber': null,
+          'rev': kMetaCacheRevision,
+        },
+      }),
+    );
 
     final model = LibraryModel();
     await model
@@ -91,64 +97,78 @@ void main() {
   });
 
   test(
-      'a cache-hit mp3 with durationMs:null whose file is missing keeps its '
-      'cached tags untouched and is not queued for background enrichment',
-      () async {
-    final root = await _root(tmp, 'lib2');
-    // Deliberately never created on disk.
-    await _writeManifest(root, tracks: {
-      'id1': _trackJson('gone.mp3', '2024-01-01T00:00:00Z'),
-    });
-    final cacheFile = File('${tmp.path}/meta_cache2.json');
-    await cacheFile.writeAsString(jsonEncode({
-      'id1': {
-        'title': 'Real Enriched Title',
-        'artist': 'Real Enriched Artist',
-        'album': 'Real Enriched Album',
-        'genre': null,
-        'durationMs': null,
-        'trackNumber': null,
-      }
-    }));
+    'a cache-hit mp3 with durationMs:null whose file is missing keeps its '
+    'cached tags untouched and is not queued for background enrichment',
+    () async {
+      final root = await _root(tmp, 'lib2');
+      // Deliberately never created on disk.
+      await _writeManifest(
+        root,
+        tracks: {'id1': _trackJson('gone.mp3', '2024-01-01T00:00:00Z')},
+      );
+      final cacheFile = File('${tmp.path}/meta_cache2.json');
+      await cacheFile.writeAsString(
+        jsonEncode({
+          'id1': {
+            'title': 'Real Enriched Title',
+            'artist': 'Real Enriched Artist',
+            'album': 'Real Enriched Album',
+            'genre': null,
+            'durationMs': null,
+            'trackNumber': null,
+            'rev': kMetaCacheRevision,
+          },
+        }),
+      );
 
-    final model = LibraryModel();
-    await model
-        .load(libraryRoots: [root], cacheFile: cacheFile)
-        .timeout(const Duration(seconds: 30));
+      final model = LibraryModel();
+      await model
+          .load(libraryRoots: [root], cacheFile: cacheFile)
+          .timeout(const Duration(seconds: 30));
 
-    // Nothing was queued for enrichment -- status goes straight to 'ready',
-    // never through 'ready (reading tags in background)'.
-    expect(model.status, 'ready');
-    final t = model.allTracks.single;
-    expect(t.title, 'Real Enriched Title');
-    expect(t.artist, 'Real Enriched Artist');
-    expect(t.durationMs, isNull);
+      // Nothing was queued for enrichment -- status goes straight to 'ready',
+      // never through 'ready (reading tags in background)'.
+      expect(model.status, 'ready');
+      final t = model.allTracks.single;
+      expect(t.title, 'Real Enriched Title');
+      expect(t.artist, 'Real Enriched Artist');
+      expect(t.durationMs, isNull);
 
-    final onDisk = MetaCache.load(cacheFile);
-    expect(onDisk.entries['id1']!.durationProbed, isFalse,
-        reason: 'nothing was actually probed -- the file is missing');
-    model.dispose();
-  });
+      final onDisk = MetaCache.load(cacheFile);
+      expect(
+        onDisk.entries['id1']!.durationProbed,
+        isFalse,
+        reason: 'nothing was actually probed -- the file is missing',
+      );
+      model.dispose();
+    },
+  );
 
   test('a cache-hit mp3 already marked durationProbed:true is left alone -- '
       'no background re-read', () async {
     final root = await _root(tmp, 'lib3');
-    await File('${root.path}/song.mp3').writeAsBytes(_nullUpstreamDurationMp3Bytes());
-    await _writeManifest(root, tracks: {
-      'id1': _trackJson('song.mp3', '2024-01-01T00:00:00Z'),
-    });
+    await File(
+      '${root.path}/song.mp3',
+    ).writeAsBytes(_nullUpstreamDurationMp3Bytes());
+    await _writeManifest(
+      root,
+      tracks: {'id1': _trackJson('song.mp3', '2024-01-01T00:00:00Z')},
+    );
     final cacheFile = File('${tmp.path}/meta_cache3.json');
-    await cacheFile.writeAsString(jsonEncode({
-      'id1': {
-        'title': 'Genuinely Unmeasurable',
-        'artist': null,
-        'album': null,
-        'genre': null,
-        'durationMs': null,
-        'trackNumber': null,
-        'durationProbed': true,
-      }
-    }));
+    await cacheFile.writeAsString(
+      jsonEncode({
+        'id1': {
+          'title': 'Genuinely Unmeasurable',
+          'artist': null,
+          'album': null,
+          'genre': null,
+          'durationMs': null,
+          'trackNumber': null,
+          'rev': kMetaCacheRevision,
+          'durationProbed': true,
+        },
+      }),
+    );
 
     final model = LibraryModel();
     await model

@@ -46,7 +46,8 @@ class _PhoneSearchPageState extends State<PhoneSearchPage> {
         listenable: widget.library,
         builder: (context, _) => PhoneTrackList(
           tracks: sortByDateAddedDesc(
-              applyFilters(widget.library.allTracks, search: _query)),
+            applyFilters(widget.library.allTracks, search: _query),
+          ),
           onPlay: widget.onPlayTrack,
           onLongPress: widget.onTrackLongPress,
         ),

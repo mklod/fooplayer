@@ -47,9 +47,9 @@ LibraryModel fixtureLibrary() {
 }
 
 void main() {
-  testWidgets(
-      'Refresh button queues a backfill pass once the rescan settles',
-      (tester) async {
+  testWidgets('Refresh button queues a backfill pass once the rescan settles', (
+    tester,
+  ) async {
     final tmp = Directory.systemTemp.createTempSync('fooplayer_refresh_bf_');
     addTearDown(() {
       try {
@@ -84,16 +84,18 @@ void main() {
 
     final library = fixtureLibrary();
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: HomeScreen(
-        library: library,
-        player: PlayerService(),
-        layoutPrefs: LayoutPrefs(),
-        libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
-        artworkBackfill: backfill,
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: HomeScreen(
+          library: library,
+          player: PlayerService(),
+          layoutPrefs: LayoutPrefs(),
+          libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          artworkBackfill: backfill,
+        ),
       ),
-    ));
+    );
     await tester.pump();
 
     // The rescan-then-backfill chain does real, non-fake-clock async work
@@ -104,8 +106,9 @@ void main() {
     // starved waiting on flutter_test's fake microtask/timer queue, which
     // only advances on an explicit pump().
     await tester.runAsync(() async {
-      final button =
-          tester.widget<ListTile>(find.byKey(const Key('rescan-library')));
+      final button = tester.widget<ListTile>(
+        find.byKey(const Key('rescan-library')),
+      );
       button.onTap!();
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (searched.isEmpty && DateTime.now().isBefore(deadline)) {
@@ -120,30 +123,37 @@ void main() {
       }
     });
 
-    expect(searched, ['Daft Punk Discovery'],
-        reason: 'the Refresh button must chain a backfill pass over the '
-            'current tracks once its rescan settles, exactly like the '
-            'periodic timer and the launch-time rescan do');
+    expect(
+      searched,
+      ['Daft Punk Discovery'],
+      reason:
+          'the Refresh button must chain a backfill pass over the '
+          'current tracks once its rescan settles, exactly like the '
+          'periodic timer and the launch-time rescan do',
+    );
   });
 
   testWidgets(
-      'Refresh button with no artworkBackfill wired still rescans (no crash)',
-      (tester) async {
-    final library = fixtureLibrary();
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: HomeScreen(
-        library: library,
-        player: PlayerService(),
-        layoutPrefs: LayoutPrefs(),
-        libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
-      ),
-    ));
-    await tester.pump();
+    'Refresh button with no artworkBackfill wired still rescans (no crash)',
+    (tester) async {
+      final library = fixtureLibrary();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: HomeScreen(
+            library: library,
+            player: PlayerService(),
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          ),
+        ),
+      );
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('rescan-library')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('rescan-library')));
+      await tester.pumpAndSettle();
 
-    expect(tester.takeException(), isNull);
-  });
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

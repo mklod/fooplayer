@@ -53,47 +53,52 @@ LibraryModel fixtureLibrary() {
   final m = LibraryModel();
   m.allTracks = [
     Track(
-        contentId: 'b',
-        relPath: 'rock/Album X/02 Second.mp3',
-        rootPath: _root,
-        dateAdded: DateTime.utc(2026, 2, 1),
-        title: 'Second Song',
-        artist: 'Muse',
-        album: 'Album X',
-        trackNumber: 2,
-        durationMs: 125000),
+      contentId: 'b',
+      relPath: 'rock/Album X/02 Second.mp3',
+      rootPath: _root,
+      dateAdded: DateTime.utc(2026, 2, 1),
+      title: 'Second Song',
+      artist: 'Muse',
+      album: 'Album X',
+      trackNumber: 2,
+      durationMs: 125000,
+    ),
     Track(
-        contentId: 'a',
-        relPath: 'rock/Album X/01 First.mp3',
-        rootPath: _root,
-        dateAdded: DateTime.utc(2026, 1, 1),
-        title: 'First Song',
-        artist: 'Muse',
-        album: 'Album X',
-        trackNumber: 1,
-        durationMs: 61000),
+      contentId: 'a',
+      relPath: 'rock/Album X/01 First.mp3',
+      rootPath: _root,
+      dateAdded: DateTime.utc(2026, 1, 1),
+      title: 'First Song',
+      artist: 'Muse',
+      album: 'Album X',
+      trackNumber: 1,
+      durationMs: 61000,
+    ),
     Track(
-        contentId: 'c',
-        relPath: 'jazz/03 Jazz Tune.mp3',
-        rootPath: _root,
-        dateAdded: DateTime.utc(2026, 3, 1),
-        title: 'Jazz Tune',
-        artist: 'Feed Me',
-        album: 'Album Y',
-        trackNumber: 3),
+      contentId: 'c',
+      relPath: 'jazz/03 Jazz Tune.mp3',
+      rootPath: _root,
+      dateAdded: DateTime.utc(2026, 3, 1),
+      title: 'Jazz Tune',
+      artist: 'Feed Me',
+      album: 'Album Y',
+      trackNumber: 3,
+    ),
   ];
   m.playlists = [
-    const ManifestPlaylist(name: 'mix', trackIds: ['c', 'a'])
+    const ManifestPlaylist(name: 'mix', trackIds: ['c', 'a']),
   ];
   m.status = 'ready';
   return m;
 }
 
 Future<void> pumpView(WidgetTester tester, Widget view) {
-  return tester.pumpWidget(MaterialApp(
-    theme: buildAppTheme(),
-    home: Scaffold(body: view),
-  ));
+  return tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(body: view),
+    ),
+  );
 }
 
 double rowY(WidgetTester tester, String title) =>
@@ -101,12 +106,15 @@ double rowY(WidgetTester tester, String title) =>
 
 void main() {
   group('FoldersView', () {
-    testWidgets('drills down through folders and back pops one level',
-        (tester) async {
+    testWidgets('drills down through folders and back pops one level', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
-      await pumpView(tester,
-          FoldersView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        FoldersView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       // Top level: the library root by basename, no back affordance, no
       // track rows yet.
@@ -153,12 +161,13 @@ void main() {
       final store = SpyPlaylistStore(lib);
       final played = <(int, String)>[];
       await pumpView(
-          tester,
-          FoldersView(
-              library: lib,
-              store: store,
-              onPlayTrack: (tracks, i) =>
-                  played.add((i, tracks[i].contentId))));
+        tester,
+        FoldersView(
+          library: lib,
+          store: store,
+          onPlayTrack: (tracks, i) => played.add((i, tracks[i].contentId)),
+        ),
+      );
 
       await tester.tap(find.text('Lib'));
       await tester.pumpAndSettle();
@@ -168,17 +177,20 @@ void main() {
   });
 
   group('ArtistsView', () {
-    testWidgets('lists artists alphabetically and tap filters the page',
-        (tester) async {
+    testWidgets('lists artists alphabetically and tap filters the page', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
       final played = <String>[];
       await pumpView(
-          tester,
-          ArtistsView(
-              library: lib,
-              store: store,
-              onPlayTrack: (tracks, i) => played.add(tracks[i].contentId)));
+        tester,
+        ArtistsView(
+          library: lib,
+          store: store,
+          onPlayTrack: (tracks, i) => played.add(tracks[i].contentId),
+        ),
+      );
 
       // Alphabetical: Feed Me above Muse.
       expect(rowY(tester, 'Feed Me'), lessThan(rowY(tester, 'Muse')));
@@ -196,10 +208,10 @@ void main() {
       expect(played, ['a']);
     });
 
-    testWidgets(
-        'lists ALL artists even while a folder drill-down is active '
-        '(phone drawer views are independent -- no hidden folder scope)',
-        (tester) async {
+    testWidgets('lists ALL artists even while a folder drill-down is active '
+        '(phone drawer views are independent -- no hidden folder scope)', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
       // Simulate FoldersView drill-down into rock/ (only Muse lives there).
@@ -208,8 +220,10 @@ void main() {
       // Sanity: the desktop-scoped getter WOULD hide Feed Me here.
       expect(lib.artists, ['Muse']);
 
-      await pumpView(tester,
-          ArtistsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        ArtistsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       // The phone Artists view must ignore that scope entirely.
       expect(find.text('Feed Me'), findsOneWidget);
@@ -221,8 +235,10 @@ void main() {
     testWidgets('album page sorts by trackNumber ascending', (tester) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
-      await pumpView(tester,
-          AlbumsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        AlbumsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       expect(find.text('Album X'), findsOneWidget);
       expect(find.text('Album Y'), findsOneWidget);
@@ -236,9 +252,9 @@ void main() {
       expect(rowY(tester, 'First Song'), lessThan(rowY(tester, 'Second Song')));
     });
 
-    testWidgets(
-        'lists ALL albums even while a folder drill-down is active',
-        (tester) async {
+    testWidgets('lists ALL albums even while a folder drill-down is active', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
       // Drill into jazz/ (only Album Y lives there).
@@ -247,8 +263,10 @@ void main() {
       // Sanity: the desktop-scoped getter WOULD hide Album X here.
       expect(lib.albums, ['Album Y']);
 
-      await pumpView(tester,
-          AlbumsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        AlbumsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       expect(find.text('Album X'), findsOneWidget);
       expect(find.text('Album Y'), findsOneWidget);
@@ -259,13 +277,17 @@ void main() {
     testWidgets('create dialog goes through the store', (tester) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
-      await pumpView(tester,
-          PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       await tester.tap(find.byKey(const Key('playlist-create')));
       await tester.pumpAndSettle();
       await tester.enterText(
-          find.byKey(const Key('playlist-name-field')), 'road trip');
+        find.byKey(const Key('playlist-name-field')),
+        'road trip',
+      );
       await tester.tap(find.byKey(const Key('playlist-name-create')));
       await tester.pumpAndSettle();
 
@@ -275,8 +297,10 @@ void main() {
     testWidgets('long-press delete confirms first', (tester) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
-      await pumpView(tester,
-          PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       await tester.longPress(find.text('mix'));
       await tester.pumpAndSettle();
@@ -298,8 +322,10 @@ void main() {
     testWidgets('tap opens the playlist in playlist order', (tester) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
-      await pumpView(tester,
-          PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}));
+      await pumpView(
+        tester,
+        PlaylistsView(library: lib, store: store, onPlayTrack: (_, _) {}),
+      );
 
       expect(find.text('2 tracks'), findsOneWidget);
       await tester.tap(find.text('mix'));
@@ -314,17 +340,22 @@ void main() {
 
   group('track long-press context sheet', () {
     Future<void> pumpAllTracksPage(
-        WidgetTester tester, LibraryModel lib, SpyPlaylistStore store) {
-      return tester.pumpWidget(MaterialApp(
-        theme: buildAppTheme(),
-        home: TrackListPage(
-          title: 'All',
-          library: lib,
-          store: store,
-          onPlayTrack: (_, _) {},
-          tracksOf: (l) => l.allTracks,
+      WidgetTester tester,
+      LibraryModel lib,
+      SpyPlaylistStore store,
+    ) {
+      return tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: TrackListPage(
+            title: 'All',
+            library: lib,
+            store: store,
+            onPlayTrack: (_, _) {},
+            tracksOf: (l) => l.allTracks,
+          ),
         ),
-      ));
+      );
     }
 
     testWidgets('Add to playlist adds via the store', (tester) async {
@@ -360,7 +391,9 @@ void main() {
       await tester.tap(find.byKey(const Key('sheet-new-playlist')));
       await tester.pumpAndSettle();
       await tester.enterText(
-          find.byKey(const Key('playlist-name-field')), 'fresh');
+        find.byKey(const Key('playlist-name-field')),
+        'fresh',
+      );
       await tester.tap(find.byKey(const Key('playlist-name-create')));
       await tester.pumpAndSettle();
 
@@ -368,8 +401,7 @@ void main() {
       expect(store.added, [('fresh', 'c')]);
     });
 
-    testWidgets(
-        'View details opens the metadata dialog '
+    testWidgets('View details opens the metadata dialog '
         '(title / artist / album / duration / path)', (tester) async {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
@@ -393,9 +425,12 @@ void main() {
       // Path = p.join(rootPath, relPath) -- assert on the stable relPath
       // tail so the test doesn't depend on the host's path separator.
       expect(
-          find.descendant(
-              of: dialog, matching: find.textContaining('01 First.mp3')),
-          findsOneWidget);
+        find.descendant(
+          of: dialog,
+          matching: find.textContaining('01 First.mp3'),
+        ),
+        findsOneWidget,
+      );
 
       // Close returns to the page with no store writes.
       await tester.tap(find.text('Close'));

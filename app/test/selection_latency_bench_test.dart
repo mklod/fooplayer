@@ -41,24 +41,34 @@ void main() {
     sw.stop();
     final perCall = sw.elapsedMicroseconds / iterations / 1000.0;
     // ignore: avoid_print
-    print('visibleTracks: ${perCall.toStringAsFixed(1)} ms per call '
-        '(${model.visibleTracks.length} tracks)');
+    print(
+      'visibleTracks: ${perCall.toStringAsFixed(1)} ms per call '
+      '(${model.visibleTracks.length} tracks)',
+    );
 
     // A selection triggers notifyListeners -> rebuild -> at least two
     // visibleTracks calls (the list itself and the sidebar's count).
     // ignore: avoid_print
-    print('=> a rebuild costs roughly ${(perCall * 2).toStringAsFixed(1)} ms '
-        'in visibleTracks alone');
+    print(
+      '=> a rebuild costs roughly ${(perCall * 2).toStringAsFixed(1)} ms '
+      'in visibleTracks alone',
+    );
 
     final swSel = Stopwatch()..start();
     for (var i = 0; i < iterations; i++) {
-      model.selectTrackClick('id$i',
-          ctrl: false, shift: false, visibleOrder: model.visibleTracks);
+      model.selectTrackClick(
+        'id$i',
+        ctrl: false,
+        shift: false,
+        visibleOrder: model.visibleTracks,
+      );
     }
     swSel.stop();
     // ignore: avoid_print
-    print('selectTrackClick + visibleOrder: '
-        '${(swSel.elapsedMicroseconds / iterations / 1000.0).toStringAsFixed(1)} ms');
+    print(
+      'selectTrackClick + visibleOrder: '
+      '${(swSel.elapsedMicroseconds / iterations / 1000.0).toStringAsFixed(1)} ms',
+    );
 
     // The filter panes rebuild on the same notify, so their derived lists
     // are part of a selection's cost too.
@@ -70,8 +80,10 @@ void main() {
     }
     swF.stop();
     // ignore: avoid_print
-    print('artists + albums + folderEntries: '
-        '${(swF.elapsedMicroseconds / iterations / 1000.0).toStringAsFixed(1)} ms');
+    print(
+      'artists + albums + folderEntries: '
+      '${(swF.elapsedMicroseconds / iterations / 1000.0).toStringAsFixed(1)} ms',
+    );
 
     expect(model.visibleTracks, isNotEmpty);
   });

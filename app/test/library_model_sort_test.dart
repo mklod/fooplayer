@@ -11,17 +11,16 @@ Track tr(
   int? durationMs,
   int? trackNumber,
   required DateTime dateAdded,
-}) =>
-    Track(
-      contentId: id,
-      relPath: '$id.mp3',
-      dateAdded: dateAdded,
-      title: title,
-      artist: artist,
-      album: album,
-      durationMs: durationMs,
-      trackNumber: trackNumber,
-    );
+}) => Track(
+  contentId: id,
+  relPath: '$id.mp3',
+  dateAdded: dateAdded,
+  title: title,
+  artist: artist,
+  album: album,
+  durationMs: durationMs,
+  trackNumber: trackNumber,
+);
 
 void main() {
   late LibraryModel lib;
@@ -32,21 +31,54 @@ void main() {
     // comparison is actually exercised, and one null duration (track 'c')
     // to exercise "nulls sort last" in both directions.
     lib.allTracks = [
-      tr('a', title: 'banana', artist: 'muse', album: 'Zeta', durationMs: 200000, trackNumber: 3, dateAdded: DateTime.utc(2024, 1, 2)),
-      tr('b', title: 'Apple', artist: 'Feed Me', album: 'alpha', durationMs: 100000, trackNumber: 1, dateAdded: DateTime.utc(2024, 1, 4)),
-      tr('c', title: 'cherry', artist: 'ZZ Top', album: 'Middle', dateAdded: DateTime.utc(2024, 1, 1)), // no durationMs, no trackNumber
-      tr('d', title: 'Date Fruit', artist: 'apple corp', album: 'beta', durationMs: 50000, trackNumber: 2, dateAdded: DateTime.utc(2024, 1, 3)),
+      tr(
+        'a',
+        title: 'banana',
+        artist: 'muse',
+        album: 'Zeta',
+        durationMs: 200000,
+        trackNumber: 3,
+        dateAdded: DateTime.utc(2024, 1, 2),
+      ),
+      tr(
+        'b',
+        title: 'Apple',
+        artist: 'Feed Me',
+        album: 'alpha',
+        durationMs: 100000,
+        trackNumber: 1,
+        dateAdded: DateTime.utc(2024, 1, 4),
+      ),
+      tr(
+        'c',
+        title: 'cherry',
+        artist: 'ZZ Top',
+        album: 'Middle',
+        dateAdded: DateTime.utc(2024, 1, 1),
+      ), // no durationMs, no trackNumber
+      tr(
+        'd',
+        title: 'Date Fruit',
+        artist: 'apple corp',
+        album: 'beta',
+        durationMs: 50000,
+        trackNumber: 2,
+        dateAdded: DateTime.utc(2024, 1, 3),
+      ),
     ];
   });
 
   List<String> ids() => lib.visibleTracks.map((t) => t.contentId).toList();
 
   group('default sort', () {
-    test('dateAdded descending (newest first), matching pre-Task-6 behavior', () {
-      expect(lib.sortColumn, SortColumn.dateAdded);
-      expect(lib.sortAscending, isFalse);
-      expect(ids(), ['b', 'd', 'a', 'c']);
-    });
+    test(
+      'dateAdded descending (newest first), matching pre-Task-6 behavior',
+      () {
+        expect(lib.sortColumn, SortColumn.dateAdded);
+        expect(lib.sortAscending, isFalse);
+        expect(ids(), ['b', 'd', 'a', 'c']);
+      },
+    );
   });
 
   group('setSort direction rules', () {
@@ -126,19 +158,25 @@ void main() {
       expect(ids(), ['d', 'b', 'a', 'c']); // 50000, 100000, 200000, null
     });
 
-    test('descending: known durations high-to-low, null STILL last (not first)', () {
-      lib.setSort(SortColumn.duration);
-      lib.setSort(SortColumn.duration);
-      expect(ids(), ['a', 'b', 'd', 'c']); // 200000, 100000, 50000, null
-    });
+    test(
+      'descending: known durations high-to-low, null STILL last (not first)',
+      () {
+        lib.setSort(SortColumn.duration);
+        lib.setSort(SortColumn.duration);
+        expect(ids(), ['a', 'b', 'd', 'c']); // 200000, 100000, 50000, null
+      },
+    );
   });
 
   group('dateAdded column explicit toggle', () {
-    test('toggling once from the default flips to ascending (oldest first)', () {
-      lib.setSort(SortColumn.dateAdded);
-      expect(lib.sortAscending, isTrue);
-      expect(ids(), ['c', 'a', 'd', 'b']);
-    });
+    test(
+      'toggling once from the default flips to ascending (oldest first)',
+      () {
+        lib.setSort(SortColumn.dateAdded);
+        expect(lib.sortAscending, isTrue);
+        expect(ids(), ['c', 'a', 'd', 'b']);
+      },
+    );
   });
 
   group('trackNumber column: nulls last', () {
@@ -147,26 +185,53 @@ void main() {
       expect(ids(), ['b', 'd', 'a', 'c']); // 1, 2, 3, null
     });
 
-    test('descending: known track numbers high-to-low, null STILL last (not first)', () {
-      lib.setSort(SortColumn.trackNumber);
-      lib.setSort(SortColumn.trackNumber);
-      expect(ids(), ['a', 'd', 'b', 'c']); // 3, 2, 1, null
-    });
+    test(
+      'descending: known track numbers high-to-low, null STILL last (not first)',
+      () {
+        lib.setSort(SortColumn.trackNumber);
+        lib.setSort(SortColumn.trackNumber);
+        expect(ids(), ['a', 'd', 'b', 'c']); // 3, 2, 1, null
+      },
+    );
   });
 
   group('setAlbums default sort', () {
-    test('selecting exactly one album switches the sort to trackNumber ascending', () {
-      expect(lib.sortColumn, SortColumn.dateAdded); // sanity: starts on default
-      lib.setAlbums({'Zeta'});
-      expect(lib.sortColumn, SortColumn.trackNumber);
-      expect(lib.sortAscending, isTrue);
-    });
+    test(
+      'selecting exactly one album switches the sort to trackNumber ascending',
+      () {
+        expect(
+          lib.sortColumn,
+          SortColumn.dateAdded,
+        ); // sanity: starts on default
+        lib.setAlbums({'Zeta'});
+        expect(lib.sortColumn, SortColumn.trackNumber);
+        expect(lib.sortAscending, isTrue);
+      },
+    );
 
     test('a selected album\'s tracks list in track-number order', () {
       lib.allTracks = [
-        tr('t3', title: 'Third', album: 'Live Album', trackNumber: 3, dateAdded: DateTime.utc(2024, 1, 1)),
-        tr('t1', title: 'First', album: 'Live Album', trackNumber: 1, dateAdded: DateTime.utc(2024, 1, 4)),
-        tr('t2', title: 'Second', album: 'Live Album', trackNumber: 2, dateAdded: DateTime.utc(2024, 1, 2)),
+        tr(
+          't3',
+          title: 'Third',
+          album: 'Live Album',
+          trackNumber: 3,
+          dateAdded: DateTime.utc(2024, 1, 1),
+        ),
+        tr(
+          't1',
+          title: 'First',
+          album: 'Live Album',
+          trackNumber: 1,
+          dateAdded: DateTime.utc(2024, 1, 4),
+        ),
+        tr(
+          't2',
+          title: 'Second',
+          album: 'Live Album',
+          trackNumber: 2,
+          dateAdded: DateTime.utc(2024, 1, 2),
+        ),
       ];
       lib.setAlbums({'Live Album'});
       expect(ids(), ['t1', 't2', 't3']);
@@ -180,92 +245,142 @@ void main() {
       expect(ids(), ['b', 'd', 'a', 'c']); // back to the default-sort order
     });
 
-    test('selecting a SECOND album (now two selected) also reverts to dateAdded descending -- '
-        'the trackNumber default only applies to exactly one album', () {
-      lib.setAlbums({'Zeta'});
-      expect(lib.sortColumn, SortColumn.trackNumber);
-      lib.setAlbums({'Zeta', 'alpha'}); // two albums now selected
-      expect(lib.albumFilters, {'Zeta', 'alpha'});
-      expect(lib.sortColumn, SortColumn.dateAdded);
-      expect(lib.sortAscending, isFalse);
-    });
+    test(
+      'selecting a SECOND album (now two selected) also reverts to dateAdded descending -- '
+      'the trackNumber default only applies to exactly one album',
+      () {
+        lib.setAlbums({'Zeta'});
+        expect(lib.sortColumn, SortColumn.trackNumber);
+        lib.setAlbums({'Zeta', 'alpha'}); // two albums now selected
+        expect(lib.albumFilters, {'Zeta', 'alpha'});
+        expect(lib.sortColumn, SortColumn.dateAdded);
+        expect(lib.sortAscending, isFalse);
+      },
+    );
 
-    test('a header click after selecting an album overrides the trackNumber default', () {
-      lib.setAlbums({'Zeta'});
-      lib.setSort(SortColumn.artist);
-      expect(lib.sortColumn, SortColumn.artist);
-      expect(lib.sortAscending, isTrue); // new non-date column starts ascending
-    });
+    test(
+      'a header click after selecting an album overrides the trackNumber default',
+      () {
+        lib.setAlbums({'Zeta'});
+        lib.setSort(SortColumn.artist);
+        expect(lib.sortColumn, SortColumn.artist);
+        expect(
+          lib.sortAscending,
+          isTrue,
+        ); // new non-date column starts ascending
+      },
+    );
   });
 
   group('folder/artist navigation reverts stale trackNumber sort', () {
-    test('setAlbums then drillIntoFolder reverts trackNumber sort to dateAdded descending', () {
-      lib.setAlbums({'Zeta'});
-      expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
-      expect(lib.albumFilters, {'Zeta'});
-      lib.drillIntoFolder(r'L:\Music\SomeRoot');
-      expect(lib.albumFilters, isEmpty); // folder navigation clears album filter
-      expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
-      expect(lib.sortAscending, isFalse); // back to descending
-    });
+    test(
+      'setAlbums then drillIntoFolder reverts trackNumber sort to dateAdded descending',
+      () {
+        lib.setAlbums({'Zeta'});
+        expect(
+          lib.sortColumn,
+          SortColumn.trackNumber,
+        ); // album sets trackNumber
+        expect(lib.albumFilters, {'Zeta'});
+        lib.drillIntoFolder(r'L:\Music\SomeRoot');
+        expect(
+          lib.albumFilters,
+          isEmpty,
+        ); // folder navigation clears album filter
+        expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
+        expect(lib.sortAscending, isFalse); // back to descending
+      },
+    );
 
-    test('setAlbums then setArtists reverts trackNumber sort to dateAdded descending', () {
-      lib.setAlbums({'Zeta'});
-      expect(lib.sortColumn, SortColumn.trackNumber); // album sets trackNumber
-      expect(lib.albumFilters, {'Zeta'});
-      lib.setArtists({'muse'});
-      expect(lib.albumFilters, isEmpty); // setArtists clears album filter
-      expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
-      expect(lib.sortAscending, isFalse); // back to descending
-    });
+    test(
+      'setAlbums then setArtists reverts trackNumber sort to dateAdded descending',
+      () {
+        lib.setAlbums({'Zeta'});
+        expect(
+          lib.sortColumn,
+          SortColumn.trackNumber,
+        ); // album sets trackNumber
+        expect(lib.albumFilters, {'Zeta'});
+        lib.setArtists({'muse'});
+        expect(lib.albumFilters, isEmpty); // setArtists clears album filter
+        expect(lib.sortColumn, SortColumn.dateAdded); // trackNumber reverted
+        expect(lib.sortAscending, isFalse); // back to descending
+      },
+    );
 
-    test('drillIntoFolder/setArtists does NOT revert if user explicitly chose a different sort', () {
-      lib.setAlbums({'Zeta'});
-      lib.setSort(SortColumn.title); // user explicitly switches away from trackNumber
-      expect(lib.sortColumn, SortColumn.title);
-      expect(lib.sortAscending, isTrue); // title sort starts ascending
-      lib.drillIntoFolder(r'L:\Music\SomeRoot'); // now change filter
-      expect(lib.sortColumn, SortColumn.title); // title sort should NOT be reverted
-      expect(lib.sortAscending, isTrue);
-    });
+    test(
+      'drillIntoFolder/setArtists does NOT revert if user explicitly chose a different sort',
+      () {
+        lib.setAlbums({'Zeta'});
+        lib.setSort(
+          SortColumn.title,
+        ); // user explicitly switches away from trackNumber
+        expect(lib.sortColumn, SortColumn.title);
+        expect(lib.sortAscending, isTrue); // title sort starts ascending
+        lib.drillIntoFolder(r'L:\Music\SomeRoot'); // now change filter
+        expect(
+          lib.sortColumn,
+          SortColumn.title,
+        ); // title sort should NOT be reverted
+        expect(lib.sortAscending, isTrue);
+      },
+    );
   });
 
   group('multi-select filters (Ctrl+click)', () {
-    test('setArtists with two values ORs them: union of both artists\' tracks', () {
-      // Fixture: 'a' is muse, 'b' is Feed Me, 'c' is ZZ Top, 'd' is apple corp.
-      lib.setArtists({'muse', 'Feed Me'});
-      expect(ids().toSet(), {'a', 'b'});
-    });
+    test(
+      'setArtists with two values ORs them: union of both artists\' tracks',
+      () {
+        // Fixture: 'a' is muse, 'b' is Feed Me, 'c' is ZZ Top, 'd' is apple corp.
+        lib.setArtists({'muse', 'Feed Me'});
+        expect(ids().toSet(), {'a', 'b'});
+      },
+    );
 
-    test('setArtists with one value narrows to just that artist, same as before', () {
-      lib.setArtists({'Feed Me'});
-      expect(ids(), ['b']);
-    });
+    test(
+      'setArtists with one value narrows to just that artist, same as before',
+      () {
+        lib.setArtists({'Feed Me'});
+        expect(ids(), ['b']);
+      },
+    );
 
-    test('setFolderSiblings clears downstream artist/album sets (cascade), even with multiple folders', () {
-      lib.setArtists({'muse'});
-      lib.setFolderSiblings({r'L:\Music\A', r'L:\Music\B'}); // Ctrl-selected roots
-      expect(lib.artistFilters, isEmpty);
-      expect(lib.albumFilters, isEmpty);
-    });
+    test(
+      'setFolderSiblings clears downstream artist/album sets (cascade), even with multiple folders',
+      () {
+        lib.setArtists({'muse'});
+        lib.setFolderSiblings({
+          r'L:\Music\A',
+          r'L:\Music\B',
+        }); // Ctrl-selected roots
+        expect(lib.artistFilters, isEmpty);
+        expect(lib.albumFilters, isEmpty);
+      },
+    );
 
-    test('setArtists clears downstream album set (cascade), even with multiple artists', () {
-      lib.setAlbums({'Zeta'});
-      lib.setArtists({'muse', 'Feed Me'});
-      expect(lib.albumFilters, isEmpty);
-    });
+    test(
+      'setArtists clears downstream album set (cascade), even with multiple artists',
+      () {
+        lib.setAlbums({'Zeta'});
+        lib.setArtists({'muse', 'Feed Me'});
+        expect(lib.albumFilters, isEmpty);
+      },
+    );
   });
 
   group('playlist mode', () {
-    test('playlist order is preserved regardless of sortColumn/sortAscending', () {
-      lib.playlists = [
-        const ManifestPlaylist(name: 'mix', trackIds: ['c', 'a', 'd', 'b']),
-      ];
-      lib.setPlaylist('mix');
-      lib.setSort(SortColumn.title); // would reorder the library feed
-      expect(ids(), ['c', 'a', 'd', 'b']); // but not the playlist
-      lib.setSort(SortColumn.title); // toggle direction too
-      expect(ids(), ['c', 'a', 'd', 'b']);
-    });
+    test(
+      'playlist order is preserved regardless of sortColumn/sortAscending',
+      () {
+        lib.playlists = [
+          const ManifestPlaylist(name: 'mix', trackIds: ['c', 'a', 'd', 'b']),
+        ];
+        lib.setPlaylist('mix');
+        lib.setSort(SortColumn.title); // would reorder the library feed
+        expect(ids(), ['c', 'a', 'd', 'b']); // but not the playlist
+        lib.setSort(SortColumn.title); // toggle direction too
+        expect(ids(), ['c', 'a', 'd', 'b']);
+      },
+    );
   });
 }

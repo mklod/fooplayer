@@ -36,23 +36,23 @@ class Track {
     this.trackNumber,
   });
 
-  Track copyWith(
-          {String? title,
-          String? artist,
-          String? album,
-          String? genre,
-          int? durationMs,
-          int? trackNumber}) =>
-      Track(
-        contentId: contentId,
-        relPath: relPath,
-        rootPath: rootPath,
-        dateAdded: dateAdded,
-        title: title ?? this.title,
-        artist: artist ?? this.artist,
-        album: album ?? this.album,
-        genre: genre ?? this.genre,
-        durationMs: durationMs ?? this.durationMs,
-        trackNumber: trackNumber ?? this.trackNumber,
-      );
+  Track copyWith({
+    String? title,
+    String? artist,
+    String? album,
+    String? genre,
+    int? durationMs,
+    int? trackNumber,
+  }) => Track(
+    contentId: contentId,
+    relPath: relPath,
+    rootPath: rootPath,
+    dateAdded: dateAdded,
+    title: title ?? this.title,
+    artist: artist ?? this.artist,
+    album: album ?? this.album,
+    genre: genre ?? this.genre,
+    durationMs: durationMs ?? this.durationMs,
+    trackNumber: trackNumber ?? this.trackNumber,
+  );
 }

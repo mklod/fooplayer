@@ -107,8 +107,12 @@ double tokenSetRatio(String a, String b) {
 /// Order-insensitive but length-sensitive similarity: compares the two token
 /// sequences after sorting them alphabetically.
 double tokenSortRatio(String a, String b) {
-  final ta = (a.split(' ').where((t) => t.isNotEmpty).toList()..sort()).join(' ');
-  final tb = (b.split(' ').where((t) => t.isNotEmpty).toList()..sort()).join(' ');
+  final ta = (a.split(' ').where((t) => t.isNotEmpty).toList()..sort()).join(
+    ' ',
+  );
+  final tb = (b.split(' ').where((t) => t.isNotEmpty).toList()..sort()).join(
+    ' ',
+  );
   if (ta.isEmpty || tb.isEmpty) return 0;
   return ratio(ta, tb);
 }
@@ -161,13 +165,13 @@ const double kAutoApplyMinMargin = 10;
 /// everything else ties. User-supplied sources rank at the top because the
 /// user already made the decision.
 double providerPrior(ArtSource source) => switch (source) {
-      ArtSource.itunes => 5,
-      ArtSource.deezer => 4,
-      ArtSource.caa => 3,
-      ArtSource.local => 5,
-      ArtSource.url => 5,
-      ArtSource.embedded => 5,
-    };
+  ArtSource.itunes => 5,
+  ArtSource.deezer => 4,
+  ArtSource.caa => 3,
+  ArtSource.local => 5,
+  ArtSource.url => 5,
+  ArtSource.embedded => 5,
+};
 
 /// Resolution bonus (0-5) from the known pixel width. Unknown width scores 0
 /// rather than guessing.
@@ -201,7 +205,8 @@ class ScoredCandidate {
       artistScore + albumScore + providerScore + resolutionScore;
 
   @override
-  String toString() => 'ScoredCandidate(${score.toStringAsFixed(1)}: '
+  String toString() =>
+      'ScoredCandidate(${score.toStringAsFixed(1)}: '
       'artist ${artistScore.toStringAsFixed(1)}, '
       'album ${albumScore.toStringAsFixed(1)}, '
       'provider ${providerScore.toStringAsFixed(1)}, '
@@ -210,18 +215,19 @@ class ScoredCandidate {
 
 /// Scores one candidate against the query. Pure; range `[0, 100]`.
 ScoredCandidate scoreCandidate(ArtQuery q, ArtCandidate c) => ScoredCandidate(
-      candidate: c,
-      artistScore: kArtistWeight * artistSimilarity(q.artist, c.artist),
-      albumScore: kAlbumWeight * albumSimilarity(q.album, c.title),
-      providerScore: providerPrior(c.source),
-      resolutionScore: resolutionBonus(c.width),
-    );
+  candidate: c,
+  artistScore: kArtistWeight * artistSimilarity(q.artist, c.artist),
+  albumScore: kAlbumWeight * albumSimilarity(q.album, c.title),
+  providerScore: providerPrior(c.source),
+  resolutionScore: resolutionBonus(c.width),
+);
 
 int _compareScored(ScoredCandidate a, ScoredCandidate b) {
   final byScore = b.score.compareTo(a.score);
   if (byScore != 0) return byScore;
-  final byProvider =
-      providerPrior(b.candidate.source).compareTo(providerPrior(a.candidate.source));
+  final byProvider = providerPrior(
+    b.candidate.source,
+  ).compareTo(providerPrior(a.candidate.source));
   if (byProvider != 0) return byProvider;
   final byWidth = (b.candidate.width ?? 0).compareTo(a.candidate.width ?? 0);
   if (byWidth != 0) return byWidth;
@@ -254,8 +260,9 @@ List<ArtCandidate> dedupeCandidates(Iterable<ArtCandidate> candidates) {
 /// Every candidate, deduped and ranked best-first. This is the picker grid's
 /// order.
 List<ScoredCandidate> rankCandidates(ArtQuery q, Iterable<ArtCandidate> cands) {
-  final scored =
-      dedupeCandidates(cands).map((c) => scoreCandidate(q, c)).toList();
+  final scored = dedupeCandidates(
+    cands,
+  ).map((c) => scoreCandidate(q, c)).toList();
   scored.sort(_compareScored);
   return scored;
 }
@@ -269,7 +276,9 @@ List<ScoredCandidate> rankCandidates(ArtQuery q, Iterable<ArtCandidate> cands) {
 /// *different* albums scoring alike -- exactly the ambiguity the picker
 /// exists to resolve.
 List<ScoredCandidate> rankDistinctAlbums(
-    ArtQuery q, Iterable<ArtCandidate> cands) {
+  ArtQuery q,
+  Iterable<ArtCandidate> cands,
+) {
   final best = <String, ScoredCandidate>{};
   for (final s in rankCandidates(q, cands)) {
     final key = candidateKey(s.candidate);
@@ -306,6 +315,9 @@ ArtCandidate? bestGuess(
   Iterable<ArtCandidate> candidates, {
   double minScore = kAutoApplyMinScore,
   double minMargin = kAutoApplyMinMargin,
-}) =>
-    bestGuessScored(q, candidates, minScore: minScore, minMargin: minMargin)
-        ?.candidate;
+}) => bestGuessScored(
+  q,
+  candidates,
+  minScore: minScore,
+  minMargin: minMargin,
+)?.candidate;

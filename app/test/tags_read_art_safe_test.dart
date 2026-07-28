@@ -20,11 +20,9 @@ import 'package:fooplayer_app/metadata/tags.dart';
 import 'support/pathological_mp3.dart';
 
 void main() {
-  test(
-      'readArtSafe: a synthetic pathological MP3 (the exact shape that '
+  test('readArtSafe: a synthetic pathological MP3 (the exact shape that '
       "defeats the third-party parser's unbounded frame-sync scan) "
-      'resolves to null within a short timeout instead of hanging',
-      () async {
+      'resolves to null within a short timeout instead of hanging', () async {
     final tmp = await Directory.systemTemp.createTemp('art_safe_pathological');
     addTearDown(() => tmp.delete(recursive: true));
     final f = File('${tmp.path}/Artist - Weird Encode.mp3');
@@ -36,34 +34,45 @@ void main() {
     // pins is that readArtSafe returns promptly through the full
     // isolate-spawn-parse-return pipeline instead of ever blocking the
     // calling isolate, which is the whole point of the fix.
-    final art = await readArtSafe(f, timeout: const Duration(seconds: 2))
-        .timeout(const Duration(seconds: 3));
+    final art = await readArtSafe(
+      f,
+      timeout: const Duration(seconds: 2),
+    ).timeout(const Duration(seconds: 3));
 
     expect(art, isNull);
   });
 
-  test('readArtSafe returns null (not a thrown error) for a nonexistent file',
-      () async {
-    final f = File(
-        '${Directory.systemTemp.path}/fooplayer_readArtSafe_missing_${DateTime.now().microsecondsSinceEpoch}.mp3');
-    expect(f.existsSync(), isFalse);
+  test(
+    'readArtSafe returns null (not a thrown error) for a nonexistent file',
+    () async {
+      final f = File(
+        '${Directory.systemTemp.path}/fooplayer_readArtSafe_missing_${DateTime.now().microsecondsSinceEpoch}.mp3',
+      );
+      expect(f.existsSync(), isFalse);
 
-    final art = await readArtSafe(f, timeout: const Duration(seconds: 2))
-        .timeout(const Duration(seconds: 3));
+      final art = await readArtSafe(
+        f,
+        timeout: const Duration(seconds: 2),
+      ).timeout(const Duration(seconds: 3));
 
-    expect(art, isNull);
-  });
+      expect(art, isNull);
+    },
+  );
 
-  test('readArtSafe returns null for an unparseable (garbage-bytes) file',
-      () async {
-    final tmp = await Directory.systemTemp.createTemp('art_safe_garbage');
-    addTearDown(() => tmp.delete(recursive: true));
-    final f = File('${tmp.path}/x.mp3');
-    await f.writeAsBytes(List.filled(16, 0x01));
+  test(
+    'readArtSafe returns null for an unparseable (garbage-bytes) file',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('art_safe_garbage');
+      addTearDown(() => tmp.delete(recursive: true));
+      final f = File('${tmp.path}/x.mp3');
+      await f.writeAsBytes(List.filled(16, 0x01));
 
-    final art = await readArtSafe(f, timeout: const Duration(seconds: 2))
-        .timeout(const Duration(seconds: 3));
+      final art = await readArtSafe(
+        f,
+        timeout: const Duration(seconds: 2),
+      ).timeout(const Duration(seconds: 3));
 
-    expect(art, isNull);
-  });
+      expect(art, isNull);
+    },
+  );
 }
