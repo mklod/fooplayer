@@ -11,6 +11,8 @@ import '../artwork/local_art_harvest.dart';
 import '../artwork/artwork_picker.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
+import '../model/activity_model.dart';
+import 'activity_bar.dart';
 import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../model/manifest_io.dart';
@@ -24,6 +26,10 @@ import 'now_playing_bar.dart';
 import 'playlist_dialogs.dart';
 import 'settings_dialog.dart';
 import 'track_list.dart';
+
+/// Stand-in for widget tests that build a screen without wiring background
+/// activity: nothing ever registers with it, so the bar stays hidden.
+final ActivityModel _idleActivity = ActivityModel();
 
 class HomeScreen extends StatelessWidget {
   final LibraryModel library;
@@ -58,6 +64,11 @@ class HomeScreen extends StatelessWidget {
   /// building this screen without the artwork feature wired rely on.
   final ArtworkBackfill? artworkBackfill;
 
+  /// Everything running in the background, shown in the persistent bar above
+  /// the now-playing bar. Optional so widget tests need not thread one
+  /// through; they get a throwaway that nothing renders.
+  final ActivityModel? activity;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -69,6 +80,7 @@ class HomeScreen extends StatelessWidget {
     this.artworkServices,
     this.artworkStores,
     this.artworkBackfill,
+    this.activity,
   });
 
   @override
@@ -101,6 +113,7 @@ class HomeScreen extends StatelessWidget {
                         player: player,
                         artworkResolver: artworkResolver,
                         artworkServices: artworkServices,
+                        activity: activity ?? _idleActivity,
                       ),
                     ),
                   ),
@@ -265,6 +278,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
+          ActivityBar(activity: activity ?? _idleActivity),
           NowPlayingBar(
             player: player,
             artworkResolver: artworkResolver,
@@ -299,6 +313,9 @@ class _Sidebar extends StatefulWidget {
   /// the now-playing cover and the row context menu use.
   final ArtworkServices? artworkServices;
 
+  /// Where the sidebar's long-running actions report progress.
+  final ActivityModel activity;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
@@ -308,6 +325,7 @@ class _Sidebar extends StatefulWidget {
     this.artworkStores,
     this.artworkResolver,
     this.artworkServices,
+    required this.activity,
   });
 
   @override
@@ -330,6 +348,7 @@ class _SidebarState extends State<_Sidebar> {
   ArtworkBackfill? get artworkBackfill => widget.artworkBackfill;
   ArtworkStoreRegistry? get artworkStores => widget.artworkStores;
   ArtworkServices? get artworkServices => widget.artworkServices;
+  ActivityModel get activity => widget.activity;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -363,38 +382,51 @@ class _SidebarState extends State<_Sidebar> {
     final stores = artworkStores;
 
     if (stores != null) {
-      messenger?.showSnackBar(
-        const SnackBar(
-          content: Text('Adopting cover images already in your folders…'),
-          duration: Duration(seconds: 3),
-        ),
+      activity.start(
+        ActivityIds.artworkHarvest,
+        'Adopting artwork already in your folders',
       );
-      final report = await harvestLocalArt(
-        library.allTracks,
-        stores,
-        onProgress: (done, total) =>
-            library.status = 'adopting local artwork $done/$total',
-      );
-      library.status = 'ready';
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text('Local artwork: ${report.summary}'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      try {
+        final report = await harvestLocalArt(
+          library.allTracks,
+          stores,
+          onProgress: (done, total) => activity.progress(
+            ActivityIds.artworkHarvest,
+            'Adopting artwork already in your folders',
+            done,
+            total,
+          ),
+        );
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Local artwork: ${report.summary}'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      } finally {
+        activity.finish(ActivityIds.artworkHarvest);
+      }
     }
 
-    messenger?.showSnackBar(
-      const SnackBar(
-        content: Text('Looking up artwork for the albums still without one…'),
-        duration: Duration(seconds: 3),
-      ),
-    );
-    // Awaited, so there is a definite end: the pass used to be
-    // fire-and-forget, which meant it announced itself starting and then
-    // never said another word -- no way to tell "still working" from
-    // "finished twenty minutes ago".
-    await backfill.run(artworkBackfillRequests(library.allTracks));
+    // The lookup reports no progress of its own, so poll its counters while
+    // it runs: an indeterminate spinner for a pass that can take an hour is
+    // barely better than the silence it replaced.
+    activity.start(ActivityIds.artworkLookup, 'Looking up artwork online');
+    final total = artworkBackfillRequests(library.allTracks).length;
+    final ticker = Timer.periodic(const Duration(milliseconds: 700), (_) {
+      activity.progress(
+        ActivityIds.artworkLookup,
+        'Looking up artwork online (${backfill.appliedCount} found)',
+        backfill.consideredCount,
+        total,
+      );
+    });
+    try {
+      await backfill.run(artworkBackfillRequests(library.allTracks));
+    } finally {
+      ticker.cancel();
+      activity.finish(ActivityIds.artworkLookup);
+    }
     messenger?.showSnackBar(
       SnackBar(
         content: Text(
@@ -457,17 +489,21 @@ class _SidebarState extends State<_Sidebar> {
     if (go != true) return;
 
     setState(() => _embedding = true);
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text('Embedding artwork into ${tracks.length} files…'),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+    activity.start(ActivityIds.artworkEmbed, 'Embedding artwork into files');
 
     EmbedPassReport report;
     try {
-      report = await ArtworkEmbedPass(stores: stores).run(tracks);
+      report = await ArtworkEmbedPass(stores: stores).run(
+        tracks,
+        onProgress: (done, total) => activity.progress(
+          ActivityIds.artworkEmbed,
+          'Embedding artwork into files',
+          done,
+          total,
+        ),
+      );
     } finally {
+      activity.finish(ActivityIds.artworkEmbed);
       if (mounted) setState(() => _embedding = false);
     }
 
@@ -588,7 +624,11 @@ class _SidebarState extends State<_Sidebar> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
             child: Text(
-              '${library.status} — ${library.visibleTracks.length} tracks',
+              // Just the count. What the app is DOING is the activity bar's
+              // job now; this line was flickering through five "scanning..."
+              // messages a tick while saying nothing about artwork work at
+              // all.
+              '${library.visibleTracks.length} tracks',
               key: const Key('sidebar-status'),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,

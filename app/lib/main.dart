@@ -11,6 +11,7 @@ import 'artwork/artwork_store.dart';
 import 'artwork/artwork_wiring.dart';
 import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
+import 'model/activity_model.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
 import 'model/playlist_store.dart';
@@ -143,6 +144,7 @@ void main() async {
   // The automatic best-guess pass is ON now that the providers behind it are
   // real: with the stub seams it shipped with, every album would have come
   // back "no confident match" and earned a 14-day negative-cache record.
+  final activity = ActivityModel();
   final artwork = ArtworkWiring.production(appDataDir: dataDir);
   final artworkResolver = artwork.resolver;
   final artworkBackfill = artwork.backfill;
@@ -257,6 +259,37 @@ void main() async {
   WidgetsBinding.instance.addPostFrameCallback(
     (_) => reloadLibrary(triggerLaunchRescan: true),
   );
+  // The library reports what it is doing through `status`; mirror that into
+  // the activity bar so tag reading and scanning are as visible as the
+  // artwork passes. Without this the bar would only ever show artwork work,
+  // and "is anything happening?" would still be unanswerable during a scan.
+  library.addListener(() {
+    final status = library.status;
+    if (!library.busy) {
+      activity.finish(ActivityIds.library);
+      return;
+    }
+    final m = RegExp(r'^reading tags (\d+)/(\d+)').firstMatch(status);
+    if (m != null) {
+      activity.progress(
+        ActivityIds.library,
+        'Reading tags',
+        int.parse(m.group(1)!),
+        int.parse(m.group(2)!),
+      );
+    } else if (status.startsWith('scanning')) {
+      activity.start(
+        ActivityIds.library,
+        // "scanning alternative times…" -> "Scanning alternative times…"
+        'Scanning ${status.substring('scanning '.length)}',
+      );
+    } else if (status.startsWith('ready (reading tags')) {
+      activity.start(ActivityIds.library, 'Reading tags');
+    } else if (status.startsWith('loading')) {
+      activity.start(ActivityIds.library, 'Loading library');
+    }
+  });
+
   runApp(
     FooPlayerApp(
       library: library,
@@ -267,6 +300,7 @@ void main() async {
       artworkServices: artworkServices,
       artworkStores: artwork.stores,
       artworkBackfill: artworkBackfill,
+      activity: activity,
     ),
   );
 }
@@ -286,6 +320,9 @@ class FooPlayerApp extends StatelessWidget {
   /// action, which copies each album's chosen cover into the tracks' own
   /// tags so other players can see it.
   final ArtworkStoreRegistry? artworkStores;
+
+  /// Background jobs, shown in the persistent activity bar.
+  final ActivityModel? activity;
 
   /// Artwork picker services (Plan 4 A3) -- the desktop row context menu and
   /// the phone long-press sheet both hide their "Album artwork" item when
@@ -309,6 +346,7 @@ class FooPlayerApp extends StatelessWidget {
     this.artworkServices,
     this.artworkStores,
     this.artworkBackfill,
+    this.activity,
   });
 
   @override
@@ -332,6 +370,7 @@ class FooPlayerApp extends StatelessWidget {
               artworkResolver: artworkResolver,
               artworkServices: artworkServices,
               artworkStores: artworkStores,
+              activity: activity,
               artworkBackfill: artworkBackfill,
             );
           }
