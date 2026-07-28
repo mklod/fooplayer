@@ -93,17 +93,41 @@ LibraryModel fixtureLibrary() {
   return m;
 }
 
+Future<void> pumpHomeWithStore(
+        WidgetTester tester, LibraryModel lib, PlaylistStore store) =>
+    tester.pumpWidget(MaterialApp(
+        theme: buildAppTheme(),
+        home: HomeScreen(
+            library: lib,
+            player: PlayerService(),
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: store)));
+
 Future<SpyPlaylistStore> pumpHome(WidgetTester tester, LibraryModel lib) async {
   final spy = SpyPlaylistStore(lib);
-  await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: HomeScreen(
-          library: lib,
-          player: PlayerService(),
-          layoutPrefs: LayoutPrefs(),
-          libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
-          playlistStore: spy)));
+  await pumpHomeWithStore(tester, lib, spy);
   return spy;
+}
+
+/// A store where every mutation refuses with a [PlaylistStoreException] --
+/// stands in for a real refusal (e.g. the reported bug's cross-root
+/// ownership block) to prove the UI surfaces it via a visible SnackBar
+/// rather than swallowing it silently.
+class RefusingPlaylistStore extends PlaylistStore {
+  RefusingPlaylistStore(LibraryModel library) : super(library: library);
+
+  @override
+  Future<int> addTracks(String name, List<String> contentIds) async {
+    throw PlaylistStoreException(
+        'Playlist "$name" lives in another root\'s library and can\'t be '
+        'edited from here.');
+  }
+
+  @override
+  Future<void> deletePlaylist(String name) async {
+    throw PlaylistStoreException('Refused: cannot delete "$name".');
+  }
 }
 
 /// The 'mix' row in the sidebar (the same text also appears nowhere else in
@@ -321,6 +345,74 @@ void main() {
       await tester.tap(find.text('Remove from playlist'));
       await tester.pumpAndSettle();
       expect(spy.removed, [('mix', 'b')]);
+    });
+  });
+
+  // Regression coverage for the reported bug's second half: a
+  // PlaylistStoreException (e.g. the ownership refusal fixed above) must
+  // always reach the screen, and a success report must not silently
+  // disappear either. Both flow through a ScaffoldMessenger captured
+  // BEFORE the "Add to playlist" popup menu opens (see
+  // ui/playlist_dialogs.dart's showPlaylistError doc and
+  // ui/track_list.dart's _showTrackContextMenu), so neither depends on the
+  // triggering row's own BuildContext still being mounted by the time the
+  // store call resolves.
+  group('store results are always surfaced (never silently swallowed)', () {
+    testWidgets(
+        'a successful "Add to playlist" reports the count via a SnackBar, '
+        'using the messenger captured before the popup menu opened',
+        (tester) async {
+      final lib = fixtureLibrary();
+      final spy = await pumpHome(tester, lib);
+
+      await tester.tap(find.text('Newest Song'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add to playlist ▸'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(PopupMenuItem<int>, 'mix'));
+      await tester.pumpAndSettle();
+
+      expect(spy.added, [('mix', 'a')]);
+      expect(find.text('Added 1 track to "mix"'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a PlaylistStoreException thrown by addTracks (e.g. the '
+        'cross-root ownership refusal) surfaces its exact message via a '
+        'SnackBar instead of vanishing', (tester) async {
+      final lib = fixtureLibrary();
+      final store = RefusingPlaylistStore(lib);
+      await pumpHomeWithStore(tester, lib, store);
+
+      await tester.tap(find.text('Newest Song'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add to playlist ▸'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(PopupMenuItem<int>, 'mix'));
+      await tester.pumpAndSettle();
+
+      expect(
+          find.text('Playlist "mix" lives in another root\'s library and '
+              'can\'t be edited from here.'),
+          findsOneWidget,
+          reason: 'the refusal must be visible, not a silent no-op');
+    });
+
+    testWidgets(
+        'a PlaylistStoreException thrown by deletePlaylist surfaces its '
+        'message via a SnackBar instead of vanishing', (tester) async {
+      final lib = fixtureLibrary();
+      final store = RefusingPlaylistStore(lib);
+      await pumpHomeWithStore(tester, lib, store);
+
+      await tester.tap(sidebarTile('mix'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete playlist'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-delete-playlist')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Refused: cannot delete "mix".'), findsOneWidget);
     });
   });
 }

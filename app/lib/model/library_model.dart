@@ -1146,10 +1146,23 @@ class LibraryModel extends ChangeNotifier {
     super.dispose();
   }
 
-  /// The first configured library root -- the one PlaylistStore's writes
-  /// go to (see its class doc) -- or null before the first [load]. Kept in
-  /// [load]'s remembered-arguments group ([_libraryRoots]).
+  /// The first configured library root -- where [PlaylistStore.createPlaylist]
+  /// always writes new playlists (see its class doc) -- or null before the
+  /// first [load]. Kept in [load]'s remembered-arguments group
+  /// ([_libraryRoots]).
   Directory? get firstRoot => _libraryRoots.isEmpty ? null : _libraryRoots.first;
+
+  /// Resolves a configured library root by its [Directory.path] -- what
+  /// [PlaylistStore] uses to turn a merged [ManifestPlaylist.rootPath] back
+  /// into the [Directory] it needs to load/save that root's manifest. Null
+  /// if no currently-configured root matches (e.g. the roots were edited in
+  /// Settings since the merge that produced the entry).
+  Directory? rootWithPath(String path) {
+    for (final r in _libraryRoots) {
+      if (r.path == path) return r;
+    }
+    return null;
+  }
 
   /// Attempts to take the [busy] flag for a short external manifest write
   /// (PlaylistStore's load-mutate-save cycle on the first root's

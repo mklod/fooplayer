@@ -255,12 +255,14 @@ class _Sidebar extends StatelessWidget {
   });
 
   Future<void> _createPlaylist(BuildContext context) async {
+    // Captured before the name dialog opens -- see showPlaylistError's doc.
+    final messenger = ScaffoldMessenger.of(context);
     final name = await showPlaylistNameDialog(context, store: playlistStore);
-    if (name == null || !context.mounted) return;
+    if (name == null) return;
     try {
       await playlistStore.createPlaylist(name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
   }
 
@@ -408,6 +410,12 @@ class _PlaylistTile extends StatelessWidget {
   });
 
   Future<void> _showContextMenu(BuildContext context, Offset position) async {
+    // Captured before the popup menu opens -- see showPlaylistError's doc.
+    // Matters here specifically: a SUCCESSFUL delete removes this very tile
+    // (LibraryModel.reloadPlaylists rebuilds the sidebar's playlist list
+    // without it), but a refused delete must still be able to report
+    // through a messenger that doesn't depend on this tile still existing.
+    final messenger = ScaffoldMessenger.of(context);
     final overlayBox =
         Overlay.of(context).context.findRenderObject() as RenderBox;
     final action = await showMenu<String>(
@@ -422,11 +430,11 @@ class _PlaylistTile extends StatelessWidget {
     );
     if (action != 'delete' || !context.mounted) return;
     final confirmed = await confirmDeletePlaylist(context, playlist.name);
-    if (!confirmed || !context.mounted) return;
+    if (!confirmed) return;
     try {
       await store.deletePlaylist(playlist.name);
     } on PlaylistStoreException catch (e) {
-      if (context.mounted) showPlaylistError(context, e);
+      showPlaylistError(messenger, e);
     }
   }
 

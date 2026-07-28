@@ -630,6 +630,11 @@ Future<void> _showTrackContextMenu({
   required PlaylistStore playlistStore,
   ArtworkServices? artwork,
 }) async {
+  // Captured BEFORE the popup menu opens (and reused by every action below,
+  // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
+  // later store-error report never depends on this row's own BuildContext
+  // still being mounted -- see showPlaylistError's doc.
+  final messenger = ScaffoldMessenger.of(context);
   if (!library.selectedTrackIds.contains(track.contentId)) {
     library.selectTrack(track.contentId);
   }
@@ -681,6 +686,7 @@ Future<void> _showTrackContextMenu({
     case _TrackMenuAction.addToPlaylist:
       await _showAddToPlaylistMenu(
         context: context,
+        messenger: messenger,
         globalPosition: globalPosition,
         tracks: tracks,
         library: library,
@@ -691,15 +697,13 @@ Future<void> _showTrackContextMenu({
       try {
         final removed = await playlistStore.removeTracks(
             activePlaylist, [for (final t in tracks) t.contentId]);
-        if (context.mounted) {
-          showPlaylistInfo(
-              context,
-              removed == 1
-                  ? 'Removed 1 track from the playlist'
-                  : 'Removed $removed tracks from the playlist');
-        }
+        showPlaylistInfo(
+            messenger,
+            removed == 1
+                ? 'Removed 1 track from the playlist'
+                : 'Removed $removed tracks from the playlist');
       } on PlaylistStoreException catch (e) {
-        if (context.mounted) showPlaylistError(context, e);
+        showPlaylistError(messenger, e);
       }
     case _TrackMenuAction.albumArtwork:
       if (artwork == null) return; // unreachable; item not shown
@@ -719,6 +723,7 @@ Future<void> _showTrackContextMenu({
 /// appended (a track already in the target playlist doesn't count twice).
 Future<void> _showAddToPlaylistMenu({
   required BuildContext context,
+  required ScaffoldMessengerState messenger,
   required Offset globalPosition,
   required List<Track> tracks,
   required LibraryModel library,
@@ -740,29 +745,33 @@ Future<void> _showAddToPlaylistMenu({
       const PopupMenuItem(value: -1, child: Text('New playlist...')),
     ],
   );
-  if (choice == null || !context.mounted) return;
+  if (choice == null) return; // menu dismissed without a choice
   final ids = [for (final t in tracks) t.contentId];
   try {
     late final String playlistName;
     late final int added;
     if (choice >= 0) {
+      // Existing playlist: no further context needed, so this proceeds (and
+      // reports via [messenger]) even if [context] became unmounted while
+      // the menu above was open.
       playlistName = playlists[choice].name;
       added = await playlistStore.addTracks(playlistName, ids);
     } else {
+      // "New playlist...": genuinely needs a live context for the name
+      // dialog's Navigator.
+      if (!context.mounted) return;
       final name = await showPlaylistNameDialog(context, store: playlistStore);
       if (name == null) return;
       await playlistStore.createPlaylist(name);
       playlistName = name;
       added = await playlistStore.addTracks(name, ids);
     }
-    if (context.mounted) {
-      showPlaylistInfo(
-          context,
-          added == 1
-              ? 'Added 1 track to "$playlistName"'
-              : 'Added $added tracks to "$playlistName"');
-    }
+    showPlaylistInfo(
+        messenger,
+        added == 1
+            ? 'Added 1 track to "$playlistName"'
+            : 'Added $added tracks to "$playlistName"');
   } on PlaylistStoreException catch (e) {
-    if (context.mounted) showPlaylistError(context, e);
+    showPlaylistError(messenger, e);
   }
 }

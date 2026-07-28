@@ -18,10 +18,10 @@ class PlaylistStoreException implements Exception {
   String toString() => message;
 }
 
-/// Playlist CRUD over the FIRST configured library root's `.library.json`.
+/// Playlist CRUD over the configured library roots' `.library.json` files.
 ///
-/// Write path: every mutation loads that root's manifest FRESH from disk
-/// (`fooplayer_core`'s [core.loadManifest] -- never a cached copy, so a
+/// Write path: every mutation loads the relevant root's manifest FRESH from
+/// disk (`fooplayer_core`'s [core.loadManifest] -- never a cached copy, so a
 /// rescan's own manifest save that landed since the app's last load is
 /// preserved), mutates only the `playlists` section, saves via
 /// [core.saveManifest] (atomic .tmp-rename with a `.bak` of the previous
@@ -29,22 +29,37 @@ class PlaylistStoreException implements Exception {
 /// merged-playlist refresh -- no full library reload.
 ///
 /// Rescan-writer guard -- documented choice: **brief retry, not a queue.**
-/// [LibraryModel.rescan] saves the same manifest file from inside an
-/// isolate while holding [LibraryModel.busy]; a store write interleaving
-/// with that save would lose one side's changes. Each mutation therefore
-/// acquires the model's busy flag via [LibraryModel.tryBeginManifestWrite],
-/// retrying every [busyRetryEvery] for up to [busyRetryFor] before giving
-/// up with a clear "library is busy" [PlaylistStoreException]. A retry
-/// keeps the failure mode explicit and bounded (the user re-clicks a
-/// second later) instead of a silent queue that might apply a mutation
-/// long after the click, against a library state the user no longer sees.
+/// [LibraryModel.rescan] saves a manifest file from inside an isolate while
+/// holding [LibraryModel.busy]; a store write interleaving with that save
+/// would lose one side's changes. Each mutation therefore acquires the
+/// model's busy flag via [LibraryModel.tryBeginManifestWrite], retrying
+/// every [busyRetryEvery] for up to [busyRetryFor] before giving up with a
+/// clear "library is busy" [PlaylistStoreException]. A retry keeps the
+/// failure mode explicit and bounded (the user re-clicks a second later)
+/// instead of a silent queue that might apply a mutation long after the
+/// click, against a library state the user no longer sees.
 ///
-/// Ownership: LibraryModel merges playlists from every root, suffixing
-/// name collisions (" (2)", ...). This store only ever writes the first
-/// root's manifest, so a mutation aimed at a playlist that actually lives
-/// in ANOTHER root's manifest (per the merge's ownership stamp, see
-/// [ManifestPlaylist.rootPath]) is refused with a message naming the
-/// owning root -- never a silent no-op.
+/// Ownership: LibraryModel merges playlists from every root, suffixing name
+/// collisions (" (2)", ...) and stamping each merged entry with the root it
+/// actually lives in ([ManifestPlaylist.rootPath]). **Edits go to the
+/// owning root**: [addTrack]/[addTracks]/[removeTrack]/[removeTracks]/
+/// [deletePlaylist] resolve that root (via [LibraryModel.rootWithPath]) and
+/// load-mutate-save ITS manifest -- a playlist living in the third of four
+/// configured roots is edited exactly as readily as one in the first.
+/// [createPlaylist] is the one exception: a brand-new playlist has no
+/// existing owner, so it always lands in the FIRST configured root (see its
+/// own doc).
+///
+/// Caveat worth knowing (not a bug, just a consequence of per-root
+/// manifests): a playlist in root D can end up referencing track IDs whose
+/// files live under a DIFFERENT root -- e.g. the user adds a track from
+/// root A to a playlist stored in root D. The merged in-app library (every
+/// root's tracks combined) resolves that fine, but root D's `.library.json`
+/// read in isolation is not a complete description of that playlist's
+/// tracks -- another tool reading just that one file, or a future version
+/// that drops multi-root merging, would see the playlist reference IDs it
+/// can't find. No safeguard against this today; flagged here so it isn't a
+/// surprise later.
 class PlaylistStore {
   final LibraryModel library;
 
@@ -59,15 +74,21 @@ class PlaylistStore {
     this.busyRetryFor = const Duration(seconds: 5),
   });
 
-  /// Creates an empty playlist named [name] (trimmed) in the first root's
-  /// manifest. Throws [PlaylistStoreException] if the name is empty or
+  /// Creates an empty playlist named [name] (trimmed) in the FIRST
+  /// configured root's manifest (see the class doc: unlike every other
+  /// mutation here, a brand-new playlist has no existing owning root to
+  /// route to). Throws [PlaylistStoreException] if the name is empty or
   /// collides with ANY merged playlist name -- including a suffixed one
   /// like "mix (2)" that only exists as a merge artifact, since creating
   /// it on disk would collide with that display name on the next merge.
   Future<void> createPlaylist(String name) async {
     final trimmed = name.trim();
     validateNewPlaylistName(trimmed);
-    await _withFirstRootManifest((manifest, root) {
+    final first = library.firstRoot;
+    if (first == null) {
+      throw PlaylistStoreException('No library roots configured.');
+    }
+    await _withManifest(first, (manifest) {
       if (manifest.playlists.any((pl) => pl.name == trimmed)) {
         // Model state was stale (e.g. another process wrote the manifest);
         // re-check against the fresh manifest so we never write a dupe.
@@ -78,22 +99,24 @@ class PlaylistStore {
     });
   }
 
-  /// Deletes the playlist shown as [name]. Blocked (with the owning root
-  /// named) when the playlist lives in a root other than the first -- see
-  /// the class doc's ownership note.
+  /// Deletes the playlist shown as [name] -- from whichever root actually
+  /// owns it (see the class doc's ownership note).
   Future<void> deletePlaylist(String name) async {
-    final entry = _ownedEntry(name);
-    await _withFirstRootManifest((manifest, root) {
+    final entry = _resolveEntry(name);
+    final root = _ownedRoot(entry);
+    await _withManifest(root, (manifest) {
       manifest.playlists.removeAt(_manifestIndexOf(manifest, entry));
     });
   }
 
   /// Appends [contentId] to the playlist shown as [name] (no-op write if
   /// the track is already in it -- playlists here are sets-in-order, not
-  /// multisets). Same ownership rules as [deletePlaylist].
+  /// multisets), writing to whichever root owns that playlist -- see the
+  /// class doc's ownership note.
   Future<void> addTrack(String name, String contentId) async {
-    final entry = _ownedEntry(name);
-    await _withFirstRootManifest((manifest, root) {
+    final entry = _resolveEntry(name);
+    final root = _ownedRoot(entry);
+    await _withManifest(root, (manifest) {
       final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
       if (!pl.trackIds.contains(contentId)) {
         pl.trackIds.add(contentId);
@@ -102,10 +125,11 @@ class PlaylistStore {
   }
 
   /// Removes every occurrence of [contentId] from the playlist shown as
-  /// [name]. Same ownership rules as [deletePlaylist].
+  /// [name]. Same owning-root routing as [addTrack].
   Future<void> removeTrack(String name, String contentId) async {
-    final entry = _ownedEntry(name);
-    await _withFirstRootManifest((manifest, root) {
+    final entry = _resolveEntry(name);
+    final root = _ownedRoot(entry);
+    await _withManifest(root, (manifest) {
       final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
       pl.trackIds.removeWhere((id) => id == contentId);
     });
@@ -119,13 +143,14 @@ class PlaylistStore {
   /// N tracks costs one disk write, not N. Returns the number of tracks
   /// actually appended (excludes ones already present), so the caller can
   /// report an accurate count. No-ops (no manifest write, no busy
-  /// acquisition) when [contentIds] is empty. Same ownership rules as
+  /// acquisition) when [contentIds] is empty. Same owning-root routing as
   /// [addTrack].
   Future<int> addTracks(String name, List<String> contentIds) async {
     if (contentIds.isEmpty) return 0;
-    final entry = _ownedEntry(name);
+    final entry = _resolveEntry(name);
+    final root = _ownedRoot(entry);
     var added = 0;
-    await _withFirstRootManifest((manifest, root) {
+    await _withManifest(root, (manifest) {
       final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
       for (final id in contentIds) {
         if (!pl.trackIds.contains(id)) {
@@ -141,13 +166,14 @@ class PlaylistStore {
   /// [contentIds] from the playlist shown as [name], writing the manifest
   /// ONCE for the whole batch -- the multi-select "Remove from playlist"
   /// counterpart to [addTracks]. Returns the number of playlist entries
-  /// actually removed. No-ops when [contentIds] is empty. Same ownership
-  /// rules as [removeTrack].
+  /// actually removed. No-ops when [contentIds] is empty. Same owning-root
+  /// routing as [removeTrack].
   Future<int> removeTracks(String name, List<String> contentIds) async {
     if (contentIds.isEmpty) return 0;
-    final entry = _ownedEntry(name);
+    final entry = _resolveEntry(name);
+    final root = _ownedRoot(entry);
     var removed = 0;
-    await _withFirstRootManifest((manifest, root) {
+    await _withManifest(root, (manifest) {
       final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
       final idSet = contentIds.toSet();
       final before = pl.trackIds.length;
@@ -172,26 +198,42 @@ class PlaylistStore {
     }
   }
 
-  /// Resolves the merged playlist entry for display-name [name] and
-  /// enforces first-root ownership -- see the class doc.
-  ManifestPlaylist _ownedEntry(String name) {
+  /// Resolves the merged playlist entry for display-name [name]. No
+  /// ownership decisions here -- see [_ownedRoot] for where a mutation's
+  /// target root is actually chosen.
+  ManifestPlaylist _resolveEntry(String name) {
     final matches = library.playlists.where((pl) => pl.name == name);
     if (matches.isEmpty) {
       throw PlaylistStoreException('No playlist named "$name".');
     }
-    final entry = matches.first;
-    final first = library.firstRoot;
-    if (first == null) {
-      throw PlaylistStoreException('No library roots configured.');
+    return matches.first;
+  }
+
+  /// The [Directory] a mutation against [entry] must load-mutate-save --
+  /// [ManifestPlaylist.rootPath] (LibraryModel's merge-time ownership stamp)
+  /// resolved back to a currently-configured root via
+  /// [LibraryModel.rootWithPath]. Null [rootPath] only happens for
+  /// hand-built fixtures that skipped the merge (tests); those fall back to
+  /// the first root, matching this store's historical behavior for them. A
+  /// non-null [rootPath] that no longer matches any configured root (the
+  /// roots were edited in Settings since the merge ran) is a clear refusal,
+  /// not a silent fallback to the wrong root.
+  Directory _ownedRoot(ManifestPlaylist entry) {
+    final path = entry.rootPath;
+    if (path == null) {
+      final first = library.firstRoot;
+      if (first == null) {
+        throw PlaylistStoreException('No library roots configured.');
+      }
+      return first;
     }
-    if (entry.rootPath != null && entry.rootPath != first.path) {
+    final root = library.rootWithPath(path);
+    if (root == null) {
       throw PlaylistStoreException(
-          'Playlist "$name" lives in another root\'s library '
-          '(${entry.rootPath}) and can\'t be edited from here -- only '
-          'playlists in the first library root (${first.path}) are '
-          'editable.');
+          'Playlist "${entry.name}" lives in a root ($path) that is no '
+          'longer configured.');
     }
-    return entry;
+    return root;
   }
 
   /// Finds [entry]'s index in the freshly-loaded [manifest]'s playlists:
@@ -219,16 +261,12 @@ class PlaylistStore {
   }
 
   /// The shared load-mutate-save-refresh cycle every mutation runs through
-  /// (see the class doc for the write path and the busy-flag retry).
-  /// [mutate] may throw a [PlaylistStoreException] to abort -- nothing is
-  /// saved in that case.
-  Future<void> _withFirstRootManifest(
-      FutureOr<void> Function(core.Manifest manifest, Directory root)
-          mutate) async {
-    final root = library.firstRoot;
-    if (root == null) {
-      throw PlaylistStoreException('No library roots configured.');
-    }
+  /// (see the class doc for the write path and the busy-flag retry) against
+  /// [root] -- the first root for [createPlaylist], the resolved owning
+  /// root (see [_ownedRoot]) for everything else. [mutate] may throw a
+  /// [PlaylistStoreException] to abort -- nothing is saved in that case.
+  Future<void> _withManifest(
+      Directory root, FutureOr<void> Function(core.Manifest manifest) mutate) async {
     final manifestFile = File(p.join(root.path, core.manifestFileName));
     if (!manifestFile.existsSync()) {
       // Refuse rather than letting loadManifest hand back Manifest.empty()
@@ -236,13 +274,13 @@ class PlaylistStore {
       // make an unseeded root look seeded (and stop the settings dialog
       // reporting it as missing).
       throw PlaylistStoreException(
-          'The first library root (${root.path}) has no .library.json yet '
-          '-- seed it with foolib first.');
+          'The library root (${root.path}) has no .library.json yet -- '
+          'seed it with foolib first.');
     }
     await _acquireBusy();
     try {
       final manifest = core.loadManifest(root);
-      await mutate(manifest, root);
+      await mutate(manifest);
       await core.saveManifest(manifest, root);
       library.reloadPlaylists();
     } finally {

@@ -1,15 +1,21 @@
-// PlaylistStore CRUD (TODO #29): every mutation loads the FIRST root's
-// .library.json fresh, mutates only its playlists section, saves via
+// PlaylistStore CRUD (TODO #29; owning-root routing fixed post-report --
+// see the "owning root" group below): every mutation loads the relevant
+// root's .library.json fresh, mutates only its playlists section, saves via
 // fooplayer_core's atomic saveManifest (.bak of the previous version), and
-// refreshes LibraryModel's merged playlist state via reloadPlaylists --
-// no full library reload. Playlists owned by another root's manifest are
-// blocked with a clear message, and the store respects LibraryModel's
-// busy discipline (brief retry against a rescan-held flag).
+// refreshes LibraryModel's merged playlist state via reloadPlaylists -- no
+// full library reload. [createPlaylist] always targets the FIRST root (a
+// new playlist has no existing owner); every other mutation routes to
+// whichever root the merge stamped the playlist as living in
+// (ManifestPlaylist.rootPath), so a playlist that lives in the second (or
+// third, ...) configured root is exactly as editable as one in the first.
+// The store also respects LibraryModel's busy discipline (brief retry
+// against a rescan-held flag).
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/manifest_io.dart';
 import 'package:fooplayer_app/model/playlist_store.dart';
 
 Future<Directory> _root(Directory tmp, String name) =>
@@ -175,22 +181,6 @@ void main() {
   });
 
   test(
-      'addTracks / removeTracks respect first-root ownership -- refused '
-      '(naming the owning root) for a playlist that lives in another '
-      'root\'s manifest', () async {
-    await expectLater(
-      store.addTracks('unique', ['a1']),
-      throwsA(isA<PlaylistStoreException>().having(
-          (e) => e.message, 'message', contains(rootB.path))),
-    );
-    await expectLater(
-      store.removeTracks('unique', ['b1']),
-      throwsA(isA<PlaylistStoreException>().having(
-          (e) => e.message, 'message', contains(rootB.path))),
-    );
-  });
-
-  test(
       'deletePlaylist removes the entry from model and disk, and clears '
       'activePlaylist when the deleted playlist was the active one',
       () async {
@@ -225,31 +215,136 @@ void main() {
     expect(_readManifest(rootA), before, reason: 'nothing written on refusal');
   });
 
-  test(
-      'ownership block: mutating a playlist that lives in ANOTHER root\'s '
-      'manifest throws (naming the owning root) and touches no manifest',
-      () async {
-    // "mix (2)" and "unique" are rootB's; the store writes only rootA.
-    final beforeA = _readManifest(rootA);
-    final beforeB = _readManifest(rootB);
+  group(
+      'owning-root routing -- the reported bug: a playlist NOT in the '
+      'first root must still be editable, by writing THAT root\'s '
+      'manifest rather than refusing', () {
+    test(
+        'addTracks batch-adds to a playlist owned by the SECOND root, '
+        'writing ONLY rootB\'s manifest in one write (rootA untouched, '
+        '.bak preserved)', () async {
+      final beforeA = _readManifest(rootA);
+      expect(File('${rootB.path}/.library.json.bak').existsSync(), isFalse,
+          reason: 'sanity: no prior write to rootB yet');
 
-    for (final op in <Future<void> Function()>[
-      () => store.deletePlaylist('mix (2)'),
-      () => store.addTrack('unique', 'a1'),
-      () => store.removeTrack('unique', 'b1'),
-    ]) {
+      final added = await store.addTracks('unique', ['a1', 'a2']);
+
+      expect(added, 2);
+      expect(model.playlists.singleWhere((pl) => pl.name == 'unique').trackIds,
+          ['b1', 'a1', 'a2']);
+      expect(
+          _diskPlaylists(rootB)
+              .singleWhere((p) => p['name'] == 'unique')['track_ids'],
+          ['b1', 'a1', 'a2'],
+          reason: 'written to the OWNING root (rootB), not the first (rootA)');
+      expect(_readManifest(rootA), beforeA,
+          reason: 'a playlist owned by rootB must not touch rootA at all');
+      expect(File('${rootB.path}/.library.json.bak').existsSync(), isTrue,
+          reason: 'atomic save still produces a .bak, on the owning root');
+    });
+
+    test(
+        'removeTracks batch-removes from a playlist owned by the SECOND '
+        'root, writing ONLY rootB\'s manifest', () async {
+      await store.addTracks('unique', ['a1', 'a2']); // seed 3 tracks total
+      final beforeA = _readManifest(rootA);
+
+      final removed = await store.removeTracks('unique', ['b1', 'a2']);
+
+      expect(removed, 2);
+      expect(model.playlists.singleWhere((pl) => pl.name == 'unique').trackIds,
+          ['a1']);
+      expect(
+          _diskPlaylists(rootB)
+              .singleWhere((p) => p['name'] == 'unique')['track_ids'],
+          ['a1']);
+      expect(_readManifest(rootA), beforeA);
+    });
+
+    test(
+        'addTrack / removeTrack (single-track form) also route to the '
+        'owning root, not the first', () async {
+      final beforeA = _readManifest(rootA);
+
+      await store.addTrack('unique', 'a2');
+      expect(
+          _diskPlaylists(rootB)
+              .singleWhere((p) => p['name'] == 'unique')['track_ids'],
+          ['b1', 'a2']);
+
+      await store.removeTrack('unique', 'b1');
+      expect(
+          _diskPlaylists(rootB)
+              .singleWhere((p) => p['name'] == 'unique')['track_ids'],
+          ['a2']);
+
+      expect(_readManifest(rootA), beforeA);
+    });
+
+    test(
+        'deletePlaylist removes a playlist owned by the SECOND root from '
+        'rootB\'s manifest, leaving rootA untouched and rootB\'s OTHER '
+        'playlist intact', () async {
+      final beforeA = _readManifest(rootA);
+
+      await store.deletePlaylist('unique');
+
+      expect(model.playlists.map((pl) => pl.name), isNot(contains('unique')));
+      expect(_diskPlaylists(rootB).map((p) => p['name']),
+          isNot(contains('unique')));
+      expect(_diskPlaylists(rootB).map((p) => p['name']), contains('mix'),
+          reason: 'rootB\'s other playlist (merged as "mix (2)") survives');
+      expect(_readManifest(rootA), beforeA);
+    });
+
+    test(
+        'deletePlaylist also resolves a merge-suffixed display name '
+        '("mix (2)") back to its owning root correctly', () async {
+      await store.deletePlaylist('mix (2)');
+
+      expect(model.playlists.map((pl) => pl.name), isNot(contains('mix (2)')));
+      // rootB's manifest-internal name is "mix" (unsuffixed) -- the suffix
+      // is purely a merge-time display artifact.
+      expect(_diskPlaylists(rootB).map((p) => p['name']), isNot(contains('mix')));
+      // rootA's own "mix" (unrelated playlist, same name) is untouched.
+      expect(_diskPlaylists(rootA).map((p) => p['name']), contains('mix'));
+    });
+
+    test(
+        'createPlaylist still always targets the FIRST root, even though '
+        'every other mutation now routes by ownership', () async {
+      await store.createPlaylist('fresh2');
+
+      expect(model.playlists.singleWhere((pl) => pl.name == 'fresh2').rootPath,
+          rootA.path);
+      expect(_diskPlaylists(rootA).map((p) => p['name']), contains('fresh2'));
+      expect(_diskPlaylists(rootB).map((p) => p['name']),
+          isNot(contains('fresh2')));
+    });
+
+    test(
+        'a playlist stamped with a root that is no longer configured '
+        '(e.g. roots edited in Settings since the merge) is refused with '
+        'a clear message instead of silently writing the wrong root',
+        () async {
+      final ghostRoot = '${tmp.path}/never-loaded';
+      model.playlists = [
+        ...model.playlists,
+        ManifestPlaylist(
+          name: 'ghost',
+          trackIds: const ['a1'],
+          rootPath: ghostRoot,
+          sourceName: 'ghost',
+          sourceIndex: 0,
+        ),
+      ];
+
       await expectLater(
-        op(),
+        store.addTrack('ghost', 'a1'),
         throwsA(isA<PlaylistStoreException>().having(
-            (e) => e.message, 'message', contains(rootB.path))),
+            (e) => e.message, 'message', contains(ghostRoot))),
       );
-    }
-
-    expect(_readManifest(rootA), beforeA);
-    expect(_readManifest(rootB), beforeB);
-    expect(model.playlists.map((pl) => pl.name),
-        containsAll(['mix', 'mix (2)', 'unique']),
-        reason: 'blocked -- and definitely not a silent no-op delete');
+    });
   });
 
   test('mutating a nonexistent playlist throws', () async {
