@@ -221,6 +221,7 @@ class HomeScreen extends StatelessWidget {
                             player: player,
                             playlistStore: store,
                             artwork: artworkServices,
+                            artworkResolver: artworkResolver,
                           ),
                         ),
                       ],
