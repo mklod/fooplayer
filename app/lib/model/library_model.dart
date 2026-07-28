@@ -603,8 +603,15 @@ class LibraryModel extends ChangeNotifier {
   /// they're visible right away), then upgraded via the same batched,
   /// timeout-guarded tag-reading machinery [load]'s Part B uses (see
   /// [_enrichNewTracks]).
+  /// [quiet] suppresses the per-root progress chatter, for the periodic
+  /// background rescan. Without it the status line flickered through five
+  /// "scanning ..." messages and back to "ready" on every tick while the user
+  /// was doing nothing at all -- a twitch carrying no information. A quiet
+  /// pass still reports what it FINDS ("added N new tracks") and still
+  /// reports failures; it just doesn't narrate a scan that found nothing.
   Future<void> rescan({
     Duration rootTimeout = _defaultRescanRootTimeout,
+    bool quiet = false,
   }) async {
     if (_busy) return;
     final roots = _libraryRoots;
@@ -619,7 +626,9 @@ class LibraryModel extends ChangeNotifier {
       // mutation. Rescan is the one caller that can afford to give up: it
       // runs again on its 5-minute timer (and on the Refresh button).
       if (!await _beginManifestPhase(const Duration(seconds: 3))) {
-        status = 'rescan skipped (a playlist write was in progress)';
+        if (!quiet) {
+          status = 'rescan skipped (a playlist write was in progress)';
+        }
         return;
       }
       holdsManifestPhase = true;
@@ -635,8 +644,10 @@ class LibraryModel extends ChangeNotifier {
         }
 
         final rootName = p.basename(root.path);
-        status = 'scanning $rootName…';
-        notifyListeners();
+        if (!quiet) {
+          status = 'scanning $rootName…';
+          notifyListeners();
+        }
 
         List<(String, String, String)> newRecords;
         try {
@@ -703,7 +714,12 @@ class LibraryModel extends ChangeNotifier {
         allTracks = tracks;
       }
 
-      status = totalNew == 0 ? 'ready' : 'added $totalNew new tracks';
+      // A quiet pass that found nothing leaves the status exactly as it was.
+      if (totalNew > 0) {
+        status = 'added $totalNew new tracks';
+      } else if (!quiet) {
+        status = 'ready';
+      }
     } finally {
       _busy = false;
       // Belt and braces: the happy path released this above, but a throw

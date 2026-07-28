@@ -187,7 +187,8 @@ void main() async {
       // doc for why every rescan trigger (not just load()) needs this.
       unawaited(
         rescanThenBackfill(
-          rescan: library.rescan,
+          // Quiet: the timer must not narrate a scan nobody asked for.
+          rescan: () => library.rescan(quiet: true),
           backfill: artworkBackfill,
           tracks: () => library.allTracks,
         ),
