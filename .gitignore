@@ -1,1 +1,6 @@
 .superpowers/
+
+# Sandbox copies used to prove tag-embedding / conversion before the real
+# library is touched. Audio files -- never committed.
+testdata/embed-test/
+testdata/convert-sandbox/
