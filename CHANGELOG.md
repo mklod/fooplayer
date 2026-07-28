@@ -2,6 +2,39 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-28 — "date downloaded" finally correct everywhere
+
+The issue this whole project started from, resolved on Mike's go-ahead
+(option 1 from the writeup).
+
+A probe of the share settled the design: **Samba here reports creation time as
+equal to modified time**, so stamping the modified time corrects *both* columns
+Explorer shows and the field foobar2000 sorts on — the NAS config change that
+option 2 required buys nothing, and creation time needs no special handling
+anywhere in this project.
+
+`tools/stamp_dates_from_manifest.py` re-derives each file's date from its
+manifest `date_added` — dry-run by default, verifying every write by reading it
+back, and recording each previous value so the whole operation can be reverted.
+Over all five roots: **5,483 tracks, 3,759 already correct, 1,724 re-stamped, 0
+failures, 7 seconds.** Kanye's "Stronger" went from a filesystem date of
+2026-01-12 to its real 2024-07-10; "&ME - After Dark" from 2024-07-02 to
+2020-12-16; "Above & Beyond - Alone Tonight" from 2024-07-11 to 2012-04-26.
+
+Audio bytes were never touched, so no content ID moved and the manifest that
+supplied the dates is untouched. The standing trade-off: "Date modified" now
+means "downloaded" rather than "last edited", and a future tag-editing session
+re-clobbers whatever it touches — one re-run of the script repairs it, since a
+tagger can't reach the manifest. fooplayer's own tag writing already preserves
+both dates.
+
+Also: the Zero 7 "Destiny" folder held both FLAC and MP3 copies of the same
+three tracks. The MP3s were ~180 kbps transcodes whose `date_added` said
+2024-07-11 while the FLAC originals carried 2009-12-03 / 2012-11-22 — keeping
+them would have mis-dated the tracks. FLACs kept, MP3s removed (backed up),
+manifest entries dropped: 1,844 -> 1,841 with nothing left pointing at a
+missing file.
+
 ## 2026-07-28 — the metadata pipeline stops lying
 
 A night of Mike finding real defects in live use. Every one was reproduced and

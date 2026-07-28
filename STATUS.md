@@ -19,7 +19,7 @@
 | Repo location | ✅ Migrated: canonical repo is `L:\PROJECTS\fooplayer`; old `L:\PROJECTS\foobar` deleted and verified clear (no processes, services, tasks, or git references) |
 | Background audio (Plan 2c) | ⛔ Not started — lock-screen / notification controls via `audio_service` |
 | Phone library sync (Plan 3) | ⛔ Not started — LAN pull of files + manifests to the phone |
-| File-dates fix (foobar2000/Explorer sorting) | ⏸ ON HOLD by Mike's explicit instruction — see [docs/music-library-dates-issue.md](docs/music-library-dates-issue.md) |
+| File-dates fix (foobar2000/Explorer sorting) | ✅ **Resolved 2026-07-28** — option 1 applied: every track's filesystem date stamped from its manifest `date_added` (5,483 tracks, 1,724 re-stamped, 0 failures). This share reports creation time as equal to modified time, so both Explorer columns and foobar2000's sort are now correct; no NAS config change needed. Reversible via the logged previous values |
 
 ## Where things run
 
@@ -33,6 +33,7 @@
 
 ## Last session (2026-07-28)
 
+- **"Date downloaded" resolved** (option 1): filesystem dates re-derived from the manifest for all 5,483 tracks, so foobar2000 and Explorer finally sort correctly. Zero-Seven duplicate folder deduped (FLACs kept, MP3 transcodes removed — they carried a wrong 2024 date-added).
 - **Metadata pipeline overhauled after live-use bug reports.** Own ID3 reader recovers tags the upstream parser drops (57 tracks across 5 albums); artist now reads TPE1 rather than TPE2 (359 files affected); durations persist in the manifest and no track is missing one; a cache-revision refresh no longer blanks the library, no longer marks itself done without doing the work, and a timed-out read recovers instead of staying wrong forever. See CHANGELOG for the full account.
 - UI: selection highlights on pointer-down (the ~300 ms double-tap window *was* the stutter), hero cover opens the artwork picker, artwork first in the row context menu, grey app-icon placeholder, no column-header hover tint.
 - Earlier in the same session: cover art embeds into files (MP3 APIC / FLAC PICTURE) with content ID and dates provably unchanged, applied to the 3 FLACs and the 13 converted m4a. The full-library pass over ~3,659 art-less MP3s is built but deliberately unrun, pending Mike's review.
@@ -42,8 +43,7 @@
 
 ## Blocking on Mike
 
-1. **File-dates decision** — mtime route / Samba fix / both / skip ([writeup](docs/music-library-dates-issue.md)). No filesystem-date action has been taken, and none will be without an explicit go-ahead.
-2. **Real-device test** — plug the Pixel 7 in over USB whenever convenient; the APK installs with one command (the emulator already proves the pipeline).
+1. **Real-device test** — plug the Pixel 7 in over USB whenever convenient; the APK installs with one command (the emulator already proves the pipeline).
 
 ## Known machine facts
 

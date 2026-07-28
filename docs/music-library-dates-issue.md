@@ -1,11 +1,12 @@
 # Music Library "Date Downloaded" — the Problem, What's Fixed, and the Options
 
 *2026-07-24 — status writeup for the sort-by-newest-downloads issue*
+*2026-07-28 — **RESOLVED**: option 1 applied. See "Outcome" at the bottom.*
 
 ## TL;DR
 
 - **The new player app already sorts correctly, permanently.** Its `.library.json` manifest stores every track's original download date as real data, recovered from the Oct 2025 foobar2000 database backup. No tag editor can ever break it again.
-- **foobar2000 and Explorer are still wrong**, because they sort by filesystem *creation times*, ~4,302 of which were overwritten by Mp3tag — and those can't currently be repaired, because the NAS silently ignores creation-time writes over the network. A decision is needed between the options at the bottom.
+- **foobar2000 and Explorer sorted wrong too** — they use filesystem dates, ~4,302 of which Mp3tag overwrote. **Fixed 2026-07-28**, see Outcome.
 
 ## What "date downloaded" actually is
 
@@ -65,3 +66,57 @@ Reason: the library now lives on murkyserver (`L:` → `\\murkyserver\drop`). Li
 - Manifest: seeded and correct (the new app sorts right today).
 - Filesystem: unchanged — awaiting a decision between the options above.
 - `restore_ctimes.py`: path-updated, dry-run verified, blocked only by the Samba behavior (option 2 would unblock it).
+
+---
+
+## Outcome (2026-07-28)
+
+**Option 1 applied**, on Mike's explicit go-ahead.
+
+One measurement changed the picture and made option 2 unnecessary. Probing the
+share directly:
+
+```
+fresh file             created=2026-07-27 19:26:21  modified=2026-07-27 19:26:21
+after utime->2019      created=2019-03-04 11:22:33  modified=2019-03-04 11:22:33
+after in-place write   created=2026-07-27 19:26:21  modified=2026-07-27 19:26:21
+after restoring mtime  created=2019-03-04 11:22:33  modified=2019-03-04 11:22:33
+after rename           created=2019-03-04 11:22:33  modified=2019-03-04 11:22:33
+```
+
+**This Samba reports creation time as EQUAL to modified time.** Setting the
+modified time therefore corrects *both* columns Explorer shows and the field
+foobar2000 sorts on — so the NAS config change (option 2) buys nothing here,
+and creation times need no separate handling anywhere in this project.
+
+What was done:
+
+- `tools/stamp_dates_from_manifest.py` stamps every track's mtime/atime from
+  its manifest `date_added`, dry-run by default, verifying each write by
+  reading it back.
+- Run over all five roots: **5,483 tracks — 3,759 already correct, 1,724
+  re-stamped, 0 failures, 7 seconds.** A second dry run afterwards reports 0
+  remaining.
+- Reversal log at
+  `L:\BACKUPS
+ooplayer-file-fixes\date-stamping\date-stamp-2026-07-28--0122.json`
+  (every changed path with its previous mtime); `--revert <log>` undoes the
+  whole operation.
+
+Examples of what moved:
+
+| Track | Filesystem said | True download date |
+|---|---|---|
+| Kanye West — Stronger | 2026-01-12 | 2024-07-10 |
+| &ME — After Dark | 2024-07-02 | 2020-12-16 |
+| 3LAU HAUS #52 (Miami) | 2024-07-03 | 2022-02-10 |
+| Above & Beyond — Alone Tonight | 2024-07-11 | 2012-04-26 |
+
+Audio bytes were never touched, so no content ID changed and the manifest —
+the source these dates came from — is unaffected.
+
+**The standing trade-off:** "Date modified" now means "downloaded", not "last
+edited". A future tag-editing session will clobber it again for the files it
+touches; re-running the script fixes that in one pass, because the manifest is
+never touched by a tagger. fooplayer's own tag writing (artwork embedding, and
+the metadata repair to come) already preserves both dates, verified per file.

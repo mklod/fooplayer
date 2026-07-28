@@ -29,8 +29,8 @@
 **Gated. Do not start until, in this order:** (1) Mike's manual review of the
 embedded-artwork files lands and he gives an explicit go-ahead on the
 full-library artwork pass, (2) whatever decisions come out of that review are
-made, and (3) the file-dates issue is settled — also on his explicit
-instruction. Added 2026-07-27 at his request.
+made, and (3) ~~the file-dates issue is settled~~ **— done 2026-07-28**. Added
+2026-07-27 at his request; gate (3) is now clear, (1) and (2) remain.
 
 The shape of it: the same "don't touch the file's identity or its dates"
 discipline the artwork embedding now has, applied to the rest of the metadata.
@@ -57,7 +57,7 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 
 ## Decision gates (Mike only)
 
-- **File-dates fix** for foobar2000/Explorer sorting — options in [docs/music-library-dates-issue.md](docs/music-library-dates-issue.md); NO filesystem-date action without an explicit go-ahead.
+- ~~**File-dates fix**~~ — **done 2026-07-28** (option 1; see the writeup's Outcome section).
 - **Full-library artwork embedding** (~3,659 art-less MP3s) — engine built and proven, deliberately unrun. Review list: [docs/artwork-embed-review.md](docs/artwork-embed-review.md).
 - **Metadata repair** — see the queued section above; blocked behind both of the gates above.
 
@@ -71,8 +71,8 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
   estimator on every give-up path, stacked-tag aware)
 - `AB2G Cygnus.mp3` has no ID3 tag at all, so it shows no artist. Nothing to
   read — a candidate for the metadata-repair feature rather than a bug
-- The Zero 7 Destiny folder holds both FLAC and MP3 of the same three tracks
-  (6 library entries for 3 songs); decide whether to dedupe
+- ~~Zero 7 Destiny duplicate folder~~ — deduped 2026-07-28 (FLACs kept; the
+  MP3 transcodes carried a wrong 2024 date-added)
 - Empty-roots config restart quirk; `.bad` backup clobber on repeat corruption; sub-400px bar widths
 - Artwork: late CAA results discarded after the picker's budget expires; noise-word normalizer can fold distinct album titles together (accepted fuzzy-matching trade-off)
 - Workflow-script hygiene: reviewer severity labels are enum-locked now; keep it that way (a non-enum label once slipped a finding past a filter)
