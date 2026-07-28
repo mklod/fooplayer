@@ -2,6 +2,44 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-28 — every download date in the library is now accounted for
+
+The `monthly` root was re-derived from its folder names (1,841 tracks, canon by
+construction). `alternative times` split cleanly into the 2024-06 Soulseek bulk
+(101 volumes) and 18 older volumes left at 2010-08. In `albums` — the root
+where albums had been moved out of `monthly/` and retagged, destroying the only
+record — 24 folders were confirmed as one backlog download spree, 15 as real
+acquisitions, and **13 were placed individually**.
+
+Two of those came from evidence rather than memory. A sweep of the *whole*
+music directory, including the folders that are not fooplayer roots
+(`albums [no scrape]`, `iTunes`, `xmas`, `_to dl`), found an untouched second
+Rehab collection. Scoring each candidate date by how many folders in the
+collection share it separates a real download from a copy event:
+
+| Date | Folders sharing it | Verdict |
+|---|---|---|
+| **2007-11-11** | **3 — all Rehab** | real download |
+| 2012-11-21 | 523 | bulk copy |
+| 2013-01-14 | 115 | bulk copy |
+| 2012-07-22 | 27 | bulk copy |
+
+One evening in November 2007, three Rehab folders and nothing else in 5,500
+tracks — the band being discovered and its back catalogue pulled down at once.
+So *Graffiti The World* and *Southern Discomfort* went there. The Streets got
+no such gift; every copy of theirs outside the roots sits on a bulk date, so
+2009-02 is inference from the canon `monthly` burst.
+
+**Zero folders remain on an unexplained stamp, and zero files in the library
+disagree with their manifest date.**
+
+Also this session: the library view gained **Art** and **Emb** columns at the
+far right (accent-blue circled checks — the app has a cover / the file carries
+one), the sidebar shows a square full-width cover of the selected track while
+nothing is playing, and the status line stopped twitching — the periodic
+rescan was narrating itself through five roots every tick, and now says
+nothing unless it finds something.
+
 ## 2026-07-28 — artwork embedding, merged into the app
 
 The engine proven on the FLACs and the converted m4a is now a feature: a

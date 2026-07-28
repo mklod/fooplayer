@@ -15,12 +15,12 @@
 | Tag reading | ✅ Own ID3 reader (`id3_text.dart`) recovers what the upstream parser drops — frames behind a large picture, ID3v2.2 IDs, stacked tags. Artist reads TPE1 before TPE2 (359 files were showing the album artist). 1 track library-wide has no artist, and it genuinely carries no tag |
 | Durations | ✅ Persisted in the manifest beside `date_added` (5,453 written), so a cache loss no longer costs the Time column. Zero tracks missing a duration; a timed-out read falls back to the header-only estimator |
 | Album artwork | ✅ Auto-enrichment (iTunes / Deezer / Cover Art Archive — keyless; conservative auto-apply at ≥75 score with ≥10 margin) + picker on both platforms (grid, choose file, paste URL, search again, remove). Stored per-root in `.artwork/` + `.artwork.json` sidecar; two adversarial-review passes' findings fixed |
-| Test suite | ✅ 733 app tests + 36 core tests, `flutter analyze` clean; Windows release and debug APK both build from one tree |
+| Test suite | ✅ 735 app tests + 36 core tests, `flutter analyze` clean; Windows release and debug APK both build from one tree |
 | Android emulator | ✅ Healthy under Microsoft WHPX (15s boots), data partition 16 GB, seeded with the real 444-file "loose tracks - 2020 and later" library. AEHD driver permanently removed after it bluescreened the machine |
 | Repo location | ✅ Migrated: canonical repo is `L:\PROJECTS\fooplayer`; old `L:\PROJECTS\foobar` deleted and verified clear (no processes, services, tasks, or git references) |
 | Background audio (Plan 2c) | ⛔ Not started — lock-screen / notification controls via `audio_service` |
 | Phone library sync (Plan 3) | ⛔ Not started — LAN pull of files + manifests to the phone |
-| File-dates fix (foobar2000/Explorer sorting) | ✅ **Resolved 2026-07-28** — option 1 applied: every track's filesystem date stamped from its manifest `date_added` (5,483 tracks, 1,724 re-stamped, 0 failures). This share reports creation time as equal to modified time, so both Explorer columns and foobar2000's sort are now correct; no NAS config change needed. Reversible via the logged previous values |
+| File-dates fix (foobar2000/Explorer sorting) | ✅ **Fully resolved 2026-07-28** — every root accounted for: `monthly` folder-derived (canon), `alternative times` split into its two acquisitions, `albums` placed album-by-album (13 individually, 2 on recovered evidence). Zero files disagree with their manifest date. Details: [docs/albums-date-recovery.md](docs/albums-date-recovery.md). Was: **Resolved 2026-07-28** — option 1 applied: every track's filesystem date stamped from its manifest `date_added` (5,483 tracks, 1,724 re-stamped, 0 failures). This share reports creation time as equal to modified time, so both Explorer columns and foobar2000's sort are now correct; no NAS config change needed. Reversible via the logged previous values |
 
 ## Where things run
 
@@ -33,6 +33,10 @@
 *Worktrees must live on `C:` — the NAS share can't host Flutter's plugin symlinks. The `foobar-app` folder name is legacy; the path is stale, its branch and contents are current.*
 
 ## Last session (2026-07-28)
+
+- **Download dates finished.** All five roots accounted for; the `albums` root placed album-by-album, two of them from a full-directory sweep that recovered a real 2007-11 Rehab download date from copies living outside the fooplayer roots. Reversible throughout.
+- **Artwork embedding merged into the app** ("Embed art in files"), with the identity + dates guarantee enforced and stated in its confirmation dialog.
+- **Library view**: Art/Emb status columns, selected-track cover preview in the sidebar, and the idle status line no longer twitches.
 
 - **"Date downloaded" resolved** (option 1): filesystem dates re-derived from the manifest for all 5,483 tracks, so foobar2000 and Explorer finally sort correctly. Zero-Seven duplicate folder deduped (FLACs kept, MP3 transcodes removed — they carried a wrong 2024 date-added).
 - **Metadata pipeline overhauled after live-use bug reports.** Own ID3 reader recovers tags the upstream parser drops (57 tracks across 5 albums); artist now reads TPE1 rather than TPE2 (359 files affected); durations persist in the manifest and no track is missing one; a cache-revision refresh no longer blanks the library, no longer marks itself done without doing the work, and a timed-out read recovers instead of staying wrong forever. See CHANGELOG for the full account.

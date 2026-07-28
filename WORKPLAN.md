@@ -17,6 +17,19 @@
 - Emulator rebuilt at 16 GB and seeded with the real 444-file library.
 - Live-use polish: metro glyph hairlines, blue shuffle, breadcrumb ↑ up-one-level, phone volume removal, uniform column typography.
 
+## The immediate queue (2026-07-28)
+
+1. **Run the artwork enrichment** — the real bottleneck. Of 3,616 distinct
+   albums, only **40** have art in the sidecar; **1,526 have never been looked
+   up at all** (3,052 tracks) and 2,050 were looked up with nothing found.
+   Needs the app left open: 3 lookups at a time, 400ms apart, MusicBrainz
+   capped at 1/sec. The new **Art** column shows the gaps at a glance.
+2. **Then "Embed art in files"** — built, tested, one click. Pointless before
+   step 1, since it can only write covers that exist.
+3. **Then strip the 472 stray images** (34 MB) — see the queued section below.
+   Strictly after step 2: the resolver still falls back to sibling
+   `folder.jpg`/`cover.jpg`.
+
 ## Next milestones
 
 1. **Real-device pass** — install the APK on the Pixel 7 over USB, exercise the phone UI on real hardware (touch targets, scroll feel, playback, artwork on a real network). Needs Mike to plug the phone in.
@@ -43,11 +56,10 @@ or their dates.
 
 ## Queued — metadata repair ("fix tags")
 
-**Gated. Do not start until, in this order:** (1) Mike's manual review of the
-embedded-artwork files lands and he gives an explicit go-ahead on the
-full-library artwork pass, (2) whatever decisions come out of that review are
-made, and (3) ~~the file-dates issue is settled~~ **— done 2026-07-28**. Added
-2026-07-27 at his request; gate (3) is now clear, (1) and (2) remain.
+**Gated. Do not start until, in this order:** (1) the full-library artwork
+pass has run and Mike is happy with it, and (2) whatever decisions come out of
+that. ~~(3) the file-dates issue~~ **— done 2026-07-28, gate cleared.**
+Added 2026-07-27 at his request.
 
 The shape of it: the same "don't touch the file's identity or its dates"
 discipline the artwork embedding now has, applied to the rest of the metadata.
@@ -74,7 +86,7 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 
 ## Decision gates (Mike only)
 
-- ~~**File-dates fix**~~ — **done 2026-07-28** (option 1; see the writeup's Outcome section).
+- ~~**File-dates fix**~~ — **done 2026-07-28**, all roots (option 1 + per-album placement; see the writeup's Outcome section and [docs/albums-date-recovery.md](docs/albums-date-recovery.md)).
 - **Full-library artwork embedding** (~3,659 art-less MP3s) — engine built and proven, deliberately unrun. Review list: [docs/artwork-embed-review.md](docs/artwork-embed-review.md).
 - **Metadata repair** — see the queued section above; blocked behind both of the gates above.
 
@@ -88,6 +100,10 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
   estimator on every give-up path, stacked-tag aware)
 - `AB2G Cygnus.mp3` has no ID3 tag at all, so it shows no artist. Nothing to
   read — a candidate for the metadata-repair feature rather than a bug
+- A second, larger collection sits OUTSIDE the configured roots:
+  `albums [no scrape]`, `iTunes`, `xmas`, `_to dl`. Untouched by any of this
+  work (which is what made the Rehab date recovery possible). Decide whether
+  any of it should join the library
 - ~~Zero 7 Destiny duplicate folder~~ — deduped 2026-07-28 (FLACs kept; the
   MP3 transcodes carried a wrong 2024 date-added)
 - Empty-roots config restart quirk; `.bad` backup clobber on repeat corruption; sub-400px bar widths
