@@ -954,6 +954,9 @@ Future<void> _showTrackContextMenu({
   final activePlaylist = library.activePlaylist;
   final selection = await showMenu<_TrackMenuAction>(
     context: context,
+    // Right-click menus open instantly -- the default scale/fade makes a
+    // menu that should feel like part of the click feel laggy.
+    popUpAnimationStyle: AnimationStyle.noAnimation,
     position: RelativeRect.fromRect(
       globalPosition & const Size(1, 1),
       Offset.zero & overlayBox.size,
@@ -1038,6 +1041,7 @@ Future<void> _showAddToPlaylistMenu({
   final playlists = library.playlists;
   final choice = await showMenu<int>(
     context: context,
+    popUpAnimationStyle: AnimationStyle.noAnimation,
     position: RelativeRect.fromRect(
       globalPosition & const Size(1, 1),
       Offset.zero & overlayBox.size,

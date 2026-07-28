@@ -421,6 +421,8 @@ class _PlaylistTile extends StatelessWidget {
         Overlay.of(context).context.findRenderObject() as RenderBox;
     final action = await showMenu<String>(
       context: context,
+      // Same instant-open rule as the track list's row menus.
+      popUpAnimationStyle: AnimationStyle.noAnimation,
       position: RelativeRect.fromRect(
         position & const Size(1, 1),
         Offset.zero & overlayBox.size,
