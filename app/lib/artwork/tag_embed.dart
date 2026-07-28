@@ -257,6 +257,50 @@ List<Id3Frame> framesFromId3v1(Uint8List v1) {
 bool hasMpegSyncAt(Uint8List b, int o) =>
     o + 1 < b.length && b[o] == 0xFF && (b[o + 1] & 0xE0) == 0xE0;
 
+/// How far past the first tag to look for the audio before giving up.
+/// Generous enough for a second stacked tag plus padding, small enough that a
+/// file which simply isn't MPEG is refused rather than scanned to its end.
+const int kSyncSearchWindow = 512 * 1024;
+
+/// True when real MPEG audio begins somewhere at or after [start].
+///
+/// NOT the same question as "is there a sync at exactly [start]". Two shapes
+/// in this library land audio later than the first tag's declared end:
+///
+///  * **stacked tags** -- an ID3v2.3 immediately followed by an ID3v2.4 (63
+///    files). The same pathology already handled in the duration estimator
+///    and the tag reader; the embedder was refusing them.
+///  * **padding** -- a run of zero bytes between the tag and the first frame
+///    (23 files).
+///
+/// The copy boundary deliberately stays at the FIRST tag's end regardless
+/// (see [buildTaggedMp3]): `mp3AudioRange` in the core skips exactly one
+/// leading tag, so anything after that -- a second tag, padding -- is inside
+/// the hashed range and must be carried through untouched or the content ID
+/// moves.
+bool hasMpegAudioAfter(Uint8List b, int start) {
+  var o = start;
+  // Skip any further consecutive ID3v2 tags.
+  while (o + 10 <= b.length &&
+      b[o] == 0x49 &&
+      b[o + 1] == 0x44 &&
+      b[o + 2] == 0x33) {
+    final size = _syncsafe(b, o + 6);
+    final footer = (b[o + 5] & 0x10) != 0 ? 10 : 0;
+    final next = o + 10 + size + footer;
+    if (next <= o) break; // malformed -- don't loop forever
+    o = next;
+  }
+  final limit = (o + kSyncSearchWindow).clamp(0, b.length - 1);
+  for (var i = o; i < limit; i++) {
+    if (hasMpegSyncAt(b, i)) return true;
+    // Only skip over padding and tag remnants; anything else means this
+    // isn't an MPEG stream at all (RIFF, ftyp, EBML...).
+    if (b[i] != 0x00) return false;
+  }
+  return false;
+}
+
 /// Parses the leading ID3v2 tag. Returns an absent tag (size 0) when the
 /// file has none. Throws [EmbedException] for the tag shapes this file
 /// deliberately refuses.
@@ -370,7 +414,7 @@ Uint8List buildTaggedMp3(Uint8List original, Uint8List image) {
   }
   final tag = parseId3(original);
   final audioStart = tag.size;
-  if (!hasMpegSyncAt(original, audioStart)) {
+  if (!hasMpegAudioAfter(original, audioStart)) {
     throw const EmbedException(
       EmbedRefusal.notMpeg,
       'no MPEG frame sync where the audio should start',
