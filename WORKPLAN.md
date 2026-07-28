@@ -24,6 +24,23 @@
 3. **Plan 3 — phone library sync**: one-button LAN pull of new files + manifests from the NAS to the phone. Manifests make the diff trivial (content IDs already identify what's missing); the hard parts are Android storage scope (app-private vs. shared media) and transfer resilience.
 4. **Artwork polish (optional)**: batch "fix all missing artwork" view, artist images/fanart types, opt-in `folder.jpg` writing beside albums.
 
+## Queued — strip the stray cover-image files
+
+**Order matters: embed first, delete second.** The artwork resolver still
+falls back to a sibling `folder.jpg` / `cover.jpg` / `front.jpg`, so deleting
+those before the embed pass has run would lose covers for the albums relying
+on them. Once art lives in the tags, the loose files are pure litter.
+
+Surveyed 2026-07-28: **472 image files, 34 MB** scattered through the library
+(monthly 329, alternative times 123, albums 19, loose-old 1). The bulk is
+Windows Media Player cache junk -- `AlbumArt_{GUID}_Large.jpg`, often several
+per folder and frequently the wrong art entirely -- plus 115 `folder.jpg` and
+12 `cover.jpg`. Mike's call: embedded artwork only, everything else goes.
+
+Wants the same discipline as every other destructive step here: a dry run
+listing what would go, a backup or reversal path, and no touching audio files
+or their dates.
+
 ## Queued — metadata repair ("fix tags")
 
 **Gated. Do not start until, in this order:** (1) Mike's manual review of the

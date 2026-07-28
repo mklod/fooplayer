@@ -25,62 +25,62 @@ Mp3tag; the folder tree did.
 | `albums` — artist-coherent groups | 15 | 194 | Correct — real acquisitions |
 | `albums` — Little Miss Sunshine, Swim Surreal, Echos ×2 | 4 | 33 | Correct — very new |
 
-## The 14 that are still wrong (189 tracks)
+## Done — dates set 2026-07-28 (7 albums, 109 tracks)
 
-Two clusters, neither a download:
+From Mike's memory, anchored on the canon `monthly` months. Applied to the
+manifest and stamped onto the files; reversal logs
+`album-dates-2026-07-28--1413.json` and `date-stamp-2026-07-28--1413.json`.
 
-- **2010-08** — a grouping/copy event. Same stamp the 18 oldest Alternative Times
-  volumes carry.
-- **2026-01** — the Mp3tag housekeeping window. Kanye's *College Dropout* did not
-  arrive in 2026.
+| Artist — Album | Was | Now | Released |
+|---|---|---|---|
+| Blaqk Audio — Cexcells | 2010-08 | **2007-09** | 2007 |
+| Citizen Cope — Citizen Cope | 2010-08 | **2008-01** | 2002 |
+| Citizen Cope — The Clarence Greenwood Recordings | 2010-08 | **2008-01** | 2004 |
+| Kanye West — College Dropout | 2026-01 | **2007-09** | 2004 |
+| Kanye West — Freshmen Adjustment | 2026-01 | **2007-09** | 2005 |
+| Kanye West — Late Registration | 2010-08 | **2007-09** | 2005 |
+| Rehab — Welcome Home | 2026-01 | **2010-11** | 2010 |
 
-`Released` is a hard floor — the download cannot predate it. `Same artist in
-monthly` is the useful column: those months are canon, and an album usually
-arrives near when you were listening to that artist.
+*"2008" was taken as January 2008, per the bare-year convention. Say the word
+if you'd rather have those two mid-year.*
 
-| Artist — Album | Trk | Dated | Released | Art | Same artist in `monthly` (canon) | **Your date** |
-|---|---|---|---|---|---|---|
-| Blaqk Audio - Cexcells | 12 | 2010-08 | **2007** | yes | 2007-09 |  |
-| Citizen Cope - Citizen Cope | 14 | 2010-08 | **2002** | yes | 2012-09, 2013-01 |  |
-| Citizen Cope - The Clarence Greenwood Recordings | 11 | 2010-08 | **2004** | yes | 2012-09, 2013-01 |  |
-| Kanye West - Late Registration | 21 | 2010-08 | **2005** | yes | 2007-09, 2008-07, 2008-12, 2009-04, 2009-10, 2010-11 |  |
-| The Streets - all got our runnins EP | 8 | 2010-08 | **?** | yes | 2009-02, 2012-02 |  |
-| The Streets - Everything Is Borrowed | 11 | 2010-08 | **2008** | yes | 2009-02, 2012-02 |  |
-| Dead Confederate - Wrecking Ball (2008) | 10 | 2026-01 | **2008** | yes | — |  |
-| Everclear - Return To Santa Monica (2011) | 12 | 2026-01 | **2011** | yes | 2008-07 |  |
-| Just Jack - All Night Cinema | 12 | 2026-01 | **2009** | yes | — |  |
-| Kanye West - College Dropout [2004] | 21 | 2026-01 | **2004** | yes | 2007-09, 2008-07, 2008-12, 2009-04, 2009-10, 2010-11 |  |
-| Kanye West - Freshmen Adjustment [2005] | 20 | 2026-01 | **2005** | yes | 2007-09, 2008-07, 2008-12, 2009-04, 2009-10, 2010-11 |  |
-| Rehab - Graffiti The World | 12 | 2026-01 | **2005** | yes | 2010-11 |  |
-| Rehab - Southern Discomfort | 15 | 2026-01 | **2000** | yes | 2010-11 |  |
-| Rehab - Welcome Home (2010) | 10 | 2026-01 | **2010** | yes | 2010-11 |  |
+## Still open — 7 albums, 80 tracks
 
-### Reading the anchors
+| Artist — Album | Trk | Dated now | Released | Same artist in `monthly` (canon) | **Your date** |
+|---|---|---|---|---|---|
+| Dead Confederate — Wrecking Ball | 10 | 2026-01 | **2008** | — |  |
+| Everclear — Return To Santa Monica | 12 | 2026-01 | **2011** | 2008-07 *(predates the album)* |  |
+| Just Jack — All Night Cinema | 12 | 2026-01 | **2009** | — |  |
+| Rehab — Graffiti The World | 12 | 2026-01 | **2005** | 2010-11 |  |
+| Rehab — Southern Discomfort | 15 | 2026-01 | **2000** | 2010-11 |  |
+| The Streets — Everything Is Borrowed | 11 | 2010-08 | **2008** | 2009-02, 2012-02 |  |
+| The Streets — all got our runnins EP | 8 | 2010-08 | ? | 2009-02, 2012-02 |  |
 
-- **Kanye West ×3** — you were on Kanye across 2007-09 → 2010-11. *Late
-  Registration* (2005) and *College Dropout* (2004) are backlog, so they most
-  likely came with one of those bursts rather than on release.
-- **Rehab ×3** — the only Rehab in `monthly` is **2010-11**, and *Welcome Home*
-  came out in 2010. A 2010-11 stamp for all three is a defensible guess.
-- **The Streets ×2** — 2009-02 and 2012-02. *Everything Is Borrowed* released 2008,
-  so 2009-02 fits.
-- **Citizen Cope ×2** — 2012-09 / 2013-01.
-- **Blaqk Audio** — 2007-09, and the album is 2007. Likely right on release.
-- **Everclear** — the only Everclear month is 2008-07, but *Return To Santa Monica*
-  is 2011, so that anchor cannot apply; needs your memory.
-- **Dead Confederate**, **Just Jack** — nothing by them in `monthly`. Release years
-  2008 and 2009 are the only floor.
+The three you asked about all sit in the Mp3tag window, so their current
+values carry no information at all:
+
+- **Just Jack — All Night Cinema**: now `2026-01`, released **2009**
+- **Everclear — Return To Santa Monica**: now `2026-01`, released **2011**
+- **Dead Confederate — Wrecking Ball**: now `2026-01`, released **2008**
+
+Two obvious candidates if you want them off the list without much thought:
+the remaining **Rehab** pair could follow *Welcome Home* to 2010-11 (the only
+canon Rehab month), and **The Streets** pair could take 2009-02, which fits
+*Everything Is Borrowed*'s 2008 release.
+
+## Ruled correct, left alone
+
+`Echos — Quiet, In Your Service`, `Echos — Revival EP`, `Little Miss Sunshine`
+and `Swim Surreal, Zero 7` still read 2026-01, and that is right — they are
+genuinely recent downloads that happen to fall in the same window.
 
 ## Filling it in
 
-A month (`2009-06`) or a bare year (`2009`, taken as January) is enough —
-approximate is the goal, so classics stop surfacing among recent downloads.
-Anything left blank keeps what it has.
-
-Then, reversibly:
+A month (`2009-06`) or a bare year (`2009`, taken as January). Add them to
+`ASSIGNMENTS` in `tools/set_album_dates.py`, then:
 
 ```
-python tools/set_album_dates.py --dry-run
+python tools/set_album_dates.py            # dry run
 python tools/set_album_dates.py --apply
 python tools/stamp_dates_from_manifest.py --apply
 ```
