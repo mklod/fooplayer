@@ -2,6 +2,32 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-28 — artwork embedding, merged into the app
+
+The engine proven on the FLACs and the converted m4a is now a feature: a
+sidebar entry, **Embed art in files**, that copies each album's chosen cover
+into the tracks' own tags so foobar2000, Kodi, Explorer and a phone can all
+see it.
+
+Mike's condition — "so long as it doesn't touch the date downloaded of any of
+the songs" — is now doubly load-bearing, because as of this morning the
+filesystem dates *are* the download dates. It is enforced three ways and said
+plainly in the confirmation dialog: only tag blocks are rewritten (never
+audio, so no content ID moves and no manifest date can be orphaned); every
+file's timestamps are restored and read back, with the writer refusing to
+report success if they didn't survive; and the pass counts any such file
+separately as "WITH DATE CHANGES" instead of folding it into the total.
+
+`.m4a` is excluded deliberately — its content ID hashes the whole file, so
+embedding anything would change its identity — along with everything the
+engine refuses (an MP4 or RIFF wearing an `.mp3` name, unsynchronised tags, a
+non-image payload). Each skip is counted with its reason.
+
+The entry is not gated on the library being idle: the pass touches neither the
+manifests nor the tag cache, and this library rescans on a timer, which would
+otherwise leave it greyed out most of the time. It is gated on itself instead,
+so it can't be started twice. 733 tests.
+
 ## 2026-07-28 — "date downloaded" finally correct everywhere
 
 The issue this whole project started from, resolved on Mike's go-ahead
