@@ -18,6 +18,7 @@ import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/track_list.dart';
 import 'package:fooplayer_app/ui/home_screen.dart';
 import 'package:fooplayer_app/ui/layout_prefs.dart';
 
@@ -414,5 +415,52 @@ void main() {
 
       expect(find.text('Refused: cannot delete "mix".'), findsOneWidget);
     });
+  });
+
+  testWidgets('playlist banner shows the name and a track/duration summary',
+      (tester) async {
+    // Matches the reference layout Mike sent: cover + title + "N tracks ·
+    // MM min" above the four columns.
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final lib = LibraryModel()
+      ..allTracks = [
+        Track(
+            contentId: 'a',
+            relPath: 'a.mp3',
+            rootPath: r'L:\M',
+            dateAdded: DateTime.utc(2026),
+            title: 'One',
+            artist: 'X',
+            album: 'Alpha',
+            durationMs: 180000),
+        Track(
+            contentId: 'b',
+            relPath: 'b.mp3',
+            rootPath: r'L:\M',
+            dateAdded: DateTime.utc(2026),
+            title: 'Two',
+            artist: 'Y',
+            album: 'Beta',
+            durationMs: 240000),
+      ]
+      ..playlists = [
+        const ManifestPlaylist(name: 'Autumn Vibes', trackIds: ['a', 'b'])
+      ]
+      ..status = 'ready';
+    lib.setPlaylist('Autumn Vibes');
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: TrackListView(library: lib, player: PlayerService()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('playlist-banner-title')), findsOneWidget);
+    expect(find.text('Autumn Vibes'), findsWidgets);
+    // 180s + 240s = 7 min
+    expect(find.text('2 tracks · 7 min'), findsOneWidget);
   });
 }

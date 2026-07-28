@@ -76,7 +76,8 @@ LibraryModel fixtureLibrary() {
 /// never touches disk, so this file's wiring test can't flake on real file
 /// I/O.
 class _FakeResolver extends ArtworkResolver {
-  _FakeResolver() : super(stores: ArtworkStoreRegistry(appDataDir: Directory('.')));
+  _FakeResolver()
+    : super(stores: ArtworkStoreRegistry(appDataDir: Directory('.')));
 
   final List<ArtworkRequest> requests = [];
 
@@ -126,129 +127,158 @@ Finder rowOf(String title) => find
 void main() {
   group('playlist view: distinct four-column layout', () {
     testWidgets(
-        'header shows #, SONG, ALBUM, TIME -- no Date, no Title/Artist split',
-        (tester) async {
-      final lib = fixtureLibrary();
-      lib.setPlaylist('mix');
-      await pumpTrackList(tester, lib, PlayerService());
+      'header shows #, SONG, ALBUM, TIME -- no Date, no Title/Artist split',
+      (tester) async {
+        final lib = fixtureLibrary();
+        lib.setPlaylist('mix');
+        await pumpTrackList(tester, lib, PlayerService());
 
-      expect(find.text('#'), findsOneWidget);
-      expect(find.text('SONG'), findsOneWidget);
-      expect(find.text('ALBUM'), findsOneWidget);
-      expect(find.text('TIME'), findsOneWidget);
-      expect(find.text('DATE'), findsNothing);
-      expect(find.text('TITLE'), findsNothing);
-      expect(find.text('ARTIST'), findsNothing);
-    });
-
-    testWidgets(
-        'playlist headers are plain labels, not sort controls: tapping one '
-        'does not change LibraryModel.sortColumn', (tester) async {
-      final lib = fixtureLibrary();
-      lib.setPlaylist('mix');
-      await pumpTrackList(tester, lib, PlayerService());
-
-      final before = lib.sortColumn;
-      await tester.tap(find.text('SONG'));
-      await tester.pump();
-      expect(lib.sortColumn, before);
-
-      await tester.tap(find.text('ALBUM'));
-      await tester.pump();
-      expect(lib.sortColumn, before);
-
-      // And no arrow ever appears next to a playlist header label (arrows
-      // are how the library view marks the active sort column).
-      expect(find.textContaining('▲'), findsNothing);
-      expect(find.textContaining('▼'), findsNothing);
-    });
+        expect(find.text('#'), findsOneWidget);
+        expect(find.text('SONG'), findsOneWidget);
+        expect(find.text('ALBUM'), findsOneWidget);
+        expect(find.text('TIME'), findsOneWidget);
+        expect(find.text('DATE'), findsNothing);
+        expect(find.text('TITLE'), findsNothing);
+        expect(find.text('ARTIST'), findsNothing);
+      },
+    );
 
     testWidgets(
-        'library (non-playlist) view is unaffected: still the five sortable '
-        'columns, no artwork thumbnails', (tester) async {
-      final lib = fixtureLibrary(); // activePlaylist stays null
-      await pumpTrackList(tester, lib, PlayerService());
+      'playlist headers are plain labels, not sort controls: tapping one '
+      'does not change LibraryModel.sortColumn',
+      (tester) async {
+        final lib = fixtureLibrary();
+        lib.setPlaylist('mix');
+        await pumpTrackList(tester, lib, PlayerService());
 
-      expect(find.text('TITLE'), findsOneWidget);
-      expect(find.text('ARTIST'), findsOneWidget);
-      expect(find.text('ALBUM'), findsOneWidget);
-      expect(find.text('TIME'), findsOneWidget);
-      expect(find.text('DATE'), findsNothing); // dateAdded is active sort
-      expect(find.text('DATE ▼'), findsOneWidget);
-      expect(find.text('SONG'), findsNothing);
-      expect(find.byType(AlbumArt), findsNothing);
-    });
+        final before = lib.sortColumn;
+        await tester.tap(find.text('SONG'));
+        await tester.pump();
+        expect(lib.sortColumn, before);
+
+        await tester.tap(find.text('ALBUM'));
+        await tester.pump();
+        expect(lib.sortColumn, before);
+
+        // And no arrow ever appears next to a playlist header label (arrows
+        // are how the library view marks the active sort column).
+        expect(find.textContaining('▲'), findsNothing);
+        expect(find.textContaining('▼'), findsNothing);
+      },
+    );
 
     testWidgets(
-        "position numbers are the playlist's 1-based order, not tag track "
-        'numbers -- pinned per-row against a fixture whose tag numbers are '
-        'scrambled relative to playlist order', (tester) async {
-      final lib = fixtureLibrary();
-      lib.setPlaylist('mix');
-      await pumpTrackList(tester, lib, PlayerService());
+      'library (non-playlist) view is unaffected: still the five sortable '
+      'columns, no artwork thumbnails',
+      (tester) async {
+        final lib = fixtureLibrary(); // activePlaylist stays null
+        await pumpTrackList(tester, lib, PlayerService());
 
-      // Tag numbers must never leak into the '#' column.
-      expect(find.text('42'), findsNothing);
-      expect(find.text('7'), findsNothing);
-      expect(find.text('99'), findsNothing);
+        expect(find.text('TITLE'), findsOneWidget);
+        expect(find.text('ARTIST'), findsOneWidget);
+        expect(find.text('ALBUM'), findsOneWidget);
+        expect(find.text('TIME'), findsOneWidget);
+        expect(find.text('DATE'), findsNothing); // dateAdded is active sort
+        expect(find.text('DATE ▼'), findsOneWidget);
+        expect(find.text('SONG'), findsNothing);
+        expect(find.byType(AlbumArt), findsNothing);
+      },
+    );
 
-      // Playlist order b, c, a -> positions 1, 2, 3, pinned to the row that
-      // actually holds each title (not just "somewhere in the tree").
-      expect(find.descendant(of: rowOf('Solo Star'), matching: find.text('1')),
-          findsOneWidget);
-      expect(find.descendant(of: rowOf('Wildcard'), matching: find.text('2')),
-          findsOneWidget);
-      expect(find.descendant(of: rowOf('Third Wheel'), matching: find.text('3')),
-          findsOneWidget);
-    });
+    testWidgets(
+      "position numbers are the playlist's 1-based order, not tag track "
+      'numbers -- pinned per-row against a fixture whose tag numbers are '
+      'scrambled relative to playlist order',
+      (tester) async {
+        final lib = fixtureLibrary();
+        lib.setPlaylist('mix');
+        await pumpTrackList(tester, lib, PlayerService());
+
+        // Tag numbers must never leak into the '#' column.
+        expect(find.text('42'), findsNothing);
+        expect(find.text('7'), findsNothing);
+        expect(find.text('99'), findsNothing);
+
+        // Playlist order b, c, a -> positions 1, 2, 3, pinned to the row that
+        // actually holds each title (not just "somewhere in the tree").
+        expect(
+          find.descendant(of: rowOf('Solo Star'), matching: find.text('1')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: rowOf('Wildcard'), matching: find.text('2')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: rowOf('Third Wheel'), matching: find.text('3')),
+          findsOneWidget,
+        );
+      },
+    );
   });
+
+  /// The 36px per-row thumbnails, excluding the playlist banner's cover.
+  final rowThumbnails = find.byWidgetPredicate(
+    (w) => w is AlbumArt && w.size == 36,
+  );
 
   group('playlist view: row artwork', () {
     testWidgets(
-        'each row renders its own AlbumArt thumbnail, keyed to its track -- '
-        'and the list still works when no resolver is provided',
-        (tester) async {
-      final lib = fixtureLibrary();
-      lib.setPlaylist('mix');
-      await pumpTrackList(tester, lib, PlayerService());
-      await tester.pumpAndSettle();
+      'each row renders its own AlbumArt thumbnail, keyed to its track -- '
+      'and the list still works when no resolver is provided',
+      (tester) async {
+        final lib = fixtureLibrary();
+        lib.setPlaylist('mix');
+        await pumpTrackList(tester, lib, PlayerService());
+        await tester.pumpAndSettle();
 
-      final art = tester.widgetList<AlbumArt>(find.byType(AlbumArt)).toList();
-      expect(art.length, 3);
-      expect(art.map((w) => w.contentId).toSet(), {'a', 'b', 'c'});
-      // Scaled-down square thumbnail, distinct from the now-playing bar's
-      // own sizes (56 default / 200 big / 44 compact).
-      expect(art.every((w) => w.size == 36), isTrue);
-      expect(art.every((w) => w.resolver == null), isTrue);
+        // Row thumbnails only -- the playlist banner above the columns
+        // renders its own (larger) AlbumArt for the first track.
+        final art = tester.widgetList<AlbumArt>(rowThumbnails).toList();
+        expect(art.length, 3);
+        expect(art.map((w) => w.contentId).toSet(), {'a', 'b', 'c'});
+        // Scaled-down square thumbnail, distinct from the now-playing bar's
+        // own sizes (56 default / 200 big / 44 compact).
+        expect(art.every((w) => w.size == 36), isTrue);
+        expect(art.every((w) => w.resolver == null), isTrue);
 
-      // Selection/double-click still resolve fine with rows built this way.
-      await tester.tap(find.text('Solo Star'));
-      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
-      expect(lib.selectedTrackIds, {'b'});
-    });
+        // Selection/double-click still resolve fine with rows built this way.
+        await tester.tap(find.text('Solo Star'));
+        await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+        expect(lib.selectedTrackIds, {'b'});
+      },
+    );
 
-    testWidgets(
-        "with an artworkResolver wired, every row's thumbnail resolves "
+    testWidgets("with an artworkResolver wired, every row's thumbnail resolves "
         'through it (not the embedded-only fallback loader)', (tester) async {
       final lib = fixtureLibrary();
       lib.setPlaylist('mix');
       final resolver = _FakeResolver();
-      await pumpTrackList(tester, lib, PlayerService(),
-          artworkResolver: resolver);
+      await pumpTrackList(
+        tester,
+        lib,
+        PlayerService(),
+        artworkResolver: resolver,
+      );
       await tester.pumpAndSettle();
 
-      final art = tester.widgetList<AlbumArt>(find.byType(AlbumArt)).toList();
+      final art = tester.widgetList<AlbumArt>(rowThumbnails).toList();
       expect(art.length, 3);
       expect(art.every((w) => identical(w.resolver, resolver)), isTrue);
-      expect(resolver.requests.length, 3);
-      expect(resolver.requests.map((r) => r.albumKey).toSet(),
-          {'artist a|album a', 'artist b|album b', 'artist c|album c'});
+      // Every row asked the resolver (the banner adds one more request for
+      // the first track's album, which is why this checks keys, not count).
+      expect(resolver.requests.map((r) => r.albumKey).toSet(), {
+        'artist a|album a',
+        'artist b|album b',
+        'artist c|album c',
+      });
     });
   });
 
   group('playlist view: existing row behaviors survive the new layout', () {
-    testWidgets('double-click plays and selects the right track',
-        (tester) async {
+    testWidgets('double-click plays and selects the right track', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       lib.setPlaylist('mix');
       final played = <Track>[];
@@ -273,8 +303,9 @@ void main() {
       expect(lib.selectedTrackIds, {'c'});
     });
 
-    testWidgets('right-click still opens the context menu on a playlist row',
-        (tester) async {
+    testWidgets('right-click still opens the context menu on a playlist row', (
+      tester,
+    ) async {
       final lib = fixtureLibrary();
       lib.setPlaylist('mix');
       await pumpTrackList(tester, lib, PlayerService());

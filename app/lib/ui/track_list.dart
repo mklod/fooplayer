@@ -220,6 +220,12 @@ class _TrackListViewState extends State<TrackListView> {
                 library.folderSelectionIsSingleAlbum;
             return Column(
               children: [
+                if (isPlaylist)
+                  _PlaylistBanner(
+                    name: library.activePlaylist!,
+                    tracks: tracks,
+                    resolver: widget.artworkResolver,
+                  ),
                 _TrackListHeader(
                   library: library,
                   showTrackNumber: showTrackNumber,
@@ -232,8 +238,9 @@ class _TrackListViewState extends State<TrackListView> {
                       final t = tracks[i];
                       final isCurrent =
                           player.current?.contentId == t.contentId;
-                      final isSelected =
-                          library.selectedTrackIds.contains(t.contentId);
+                      final isSelected = library.selectedTrackIds.contains(
+                        t.contentId,
+                      );
                       return _TrackRow(
                         track: t,
                         isCurrent: isCurrent,
@@ -298,6 +305,89 @@ class _TrackListViewState extends State<TrackListView> {
 /// entirely for an active playlist -- see its doc), so these labels are
 /// deliberately NOT sort controls: plain static text in the same header
 /// typography, no arrows, no hover affordance (see [_PlainHeaderLabel]).
+/// The playlist view's banner: the first track's cover shown large, the
+/// playlist name, and a "N tracks · MM min" summary -- the header half of
+/// the iTunes-style playlist layout whose four columns follow beneath it.
+///
+/// A playlist has no cover of its own, so the first track's album art
+/// stands in (resolved through the same chain and cache every other
+/// artwork surface uses; no extra lookups).
+class _PlaylistBanner extends StatelessWidget {
+  final String name;
+  final List<Track> tracks;
+  final ArtworkResolver? resolver;
+
+  const _PlaylistBanner({
+    required this.name,
+    required this.tracks,
+    this.resolver,
+  });
+
+  /// "7 tracks · 56 min", omitting the duration half while tracks are still
+  /// missing one (a partially-enriched library would otherwise show a total
+  /// that silently grows as tags load).
+  String get _summary {
+    final count = tracks.length;
+    final label = count == 1 ? '1 track' : '$count tracks';
+    if (tracks.isEmpty || tracks.any((t) => t.durationMs == null)) {
+      return label;
+    }
+    final totalMs = tracks.fold<int>(0, (sum, t) => sum + (t.durationMs ?? 0));
+    final minutes = (totalMs / 60000).round();
+    if (minutes < 60) return '$label · $minutes min';
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return '$label · ${hours}h ${rem}min';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final first = tracks.isEmpty ? null : tracks.first;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (first != null)
+            AlbumArt(
+              key: const Key('playlist-banner-art'),
+              contentId: first.contentId,
+              file: File(p.join(first.rootPath, first.relPath)),
+              size: 96,
+              resolver: resolver,
+              track: first,
+            ),
+          if (first != null) const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  key: const Key('playlist-banner-title'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _summary,
+                  key: const Key('playlist-banner-summary'),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
   final bool showTrackNumber;
@@ -849,8 +939,9 @@ Future<void> _showTrackContextMenu({
     library.selectTrack(track.contentId);
   }
   final selectedIds = library.selectedTrackIds;
-  final selectedTracks =
-      library.visibleTracks.where((t) => selectedIds.contains(t.contentId)).toList();
+  final selectedTracks = library.visibleTracks
+      .where((t) => selectedIds.contains(t.contentId))
+      .toList();
   // Defensive fallback: the right-clicked track should always end up in
   // selectedTracks (either it was already selected, or the line above just
   // selected it), but if selection and the visible list ever disagree,
@@ -885,7 +976,8 @@ Future<void> _showTrackContextMenu({
         PopupMenuItem(
           value: _TrackMenuAction.albumArtwork,
           child: Text(
-              multi ? 'Album artwork... (this track)' : 'Album artwork...'),
+            multi ? 'Album artwork... (this track)' : 'Album artwork...',
+          ),
         ),
     ],
   );
@@ -905,13 +997,15 @@ Future<void> _showTrackContextMenu({
     case _TrackMenuAction.removeFromPlaylist:
       if (activePlaylist == null) return; // unreachable; item not shown
       try {
-        final removed = await playlistStore.removeTracks(
-            activePlaylist, [for (final t in tracks) t.contentId]);
+        final removed = await playlistStore.removeTracks(activePlaylist, [
+          for (final t in tracks) t.contentId,
+        ]);
         showPlaylistInfo(
-            messenger,
-            removed == 1
-                ? 'Removed 1 track from the playlist'
-                : 'Removed $removed tracks from the playlist');
+          messenger,
+          removed == 1
+              ? 'Removed 1 track from the playlist'
+              : 'Removed $removed tracks from the playlist',
+        );
       } on PlaylistStoreException catch (e) {
         showPlaylistError(messenger, e);
       }
@@ -977,10 +1071,11 @@ Future<void> _showAddToPlaylistMenu({
       added = await playlistStore.addTracks(name, ids);
     }
     showPlaylistInfo(
-        messenger,
-        added == 1
-            ? 'Added 1 track to "$playlistName"'
-            : 'Added $added tracks to "$playlistName"');
+      messenger,
+      added == 1
+          ? 'Added 1 track to "$playlistName"'
+          : 'Added $added tracks to "$playlistName"',
+    );
   } on PlaylistStoreException catch (e) {
     showPlaylistError(messenger, e);
   }
