@@ -43,6 +43,9 @@ dependencies:
   fooplayer_core:
     path: ../core
   http: ^1.6.0
+  # Win32 SetFileTime -- Dart has no API for writing file timestamps,
+  # and tag embedding must not disturb a track's dates.
+  ffi: ^2.1.4
 
 dev_dependencies:
   flutter_test:
