@@ -7,6 +7,7 @@ import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
 import '../metadata/isolate_io.dart';
 import '../metadata/meta_cache.dart';
+import '../metadata/mp3_duration.dart';
 import '../metadata/tags.dart';
 import 'filtering.dart';
 import 'manifest_io.dart';
@@ -413,6 +414,18 @@ class LibraryModel extends ChangeNotifier {
         if (needsDurationProbe(tags, t.relPath) &&
             File(p.join(t.rootPath, t.relPath)).existsSync()) {
           missing.add(i);
+        } else if (cache.staleIds.contains(t.contentId) &&
+            File(p.join(t.rootPath, t.relPath)).existsSync()) {
+          // Cached by an older tag-reading revision: the values above are
+          // already on screen, and this queues a background re-read to
+          // correct them in place. Nothing is blanked in the meantime.
+          //
+          // Gated on the file still existing, for the same reason the
+          // duration probe above is: re-reading a file that has since moved
+          // or gone offline yields filename-derived placeholders, and
+          // trading perfectly good cached tags for those is a downgrade, not
+          // a refresh.
+          missing.add(i);
         }
       }
       allTracks = tracks;
@@ -452,6 +465,34 @@ class LibraryModel extends ChangeNotifier {
             results = await _readBatchResilient(records, timeout: fileTimeout);
           }
 
+          // A read that failed outright (parser pathology, timeout, a file
+          // that went away mid-scan) contributes no result. Rather than
+          // leave those tracks with a blank Time column AND no cache entry
+          // -- which meant paying the same failed read again on every single
+          // launch -- fall back to the header-only estimator, which costs
+          // tens of milliseconds and gets a duration for most of them.
+          // Only for tracks nothing is known about yet: a track that already
+          // has cached tags keeps them.
+          for (final i in batch) {
+            final t = tracks[i];
+            if (results.containsKey(t.contentId)) continue;
+            if (cache.entries.containsKey(t.contentId)) continue;
+            final ms = await _estimateDurationMs(t);
+            if (ms == null) continue;
+            final fb = parseFromFilename(t.relPath);
+            cache.entries[t.contentId] = TrackTags(
+              title: fb.title ?? p.basenameWithoutExtension(t.relPath),
+              artist: fb.artist,
+              album: fb.album,
+              genre: fb.genre,
+              durationMs: ms,
+              trackNumber: fb.trackNumber,
+              // Probed: don't re-attempt this file forever.
+              durationProbed: true,
+            );
+            tracks[i] = tracks[i].copyWith(durationMs: ms);
+          }
+
           for (final i in batch) {
             final t = tracks[i];
             final tags = results[t.contentId];
@@ -481,6 +522,11 @@ class LibraryModel extends ChangeNotifier {
         _mergeKnownDurationsInto(cache);
         await cache.save(cacheFile);
       }
+      // Durations cost a full tag read per file over the share, so once
+      // known they are written into the manifests as well -- see
+      // TrackEntry.durationMs. From then on they load with the library
+      // itself and survive anything that happens to the local cache.
+      await persistDurationsToManifests();
       status = 'ready';
     } catch (e) {
       status = 'error: $e';
@@ -1257,6 +1303,56 @@ class LibraryModel extends ChangeNotifier {
     return null;
   }
 
+  /// Writes every known track duration into its root's `.library.json`.
+  ///
+  /// Durations are expensive to obtain (a tag read per file, over SMB) and
+  /// used to live only in the local tag cache, so any cache loss blanked the
+  /// Time column for the whole library and forced another full re-read.
+  /// Persisting them beside `date_added` makes them as durable -- and as
+  /// portable -- as the dates themselves.
+  ///
+  /// Only writes a root whose manifest actually changed, takes the same
+  /// manifest phase lock every other writer uses, and leaves the rest of the
+  /// manifest (playlists included) untouched. Failures are swallowed: this
+  /// is an optimisation, and a read-only or briefly-unreachable share must
+  /// never take a load down with it.
+  Future<void> persistDurationsToManifests() async {
+    final byRoot = <String, Map<String, int>>{};
+    for (final t in allTracks) {
+      final ms = t.durationMs;
+      if (ms == null || ms <= 0) continue;
+      (byRoot[t.rootPath] ??= {})[t.contentId] = ms;
+    }
+    if (byRoot.isEmpty) return;
+
+    if (!await _beginManifestPhase(const Duration(seconds: 5))) return;
+    try {
+      for (final entry in byRoot.entries) {
+        final root = rootWithPath(entry.key);
+        if (root == null) continue;
+        if (!File(p.join(root.path, core.manifestFileName)).existsSync()) {
+          continue;
+        }
+        try {
+          final manifest = core.loadManifest(root);
+          var changed = false;
+          entry.value.forEach((id, ms) {
+            final track = manifest.tracks[id];
+            if (track != null && track.durationMs != ms) {
+              track.durationMs = ms;
+              changed = true;
+            }
+          });
+          if (changed) await core.saveManifest(manifest, root);
+        } catch (_) {
+          // A single unreadable/unwritable root must not stop the others.
+        }
+      }
+    } finally {
+      _endManifestPhase();
+    }
+  }
+
   /// Attempts to take the [busy] flag for a short external manifest write
   /// (PlaylistStore's load-mutate-save cycle on the first root's
   /// `.library.json`). Returns false -- caller should retry shortly -- when
@@ -1505,15 +1601,40 @@ Future<Map<String, TrackTags>> _readBatchResilient(
 }) async {
   final out = <String, TrackTags>{};
   for (final record in records) {
-    final (contentId, _, relPath) = record;
+    final (contentId, _, _) = record;
     try {
       final single = await _readBatchIsolate([record], timeout: timeout);
-      out[contentId] = single[contentId] ?? parseFromFilename(relPath);
+      final tags = single[contentId];
+      // A file that could not be read contributes NOTHING, rather than a
+      // filename-derived stand-in. The caller skips absent results, which
+      // leaves whatever is already known in place: the instant feed's own
+      // filename parse for a never-seen track, or -- crucially -- the real
+      // cached tags of a track being refreshed. Substituting a placeholder
+      // here silently overwrote good data with a guess.
+      if (tags != null) out[contentId] = tags;
     } catch (_) {
-      out[contentId] = parseFromFilename(relPath);
+      // Same: skip, don't guess.
     }
   }
   return out;
+}
+
+/// Header-only duration estimate for a track whose full tag read failed.
+///
+/// Reads frame headers rather than parsing tags, so it sidesteps the parser
+/// pathology that made the read fail in the first place, and is bounded in
+/// both work and time. Null for anything that isn't an mp3, or that it
+/// can't measure.
+Future<int?> _estimateDurationMs(Track t) async {
+  if (!isMp3Path(t.relPath)) return null;
+  try {
+    final d = await estimateMp3DurationForFile(
+      File(p.join(t.rootPath, t.relPath)),
+    ).timeout(const Duration(seconds: 5));
+    return d?.inMilliseconds;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Runs [readTagsBatch] for [records] inside its own isolate, bounded by

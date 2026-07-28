@@ -544,12 +544,11 @@ class _HeaderCell extends StatefulWidget {
   State<_HeaderCell> createState() => _HeaderCellState();
 }
 
-/// Header cells are sort controls, so they need to *look* clickable: hovering
-/// tints the cell and darkens its label (the resting label is deliberately
-/// quiet inkSecondary, which on its own reads as static text).
+/// Header cells sort on click and show a pointer cursor, and that is the
+/// whole of their feedback: NO hover tint, no splash, no pressed overlay.
+/// Mike asked for this twice -- a grey wash sliding under the column titles
+/// on every pass of the mouse reads as noise, not affordance.
 class _HeaderCellState extends State<_HeaderCell> {
-  bool _hovered = false;
-
   @override
   Widget build(BuildContext context) {
     final label = widget.label;
@@ -557,10 +556,7 @@ class _HeaderCellState extends State<_HeaderCell> {
     final library = widget.library;
     final alignEnd = widget.alignEnd;
     final active = library.sortColumn == column;
-    final baseStyle = Theme.of(context).textTheme.labelLarge;
-    final style = _hovered
-        ? baseStyle?.copyWith(color: AppColors.ink)
-        : baseStyle;
+    final style = Theme.of(context).textTheme.labelLarge;
     final arrowSpan = TextSpan(
       text: library.sortAscending ? '▲' : '▼',
       style: style?.copyWith(color: AppColors.accent),
@@ -572,15 +568,16 @@ class _HeaderCellState extends State<_HeaderCell> {
     // normal color throughout; only the arrow span is accent-colored.
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
       child: InkWell(
         onTap: () => library.setSort(column),
-        child: Container(
-          decoration: BoxDecoration(
-            color: _hovered ? AppColors.hairline.withValues(alpha: 0.55) : null,
-            borderRadius: BorderRadius.circular(3),
-          ),
+        // Every Material overlay off: the InkWell is here for the tap
+        // target, not for decoration.
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        focusColor: Colors.transparent,
+        splashFactory: NoSplash.splashFactory,
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
           child: Text.rich(
             TextSpan(

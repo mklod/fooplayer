@@ -17,14 +17,26 @@ const int kMetaCacheRevision = 2;
 
 class MetaCache {
   final Map<String, TrackTags> entries;
-  MetaCache._(this.entries);
+
+  /// Entries written by an older [kMetaCacheRevision]. They are KEPT and
+  /// served to the UI -- slightly stale tags beat blank ones -- and merely
+  /// queued for a quiet background re-read.
+  ///
+  /// The alternative, dropping them, meant a revision bump blanked the whole
+  /// library's Title/Artist/Time columns until a full re-read of every file
+  /// finished: ten minutes of unusable app over a network share, for a
+  /// change that only affected one field. Never again.
+  final Set<String> staleIds;
+
+  MetaCache._(this.entries, this.staleIds);
 
   factory MetaCache.load(File f) {
-    if (!f.existsSync()) return MetaCache._({});
+    if (!f.existsSync()) return MetaCache._({}, {});
     try {
       final j = jsonDecode(f.readAsStringSync());
-      if (j is! Map<String, dynamic>) return MetaCache._({});
+      if (j is! Map<String, dynamic>) return MetaCache._({}, {});
       final entries = <String, TrackTags>{};
+      final stale = <String>{};
       for (final entry in j.entries) {
         final v = entry.value;
         if (v is! Map<String, dynamic>) continue;
@@ -37,14 +49,18 @@ class MetaCache {
         // new field -- instead of needing its own separate staleness check.
         if (!v.containsKey('durationMs')) continue;
         if (!v.containsKey('trackNumber')) continue;
-        // Same idea as the missing-key checks above, but for a change in how
-        // an EXISTING field is read -- see [kMetaCacheRevision].
-        if (v['rev'] != kMetaCacheRevision) continue;
+        // Same idea as the missing-key checks above, but for a change in
+        // how an EXISTING field is read -- see [kMetaCacheRevision]. Unlike
+        // those, the entry is KEPT: it still has a usable title, artist,
+        // album and duration, and blanking all of that to correct one field
+        // is a far worse experience than showing it while a background pass
+        // refreshes it.
+        if (v['rev'] != kMetaCacheRevision) stale.add(entry.key);
         entries[entry.key] = TrackTags.fromJson(v);
       }
-      return MetaCache._(entries);
+      return MetaCache._(entries, stale);
     } catch (_) {
-      return MetaCache._({});
+      return MetaCache._({}, {});
     }
   }
 

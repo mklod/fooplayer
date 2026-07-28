@@ -7,12 +7,29 @@ const manifestBakName = '.library.json.bak';
 class TrackEntry {
   String dateAdded; // ISO 8601 UTC
   List<String> paths; // relative to library root, forward slashes
-  TrackEntry({required this.dateAdded, required this.paths});
 
-  Map<String, dynamic> toJson() => {'date_added': dateAdded, 'paths': paths};
+  /// Track length in milliseconds, once something has managed to determine
+  /// it. Persisted HERE, next to the date, because it is expensive to
+  /// obtain and cheap to store: reading it means parsing tag headers for
+  /// every file over a network share, and it had previously lived only in
+  /// the app's local tag cache -- so every cache loss (a fresh install, an
+  /// eviction, a cache-format change) blanked the Time column for the whole
+  /// library and forced another full, slow re-read. Written as `duration_ms`
+  /// and omitted entirely when null, so existing manifests and older
+  /// readers are unaffected.
+  int? durationMs;
+
+  TrackEntry({required this.dateAdded, required this.paths, this.durationMs});
+
+  Map<String, dynamic> toJson() => {
+        'date_added': dateAdded,
+        'paths': paths,
+        if (durationMs != null) 'duration_ms': durationMs,
+      };
   factory TrackEntry.fromJson(Map<String, dynamic> j) => TrackEntry(
         dateAdded: j['date_added'] as String,
         paths: (j['paths'] as List).cast<String>(),
+        durationMs: (j['duration_ms'] as num?)?.toInt(),
       );
 }
 
