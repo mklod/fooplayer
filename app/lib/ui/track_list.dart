@@ -55,6 +55,11 @@ const Duration _kSelectionAnimationDuration = Duration(milliseconds: 80);
 const double _kTrackNumberColumnWidth = 36;
 const double _kDurationColumnWidth = 44;
 const double _kDateColumnWidth = 82;
+
+/// The two artwork status columns: a tick when the app has a cover for the
+/// track ("Art"), and a tick when the FILE itself carries one ("Emb"). Narrow
+/// on purpose -- they are at-a-glance state, not data to read.
+const double _kArtColumnWidth = 34;
 const int _kTitleFlex = 3;
 const int _kArtistFlex = 2;
 const int _kTitleArtistFlex = _kTitleFlex + _kArtistFlex;
@@ -142,6 +147,12 @@ class TrackListView extends StatefulWidget {
   /// only consulted in playlist mode.
   final ArtworkResolver? artworkResolver;
 
+  /// Answers "does the app have a cover for this track", for the "Art"
+  /// column. Injected because the answer lives in the artwork sidecars,
+  /// which the list itself has no business reaching into. Defaults to the
+  /// track's own embedded art only.
+  final bool Function(Track track)? hasArtwork;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -151,6 +162,7 @@ class TrackListView extends StatefulWidget {
     this.playlistStore,
     this.artwork,
     this.artworkResolver,
+    this.hasArtwork,
   });
 
   @override
@@ -270,6 +282,8 @@ class _TrackListViewState extends State<TrackListView> {
                         artworkResolver: widget.artworkResolver,
                         showTrackNumber: showTrackNumber,
                         playlistMode: isPlaylist,
+                        hasArtwork:
+                            widget.hasArtwork?.call(t) ?? t.hasEmbeddedArt,
                         // Playlist order is curator-defined, not tag-derived, so
                         // '#' shows where the track sits in that order (1-based)
                         // rather than its (possibly nonexistent, possibly
@@ -393,6 +407,7 @@ class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
   final bool showTrackNumber;
   final bool playlistMode;
+
   const _TrackListHeader({
     required this.library,
     required this.showTrackNumber,
@@ -456,6 +471,15 @@ class _TrackListHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
+        const SizedBox(
+          width: _kArtColumnWidth,
+          child: _PlainHeaderLabel(label: 'Art'),
+        ),
+        const SizedBox(
+          width: _kArtColumnWidth,
+          child: _PlainHeaderLabel(label: 'Emb'),
+        ),
+        const SizedBox(width: 8),
         SizedBox(
           width: _kDurationColumnWidth,
           child: _HeaderCell(
@@ -508,6 +532,18 @@ class _TrackListHeader extends StatelessWidget {
 /// with no [InkWell]/hover treatment and no sort arrow -- used for the
 /// playlist view's header, whose column order is curator-defined and
 /// therefore not a sort control (see [_TrackListHeader]'s doc).
+/// A tick, or nothing. Deliberately not a cross: an empty cell reads as
+/// "no", and a column of crosses next to a column of ticks is noise.
+class _ArtTick extends StatelessWidget {
+  final bool on;
+  const _ArtTick({required this.on});
+
+  @override
+  Widget build(BuildContext context) => on
+      ? const Icon(Icons.check, size: 14, color: AppColors.inkSecondary)
+      : const SizedBox.shrink();
+}
+
 class _PlainHeaderLabel extends StatelessWidget {
   final String label;
   final bool alignEnd;
@@ -639,6 +675,11 @@ class _TrackRow extends StatelessWidget {
   // [TrackListView.artworkResolver] wasn't wired, in which case [AlbumArt]
   // falls back to its own embedded-only placeholder path.
   final ArtworkResolver? artworkResolver;
+
+  /// Whether fooplayer has a cover for this track at all -- its own embedded
+  /// art, or one chosen in the artwork sidecar. Drives the "Art" column.
+  final bool hasArtwork;
+
   const _TrackRow({
     required this.track,
     required this.isCurrent,
@@ -652,6 +693,7 @@ class _TrackRow extends StatelessWidget {
     required this.showTrackNumber,
     this.trackNumberText,
     this.playlistMode = false,
+    this.hasArtwork = false,
     this.artworkResolver,
   });
 
@@ -682,13 +724,16 @@ class _TrackRow extends StatelessWidget {
             playlistStore: playlistStore,
             artwork: artwork,
           ),
-          // The default ink splash + pressed highlight take hundreds of ms to
-          // play out, which made single-click selection feel sluggish. Both
-          // are suppressed; the snappy [_kSelectionAnimationDuration] tile
-          // color fade below is the selection feedback instead (hover
-          // feedback is untouched).
+          // Every Material overlay off. The splash and pressed highlight took
+          // hundreds of ms to play out, which made selection feel sluggish;
+          // the hover wash then fought the selection fill on the way in --
+          // press a row and it went grey, then blue, which read as a flash.
+          // The snappy [_kSelectionAnimationDuration] tile colour is the
+          // only row feedback now.
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.transparent,
+          hoverColor: Colors.transparent,
+          focusColor: Colors.transparent,
           // Individual rows must NOT grab keyboard focus on tap -- the
           // enclosing [TrackListView] owns one list-wide [FocusNode] so
           // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
@@ -763,6 +808,15 @@ class _TrackRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: _kRowTextStyle,
       ),
+    ),
+    const SizedBox(width: 8),
+    SizedBox(
+      width: _kArtColumnWidth,
+      child: _ArtTick(on: hasArtwork),
+    ),
+    SizedBox(
+      width: _kArtColumnWidth,
+      child: _ArtTick(on: track.hasEmbeddedArt),
     ),
     const SizedBox(width: 8),
     SizedBox(

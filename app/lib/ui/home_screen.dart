@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/album_key.dart';
 import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_store.dart';
 import '../artwork/artwork_embed_pass.dart';
@@ -94,6 +96,8 @@ class HomeScreen extends StatelessWidget {
                         library: library,
                         libraryRootsPrefs: libraryRootsPrefs,
                         playlistStore: store,
+                        player: player,
+                        artworkResolver: artworkResolver,
                       ),
                     ),
                   ),
@@ -230,6 +234,22 @@ class HomeScreen extends StatelessWidget {
                             player: player,
                             playlistStore: store,
                             artwork: artworkServices,
+                            // "Art" ticks when the app has a cover at all:
+                            // the file's own, or one chosen in the sidecar.
+                            hasArtwork: (t) =>
+                                t.hasEmbeddedArt ||
+                                (artworkStores
+                                        ?.forRoot(t.rootPath)
+                                        .entryFor(
+                                          artworkAlbumKey(
+                                            artist: t.artist,
+                                            album: t.album,
+                                            title: t.title,
+                                            rootPath: t.rootPath,
+                                            relPath: t.relPath,
+                                          ),
+                                        ) !=
+                                    null),
                             artworkResolver: artworkResolver,
                           ),
                         ),
@@ -264,12 +284,20 @@ class _Sidebar extends StatefulWidget {
   /// Per-root artwork sidecars, read by "Embed art in files". Null hides it.
   final ArtworkStoreRegistry? artworkStores;
 
+  /// Drives the selected-track artwork preview under the button stack: it
+  /// only shows when nothing is playing (the now-playing bar owns the cover
+  /// otherwise).
+  final PlayerService player;
+  final ArtworkResolver? artworkResolver;
+
   const _Sidebar({
     required this.library,
     required this.libraryRootsPrefs,
     required this.playlistStore,
+    required this.player,
     this.artworkBackfill,
     this.artworkStores,
+    this.artworkResolver,
   });
 
   @override
@@ -492,6 +520,11 @@ class _SidebarState extends State<_Sidebar> {
             title: const Text('Settings'),
             onTap: () => _openSettings(context),
           ),
+          _SelectedArtPreview(
+            library: library,
+            player: widget.player,
+            resolver: widget.artworkResolver,
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
             child: Text(
@@ -643,6 +676,61 @@ class _SearchFieldState extends State<_SearchField> {
         ),
         onChanged: widget.library.setSearch,
       ),
+    );
+  }
+}
+
+/// The cover of whatever is SELECTED, shown under the sidebar's button stack
+/// when nothing is playing.
+///
+/// Deliberately conditional: while a track plays, the now-playing bar already
+/// shows a large cover, and a second one in the corner is just clutter. This
+/// fills that space the rest of the time -- clicking through the library then
+/// shows you what each thing looks like.
+class _SelectedArtPreview extends StatelessWidget {
+  final LibraryModel library;
+  final PlayerService player;
+  final ArtworkResolver? resolver;
+
+  const _SelectedArtPreview({
+    required this.library,
+    required this.player,
+    this.resolver,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([library, player]),
+      builder: (context, _) {
+        if (player.current != null) return const SizedBox.shrink();
+        final selected = library.selectedTrackIds;
+        if (selected.isEmpty) return const SizedBox.shrink();
+        // The most recently clicked row wins; with a wide multi-selection,
+        // showing the first is as good an answer as any.
+        final track = library.visibleTracks.firstWhere(
+          (t) => selected.contains(t.contentId),
+          orElse: () => library.allTracks.firstWhere(
+            (t) => selected.contains(t.contentId),
+            orElse: () => library.allTracks.first,
+          ),
+        );
+        // Square, and as wide as the sidebar allows -- it is the one piece
+        // of art on screen while nothing plays, so it gets the space.
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+          child: LayoutBuilder(
+            builder: (context, constraints) => AlbumArt(
+              key: const Key('sidebar-art-preview'),
+              contentId: track.contentId,
+              file: File(p.join(track.rootPath, track.relPath)),
+              size: constraints.maxWidth,
+              resolver: resolver,
+              track: track,
+            ),
+          ),
+        );
+      },
     );
   }
 }

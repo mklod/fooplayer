@@ -33,6 +33,12 @@ class TrackTags {
   // measured (e.g. malformed audio data) stays `durationMs: null` but
   // `durationProbed: true`, so later loads stop retrying it.
   final bool durationProbed;
+
+  /// Whether the FILE carries a cover of its own (ID3 APIC / FLAC PICTURE).
+  /// Recorded at tag-read time and cached, so the library view can show an
+  /// "embedded" column without touching a single file to draw it.
+  final bool hasEmbeddedArt;
+
   const TrackTags({
     this.title,
     this.artist,
@@ -41,6 +47,7 @@ class TrackTags {
     this.durationMs,
     this.trackNumber,
     this.durationProbed = false,
+    this.hasEmbeddedArt = false,
   });
 
   bool get isEmpty =>
@@ -56,6 +63,7 @@ class TrackTags {
     'durationMs': durationMs,
     'trackNumber': trackNumber,
     'durationProbed': durationProbed,
+    'hasEmbeddedArt': hasEmbeddedArt,
   };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
     title: j['title'] as String?,
@@ -70,6 +78,7 @@ class TrackTags {
     // as cause to evict the whole entry from the loaded cache, unlike
     // durationMs/trackNumber's own key-presence checks below).
     durationProbed: j['durationProbed'] as bool? ?? false,
+    hasEmbeddedArt: j['hasEmbeddedArt'] as bool? ?? false,
   );
 }
 
@@ -302,6 +311,9 @@ Future<(int?, bool)> _resolveDuration(
 }
 
 Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
+  // One header-only read, cached with the rest of the tags -- see
+  // [TrackTags.hasEmbeddedArt].
+  final carriesArt = await fileCarriesEmbeddedArt(audioFile);
   try {
     final raw = _readRawTags(audioFile, fetchImage: false);
     if (raw == null) {
@@ -343,6 +355,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
         durationMs: durationMs,
         trackNumber: fromTags.trackNumber ?? own.trackNumber ?? fb.trackNumber,
         durationProbed: durationProbed,
+        hasEmbeddedArt: carriesArt,
       );
     }
     // Before falling back to the filename, ask our own ID3 reader for
@@ -360,6 +373,7 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
       durationMs: fromTags.durationMs,
       trackNumber: fromTags.trackNumber ?? own.trackNumber ?? fb.trackNumber,
       durationProbed: durationProbed,
+      hasEmbeddedArt: carriesArt,
     );
   } catch (_) {
     // Same reasoning as the `raw == null` path above: a parser that threw
