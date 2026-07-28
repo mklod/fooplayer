@@ -1,1 +1,4 @@
 .superpowers/
+
+# Flutter test asset output -- never source
+core/build/
