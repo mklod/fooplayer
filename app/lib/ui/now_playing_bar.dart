@@ -168,6 +168,7 @@ class _AlbumArtState extends State<AlbumArt> {
   /// shadow with no sleeve to cast it just reads as a hazy square smudged
   /// around a floating icon, which is exactly how it looked before.
   Widget _placeholder() => Container(
+    key: const Key('album-art-placeholder'),
     width: widget.size,
     height: widget.size,
     decoration: BoxDecoration(
@@ -175,10 +176,16 @@ class _AlbumArtState extends State<AlbumArt> {
       borderRadius: BorderRadius.circular(4),
       border: Border.all(color: AppColors.hairline),
     ),
-    child: Icon(
-      Icons.album,
-      size: widget.size * 0.42,
-      color: AppColors.inkSecondary,
+    child: Center(
+      child: Image.asset(
+        kPlaceholderArt,
+        width: widget.size * 0.5,
+        height: widget.size * 0.5,
+        fit: BoxFit.contain,
+        // Small thumbnails would otherwise resample the 256px asset every
+        // frame; the cache keys on the decoded size.
+        filterQuality: FilterQuality.medium,
+      ),
     ),
   );
 
@@ -234,6 +241,10 @@ const kIconPause = 'assets/icons/pause.png';
 const kIconNext = 'assets/icons/next.png';
 const kIconPrevious = 'assets/icons/previous.png';
 const kIconShuffleOff = 'assets/icons/shuffle1.png';
+
+/// The "no cover" mark: the app's own music-note icon in grey, rather than a
+/// generic disc glyph.
+const kPlaceholderArt = 'assets/icons/placeholder_art.png';
 const kIconShuffleOn = 'assets/icons/shuffle2.png';
 
 /// Now-playing bar geometry: a large square cover on the left, and a fixed

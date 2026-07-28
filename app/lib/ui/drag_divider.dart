@@ -28,9 +28,7 @@ class VerticalDragDivider extends StatelessWidget {
         onPanUpdate: (details) => onDragDelta(details.delta.dx),
         child: SizedBox(
           width: hitWidth,
-          child: Center(
-            child: Container(width: 1, color: AppColors.hairline),
-          ),
+          child: Center(child: Container(width: 1, color: AppColors.hairline)),
         ),
       ),
     );
@@ -59,9 +57,7 @@ class HorizontalDragDivider extends StatelessWidget {
         onPanUpdate: (details) => onDragDelta(details.delta.dy),
         child: SizedBox(
           height: hitHeight,
-          child: Center(
-            child: Container(height: 1, color: AppColors.hairline),
-          ),
+          child: Center(child: Container(height: 1, color: AppColors.hairline)),
         ),
       ),
     );

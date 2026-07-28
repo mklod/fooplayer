@@ -67,8 +67,7 @@ class PhoneTrackRow extends StatelessWidget {
                     track.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        const TextStyle(fontSize: 13, color: AppColors.ink),
+                    style: const TextStyle(fontSize: 13, color: AppColors.ink),
                   ),
                   if (subtitle.isNotEmpty) ...[
                     const SizedBox(height: 2),
@@ -77,7 +76,9 @@ class PhoneTrackRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontSize: 11.5, color: AppColors.inkSecondary),
+                        fontSize: 11.5,
+                        color: AppColors.inkSecondary,
+                      ),
                     ),
                   ],
                 ],
@@ -87,7 +88,9 @@ class PhoneTrackRow extends StatelessWidget {
             Text(
               formatTrackDuration(track.durationMs),
               style: const TextStyle(
-                  fontSize: 11.5, color: AppColors.inkSecondary),
+                fontSize: 11.5,
+                color: AppColors.inkSecondary,
+              ),
             ),
           ],
         ),

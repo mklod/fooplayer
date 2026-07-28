@@ -32,14 +32,15 @@ class TrackTags {
   // measured (e.g. malformed audio data) stays `durationMs: null` but
   // `durationProbed: true`, so later loads stop retrying it.
   final bool durationProbed;
-  const TrackTags(
-      {this.title,
-      this.artist,
-      this.album,
-      this.genre,
-      this.durationMs,
-      this.trackNumber,
-      this.durationProbed = false});
+  const TrackTags({
+    this.title,
+    this.artist,
+    this.album,
+    this.genre,
+    this.durationMs,
+    this.trackNumber,
+    this.durationProbed = false,
+  });
 
   bool get isEmpty =>
       (title == null || title!.isEmpty) &&
@@ -47,28 +48,28 @@ class TrackTags {
       (album == null || album!.isEmpty);
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'artist': artist,
-        'album': album,
-        'genre': genre,
-        'durationMs': durationMs,
-        'trackNumber': trackNumber,
-        'durationProbed': durationProbed,
-      };
+    'title': title,
+    'artist': artist,
+    'album': album,
+    'genre': genre,
+    'durationMs': durationMs,
+    'trackNumber': trackNumber,
+    'durationProbed': durationProbed,
+  };
   factory TrackTags.fromJson(Map<String, dynamic> j) => TrackTags(
-        title: j['title'] as String?,
-        artist: j['artist'] as String?,
-        album: j['album'] as String?,
-        genre: j['genre'] as String?,
-        durationMs: j['durationMs'] as int?,
-        trackNumber: j['trackNumber'] as int?,
-        // Absent on every cache entry written before this field existed
-        // (format bump, not a staleness signal -- see `meta_cache.dart`'s
-        // `needsDurationProbe` doc for why that's deliberately NOT treated
-        // as cause to evict the whole entry from the loaded cache, unlike
-        // durationMs/trackNumber's own key-presence checks below).
-        durationProbed: j['durationProbed'] as bool? ?? false,
-      );
+    title: j['title'] as String?,
+    artist: j['artist'] as String?,
+    album: j['album'] as String?,
+    genre: j['genre'] as String?,
+    durationMs: j['durationMs'] as int?,
+    trackNumber: j['trackNumber'] as int?,
+    // Absent on every cache entry written before this field existed
+    // (format bump, not a staleness signal -- see `meta_cache.dart`'s
+    // `needsDurationProbe` doc for why that's deliberately NOT treated
+    // as cause to evict the whole entry from the loaded cache, unlike
+    // durationMs/trackNumber's own key-presence checks below).
+    durationProbed: j['durationProbed'] as bool? ?? false,
+  );
 }
 
 /// True when [path]'s extension is `.mp3` (case-insensitive) -- the only
@@ -98,8 +99,9 @@ TrackTags parseFromFilename(String relPath) {
   final base = p.basenameWithoutExtension(relPath);
   final dir = p.dirname(relPath);
   final rawAlbum = (dir == '.' || dir.isEmpty) ? null : p.basename(dir);
-  final album =
-      (rawAlbum != null && _dateLikeFolderPattern.hasMatch(rawAlbum)) ? null : rawAlbum;
+  final album = (rawAlbum != null && _dateLikeFolderPattern.hasMatch(rawAlbum))
+      ? null
+      : rawAlbum;
 
   int? trackNumber;
   var rest = base;
@@ -121,7 +123,8 @@ TrackTags parseFromFilename(String relPath) {
   );
 }
 
-String? _blankAsNull(String? s) => (s == null || s.trim().isEmpty) ? null : s.trim();
+String? _blankAsNull(String? s) =>
+    (s == null || s.trim().isEmpty) ? null : s.trim();
 
 /// Minimal metadata pulled out of a format-specific parser: just what
 /// [TrackTags] and cover art need.
@@ -198,7 +201,14 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
       final m = MP3Parser(fetchImage: fetchImage).parse(reader);
       return _RawTags(
         title: m.songName,
-        artist: m.bandOrOrchestra ?? m.leadPerformer ?? m.originalArtist,
+        // TPE1 (lead performer) is the TRACK artist -- what Mp3tag, foobar
+        // and every other player show as "Artist". TPE2 (band/orchestra) is
+        // the ALBUM artist, which on a compilation is usually "Various
+        // Artists". Reading TPE2 first, as this did, mislabelled 359 files
+        // in this library: "The Life" showed RUFUS (TPE2) instead of
+        // RUFUS du Sol (TPE1), and dozens of compilation tracks showed
+        // "Various Artists" instead of the band that actually played them.
+        artist: m.leadPerformer ?? m.bandOrOrchestra ?? m.originalArtist,
         album: m.album,
         genre: m.genres.firstOrNull,
         durationMs: m.duration?.inMilliseconds,
@@ -270,7 +280,10 @@ _RawTags? _readRawTags(File audioFile, {required bool fetchImage}) {
 /// catch would otherwise turn a duration-only failure into a full filename
 /// fallback that also discards perfectly good title/artist/album tags
 /// already extracted from [audioFile] before this runs.
-Future<(int?, bool)> _resolveDuration(File audioFile, int? parsedDurationMs) async {
+Future<(int?, bool)> _resolveDuration(
+  File audioFile,
+  int? parsedDurationMs,
+) async {
   if (parsedDurationMs != null && parsedDurationMs > 0) {
     return (parsedDurationMs, false);
   }
@@ -287,8 +300,10 @@ Future<TrackTags> readTags(File audioFile, {String? relPath}) async {
   try {
     final raw = _readRawTags(audioFile, fetchImage: false);
     if (raw == null) return parseFromFilename(relPath ?? audioFile.path);
-    final (durationMs, durationProbed) =
-        await _resolveDuration(audioFile, raw.durationMs);
+    final (durationMs, durationProbed) = await _resolveDuration(
+      audioFile,
+      raw.durationMs,
+    );
     final fromTags = TrackTags(
       title: _blankAsNull(raw.title),
       artist: _blankAsNull(raw.artist),

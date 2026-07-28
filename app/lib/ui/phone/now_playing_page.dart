@@ -36,24 +36,17 @@ class NowPlayingPage extends StatelessWidget {
   /// embedded-art-only behavior.
   final ArtworkResolver? artworkResolver;
 
-  const NowPlayingPage({
-    super.key,
-    required this.player,
-    this.artworkResolver,
-  });
+  const NowPlayingPage({super.key, required this.player, this.artworkResolver});
 
   /// Route helper so callers (MiniPlayer, future deep links) push the page
   /// identically without importing MaterialPageRoute boilerplate.
   static Route<void> route({
     required PlayerService player,
     ArtworkResolver? artworkResolver,
-  }) =>
-      MaterialPageRoute<void>(
-        builder: (_) => NowPlayingPage(
-          player: player,
-          artworkResolver: artworkResolver,
-        ),
-      );
+  }) => MaterialPageRoute<void>(
+    builder: (_) =>
+        NowPlayingPage(player: player, artworkResolver: artworkResolver),
+  );
 
   @override
   Widget build(BuildContext context) {

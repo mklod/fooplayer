@@ -14,22 +14,22 @@ enum PhoneView { library, folders, artists, albums, playlists, settings }
 extension PhoneViewInfo on PhoneView {
   /// Drawer entry text AND the AppBar title while the view is active.
   String get label => switch (this) {
-        PhoneView.library => 'Library',
-        PhoneView.folders => 'Folders',
-        PhoneView.artists => 'Artists',
-        PhoneView.albums => 'Albums',
-        PhoneView.playlists => 'Playlists',
-        PhoneView.settings => 'Settings',
-      };
+    PhoneView.library => 'Library',
+    PhoneView.folders => 'Folders',
+    PhoneView.artists => 'Artists',
+    PhoneView.albums => 'Albums',
+    PhoneView.playlists => 'Playlists',
+    PhoneView.settings => 'Settings',
+  };
 
   IconData get icon => switch (this) {
-        PhoneView.library => Icons.library_music_outlined,
-        PhoneView.folders => Icons.folder_outlined,
-        PhoneView.artists => Icons.person_outline,
-        PhoneView.albums => Icons.album_outlined,
-        PhoneView.playlists => Icons.queue_music_outlined,
-        PhoneView.settings => Icons.settings_outlined,
-      };
+    PhoneView.library => Icons.library_music_outlined,
+    PhoneView.folders => Icons.folder_outlined,
+    PhoneView.artists => Icons.person_outline,
+    PhoneView.albums => Icons.album_outlined,
+    PhoneView.playlists => Icons.queue_music_outlined,
+    PhoneView.settings => Icons.settings_outlined,
+  };
 }
 
 /// The Android phone chrome (Plan 2b): Scaffold + AppBar (hamburger /
@@ -123,13 +123,15 @@ class _PhoneShellState extends State<PhoneShell> {
   }
 
   void _openSearch(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => PhoneSearchPage(
-        library: widget.library,
-        onPlayTrack: _onPlay,
-        onTrackLongPress: widget.onTrackLongPress,
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PhoneSearchPage(
+          library: widget.library,
+          onPlayTrack: _onPlay,
+          onTrackLongPress: widget.onTrackLongPress,
+        ),
       ),
-    ));
+    );
   }
 
   @override

@@ -10,30 +10,39 @@ LibraryModel fixtureLibrary() {
   final m = LibraryModel();
   m.allTracks = [
     Track(
-        contentId: 'a',
-        relPath: 'a.mp3',
-        dateAdded: DateTime.utc(2024, 1, 1),
-        title: 'Banana',
-        artist: 'Muse',
-        album: 'X',
-        durationMs: 125000),
+      contentId: 'a',
+      relPath: 'a.mp3',
+      dateAdded: DateTime.utc(2024, 1, 1),
+      title: 'Banana',
+      artist: 'Muse',
+      album: 'X',
+      durationMs: 125000,
+    ),
     Track(
-        contentId: 'b',
-        relPath: 'b.mp3',
-        dateAdded: DateTime.utc(2024, 1, 2),
-        title: 'Apple',
-        artist: 'Feed Me',
-        album: 'Y'), // no durationMs -> blank Time column
+      contentId: 'b',
+      relPath: 'b.mp3',
+      dateAdded: DateTime.utc(2024, 1, 2),
+      title: 'Apple',
+      artist: 'Feed Me',
+      album: 'Y',
+    ), // no durationMs -> blank Time column
   ];
   m.status = 'ready';
   return m;
 }
 
-Future<void> pumpTrackList(WidgetTester tester, LibraryModel lib, PlayerService player) =>
-    tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: Scaffold(body: TrackListView(library: lib, player: player)),
-    ));
+Future<void> pumpTrackList(
+  WidgetTester tester,
+  LibraryModel lib,
+  PlayerService player,
+) => tester.pumpWidget(
+  MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(
+      body: TrackListView(library: lib, player: player),
+    ),
+  ),
+);
 
 void main() {
   testWidgets('header shows the five sortable column labels', (tester) async {
@@ -50,35 +59,36 @@ void main() {
   });
 
   testWidgets(
-      'clicking Artist sorts ascending; clicking again toggles to descending, and the arrow flips',
-      (tester) async {
-    final lib = fixtureLibrary();
-    await pumpTrackList(tester, lib, PlayerService());
+    'clicking Artist sorts ascending; clicking again toggles to descending, and the arrow flips',
+    (tester) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
 
-    // Default: dateAdded descending -- only the Date header carries the
-    // arrow before anything is clicked; Artist is still the bare label.
-    expect(lib.sortColumn, SortColumn.dateAdded);
-    expect(lib.sortAscending, isFalse);
-    expect(find.text('DATE ▼'), findsOneWidget);
-    expect(find.text('ARTIST'), findsOneWidget);
+      // Default: dateAdded descending -- only the Date header carries the
+      // arrow before anything is clicked; Artist is still the bare label.
+      expect(lib.sortColumn, SortColumn.dateAdded);
+      expect(lib.sortAscending, isFalse);
+      expect(find.text('DATE ▼'), findsOneWidget);
+      expect(find.text('ARTIST'), findsOneWidget);
 
-    await tester.tap(find.text('ARTIST'));
-    await tester.pump();
+      await tester.tap(find.text('ARTIST'));
+      await tester.pump();
 
-    expect(lib.sortColumn, SortColumn.artist);
-    expect(lib.sortAscending, isTrue);
-    expect(find.text('ARTIST ▲'), findsOneWidget); // now active, ascending
-    expect(find.text('DATE'), findsOneWidget); // Date back to bare (inactive)
-    expect(find.text('DATE ▼'), findsNothing);
+      expect(lib.sortColumn, SortColumn.artist);
+      expect(lib.sortAscending, isTrue);
+      expect(find.text('ARTIST ▲'), findsOneWidget); // now active, ascending
+      expect(find.text('DATE'), findsOneWidget); // Date back to bare (inactive)
+      expect(find.text('DATE ▼'), findsNothing);
 
-    await tester.tap(find.text('ARTIST ▲'));
-    await tester.pump();
+      await tester.tap(find.text('ARTIST ▲'));
+      await tester.pump();
 
-    expect(lib.sortColumn, SortColumn.artist);
-    expect(lib.sortAscending, isFalse);
-    expect(find.text('ARTIST ▼'), findsOneWidget); // flipped
-    expect(find.text('ARTIST ▲'), findsNothing);
-  });
+      expect(lib.sortColumn, SortColumn.artist);
+      expect(lib.sortAscending, isFalse);
+      expect(find.text('ARTIST ▼'), findsOneWidget); // flipped
+      expect(find.text('ARTIST ▲'), findsNothing);
+    },
+  );
 
   testWidgets('duration column shows m:ss, blank when null', (tester) async {
     final lib = fixtureLibrary();
@@ -87,27 +97,39 @@ void main() {
   });
 
   testWidgets(
-      'all row cells share the same 13px regular weight style -- Time/Date '
-      'are no longer smaller/greyed-out relative to Artist/Album, and Title '
-      'is no longer bold',
-      (tester) async {
-    final lib = fixtureLibrary();
-    await pumpTrackList(tester, lib, PlayerService());
+    'all row cells share the same 13px regular weight style -- Time/Date '
+    'are no longer smaller/greyed-out relative to Artist/Album, and Title '
+    'is no longer bold',
+    (tester) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
 
-    final titleStyle = tester.widget<Text>(find.text('Banana')).style!;
-    final artistStyle = tester.widget<Text>(find.text('Muse')).style!;
-    final albumStyle = tester.widget<Text>(find.text('X')).style!;
-    final timeStyle = tester.widget<Text>(find.text('2:05')).style!; // Banana's duration
-    final dateStyle = tester.widget<Text>(find.text('2024-01-01')).style!; // Banana's date
+      final titleStyle = tester.widget<Text>(find.text('Banana')).style!;
+      final artistStyle = tester.widget<Text>(find.text('Muse')).style!;
+      final albumStyle = tester.widget<Text>(find.text('X')).style!;
+      final timeStyle = tester
+          .widget<Text>(find.text('2:05'))
+          .style!; // Banana's duration
+      final dateStyle = tester
+          .widget<Text>(find.text('2024-01-01'))
+          .style!; // Banana's date
 
-    for (final style in [titleStyle, artistStyle, albumStyle, timeStyle, dateStyle]) {
-      expect(style.fontSize, 13);
-      expect(style.fontWeight, isNot(FontWeight.w600)); // all regular weight
-    }
-  });
+      for (final style in [
+        titleStyle,
+        artistStyle,
+        albumStyle,
+        timeStyle,
+        dateStyle,
+      ]) {
+        expect(style.fontSize, 13);
+        expect(style.fontWeight, isNot(FontWeight.w600)); // all regular weight
+      }
+    },
+  );
 
-  testWidgets('current-track title is highlighted in the accent color',
-      (tester) async {
+  testWidgets('current-track title is highlighted in the accent color', (
+    tester,
+  ) async {
     final lib = fixtureLibrary();
     final player = PlayerService();
     await pumpTrackList(tester, lib, player);

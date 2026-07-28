@@ -15,8 +15,8 @@ typedef PlayTrackCallback = void Function(List<Track> tracks, int index);
 /// Production wires the real "Add to playlist / View details" sheet
 /// (`track_context_sheet.dart`, closed over the library and its
 /// PlaylistStore in main.dart); widget tests inject a spy.
-typedef TrackLongPressCallback = void Function(
-    BuildContext context, Track track);
+typedef TrackLongPressCallback =
+    void Function(BuildContext context, Track track);
 
 /// `m:ss` for the feed rows' right-aligned Time value; empty string when the
 /// track's duration isn't known (yet) -- matching the desktop track list's
@@ -48,17 +48,20 @@ class PhoneTrackRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle =
-        [track.artist, track.album].where((s) => s.isNotEmpty).join(' — ');
+    final subtitle = [
+      track.artist,
+      track.album,
+    ].where((s) => s.isNotEmpty).join(' — ');
     return ListTile(
       key: Key('phone-track-${track.contentId}'),
-      title:
-          Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: subtitle.isEmpty
           ? null
           : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Text(formatTrackDuration(track.durationMs),
-          style: Theme.of(context).textTheme.bodySmall),
+      trailing: Text(
+        formatTrackDuration(track.durationMs),
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
       onTap: onTap,
       onLongPress: onLongPress,
     );

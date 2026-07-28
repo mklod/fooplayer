@@ -67,8 +67,7 @@ void main() {
   });
 
   group('LayoutPrefs debounced persistence', () {
-    test('multiple set calls within 500ms collapse into a single write',
-        () {
+    test('multiple set calls within 500ms collapse into a single write', () {
       fakeAsync((async) {
         final writes = <Map<String, dynamic>>[];
         final prefs = LayoutPrefs(writer: writes.add);
@@ -87,7 +86,11 @@ void main() {
         async.elapse(const Duration(milliseconds: 500));
 
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 240, 'filterHeight': 200, 'filtersCollapsed': false});
+        expect(writes.single, {
+          'sidebarWidth': 240,
+          'filterHeight': 200,
+          'filtersCollapsed': false,
+        });
       });
     });
 
@@ -103,7 +106,11 @@ void main() {
         prefs.setSidebarWidth(300);
         async.elapse(const Duration(milliseconds: 500));
         expect(writes, hasLength(2));
-        expect(writes.last, {'sidebarWidth': 300, 'filterHeight': 180, 'filtersCollapsed': false});
+        expect(writes.last, {
+          'sidebarWidth': 300,
+          'filterHeight': 180,
+          'filtersCollapsed': false,
+        });
       });
     });
 
@@ -119,8 +126,7 @@ void main() {
 
   group('LayoutPrefs.flush', () {
     test('a pending write is delivered immediately by flush(), with the '
-        'latest values, and the debounce timer no longer fires afterward',
-        () {
+        'latest values, and the debounce timer no longer fires afterward', () {
       fakeAsync((async) {
         final writes = <Map<String, dynamic>>[];
         final prefs = LayoutPrefs(writer: writes.add);
@@ -131,7 +137,11 @@ void main() {
 
         prefs.flush();
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 220, 'filterHeight': 260, 'filtersCollapsed': false});
+        expect(writes.single, {
+          'sidebarWidth': 220,
+          'filterHeight': 260,
+          'filtersCollapsed': false,
+        });
 
         // The original timer must be cancelled -- letting the rest of the
         // original 500ms window (and then some) elapse must not produce a
@@ -167,7 +177,11 @@ void main() {
         prefs.dispose();
 
         expect(writes, hasLength(1));
-        expect(writes.single, {'sidebarWidth': 300, 'filterHeight': 180, 'filtersCollapsed': false});
+        expect(writes.single, {
+          'sidebarWidth': 300,
+          'filterHeight': 180,
+          'filtersCollapsed': false,
+        });
 
         // No lingering timer either.
         async.elapse(const Duration(seconds: 2));
@@ -194,9 +208,11 @@ void main() {
       expect(writes.length, before);
 
       // Restored from config on next launch.
-      final restored = LayoutPrefs.fromConfig(
-        {'sidebarWidth': 240, 'filterHeight': 200, 'filtersCollapsed': true},
-      );
+      final restored = LayoutPrefs.fromConfig({
+        'sidebarWidth': 240,
+        'filterHeight': 200,
+        'filtersCollapsed': true,
+      });
       expect(restored.filtersCollapsed, isTrue);
       // The dragged height survives collapsing, so expanding restores it.
       expect(restored.filterHeight, 200);

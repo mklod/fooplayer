@@ -65,90 +65,108 @@ class _HarnessState extends State<_Harness> {
 
 void main() {
   testWidgets('lists configured roots by full path', (tester) async {
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music (original structure)', r'D:\more music'],
-      pickDirectory: () async => null,
-    ));
+    await tester.pumpWidget(
+      _Harness(
+        initialRoots: [r'L:\music (original structure)', r'D:\more music'],
+        pickDirectory: () async => null,
+      ),
+    );
 
     expect(find.text(r'L:\music (original structure)'), findsOneWidget);
     expect(find.text(r'D:\more music'), findsOneWidget);
   });
 
-  testWidgets('missing-manifest root shows the inline seed note; others do not',
-      (tester) async {
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music', r'L:\new drop'],
-      initialMissing: [r'L:\new drop'],
-      pickDirectory: () async => null,
-    ));
+  testWidgets(
+    'missing-manifest root shows the inline seed note; others do not',
+    (tester) async {
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music', r'L:\new drop'],
+          initialMissing: [r'L:\new drop'],
+          pickDirectory: () async => null,
+        ),
+      );
 
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('root-tile-L:\\new drop')),
-        matching: find.text('no library manifest — seed with foolib'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('root-tile-L:\\music')),
-        matching: find.text('no library manifest — seed with foolib'),
-      ),
-      findsNothing,
-    );
-  });
-
-  testWidgets('failed-manifest root shows the corrupt/reseed note; others do not',
-      (tester) async {
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music', r'L:\corrupt drop'],
-      initialFailed: [r'L:\corrupt drop'],
-      pickDirectory: () async => null,
-    ));
-
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('root-tile-L:\\corrupt drop')),
-        matching:
-            find.text('library manifest is corrupt — reseed with foolib to repair'),
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('root-tile-L:\\music')),
-        matching:
-            find.text('library manifest is corrupt — reseed with foolib to repair'),
-      ),
-      findsNothing,
-    );
-  });
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('root-tile-L:\\new drop')),
+          matching: find.text('no library manifest — seed with foolib'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('root-tile-L:\\music')),
+          matching: find.text('no library manifest — seed with foolib'),
+        ),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets(
-      'Add folder... invokes the injected picker and the newly-picked path '
-      'appears as a new root tile', (tester) async {
-    var addedPath = '';
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music'],
-      pickDirectory: () async => r'E:\picked folder',
-      onAdd: (path) => addedPath = path,
-    ));
+    'failed-manifest root shows the corrupt/reseed note; others do not',
+    (tester) async {
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music', r'L:\corrupt drop'],
+          initialFailed: [r'L:\corrupt drop'],
+          pickDirectory: () async => null,
+        ),
+      );
 
-    expect(find.text(r'E:\picked folder'), findsNothing);
-    await tester.tap(find.byKey(const Key('add-folder-button')));
-    await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('root-tile-L:\\corrupt drop')),
+          matching: find.text(
+            'library manifest is corrupt — reseed with foolib to repair',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('root-tile-L:\\music')),
+          matching: find.text(
+            'library manifest is corrupt — reseed with foolib to repair',
+          ),
+        ),
+        findsNothing,
+      );
+    },
+  );
 
-    expect(addedPath, r'E:\picked folder');
-    expect(find.text(r'E:\picked folder'), findsOneWidget);
-  });
+  testWidgets(
+    'Add folder... invokes the injected picker and the newly-picked path '
+    'appears as a new root tile',
+    (tester) async {
+      var addedPath = '';
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music'],
+          pickDirectory: () async => r'E:\picked folder',
+          onAdd: (path) => addedPath = path,
+        ),
+      );
+
+      expect(find.text(r'E:\picked folder'), findsNothing);
+      await tester.tap(find.byKey(const Key('add-folder-button')));
+      await tester.pumpAndSettle();
+
+      expect(addedPath, r'E:\picked folder');
+      expect(find.text(r'E:\picked folder'), findsOneWidget);
+    },
+  );
 
   testWidgets('a cancelled picker (returns null) adds nothing', (tester) async {
     var addCalled = false;
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music'],
-      pickDirectory: () async => null,
-      onAdd: (_) => addCalled = true,
-    ));
+    await tester.pumpWidget(
+      _Harness(
+        initialRoots: [r'L:\music'],
+        pickDirectory: () async => null,
+        onAdd: (_) => addCalled = true,
+      ),
+    );
 
     await tester.tap(find.byKey(const Key('add-folder-button')));
     await tester.pumpAndSettle();
@@ -157,14 +175,17 @@ void main() {
     expect(find.byType(ListTile), findsOneWidget); // still just the one root
   });
 
-  testWidgets('removing a root fires onRemoveRoot and the tile disappears',
-      (tester) async {
+  testWidgets('removing a root fires onRemoveRoot and the tile disappears', (
+    tester,
+  ) async {
     var removedPath = '';
-    await tester.pumpWidget(_Harness(
-      initialRoots: [r'L:\music', r'D:\more music'],
-      pickDirectory: () async => null,
-      onRemove: (path) => removedPath = path,
-    ));
+    await tester.pumpWidget(
+      _Harness(
+        initialRoots: [r'L:\music', r'D:\more music'],
+        pickDirectory: () async => null,
+        onRemove: (path) => removedPath = path,
+      ),
+    );
 
     expect(find.text(r'D:\more music'), findsOneWidget);
     await tester.tap(find.byKey(const Key('remove-root-D:\\more music')));
@@ -175,14 +196,15 @@ void main() {
     expect(find.text(r'L:\music'), findsOneWidget); // untouched
   });
 
-  testWidgets('no roots configured shows the empty-state message instead of a list',
-      (tester) async {
-    await tester.pumpWidget(_Harness(
-      initialRoots: const [],
-      pickDirectory: () async => null,
-    ));
+  testWidgets(
+    'no roots configured shows the empty-state message instead of a list',
+    (tester) async {
+      await tester.pumpWidget(
+        _Harness(initialRoots: const [], pickDirectory: () async => null),
+      );
 
-    expect(find.text('No library roots configured.'), findsOneWidget);
-    expect(find.byType(ListTile), findsNothing);
-  });
+      expect(find.text('No library roots configured.'), findsOneWidget);
+      expect(find.byType(ListTile), findsNothing);
+    },
+  );
 }

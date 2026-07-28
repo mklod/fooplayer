@@ -46,30 +46,33 @@ void _slowEntry((int, SendPort) args) async {
 }
 
 void main() {
-  test('completes normally with the entry point\'s result within the timeout',
-      () async {
-    final result = await runIsolateWithTimeout<String, String>(
-      _echoEntry,
-      'hello',
-      timeout: const Duration(seconds: 5),
-    );
-    expect(result, 'hello');
-  });
-
-  test('an error thrown inside the entry point propagates to the caller',
-      () async {
-    await expectLater(
-      runIsolateWithTimeout<String, String>(
-        _throwingEntry,
-        'x',
+  test(
+    'completes normally with the entry point\'s result within the timeout',
+    () async {
+      final result = await runIsolateWithTimeout<String, String>(
+        _echoEntry,
+        'hello',
         timeout: const Duration(seconds: 5),
-      ),
-      throwsA(isA<StateError>()),
-    );
-  });
+      );
+      expect(result, 'hello');
+    },
+  );
 
   test(
-      'a synchronous computation that outruns the timeout is killed and '
+    'an error thrown inside the entry point propagates to the caller',
+    () async {
+      await expectLater(
+        runIsolateWithTimeout<String, String>(
+          _throwingEntry,
+          'x',
+          timeout: const Duration(seconds: 5),
+        ),
+        throwsA(isA<StateError>()),
+      );
+    },
+  );
+
+  test('a synchronous computation that outruns the timeout is killed and '
       'throws TimeoutException, bounded by the timeout itself (not the '
       "computation's full length)", () async {
     final stopwatch = Stopwatch()..start();
@@ -85,8 +88,12 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
     stopwatch.stop();
-    expect(stopwatch.elapsedMilliseconds, lessThan(5000),
-        reason: 'the call must return promptly at the timeout, not wait '
-            "for the killed isolate's own busy-wait to finish");
+    expect(
+      stopwatch.elapsedMilliseconds,
+      lessThan(5000),
+      reason:
+          'the call must return promptly at the timeout, not wait '
+          "for the killed isolate's own busy-wait to finish",
+    );
   });
 }

@@ -34,8 +34,7 @@ import 'package:fooplayer_app/model/library_model.dart';
 import 'support/pathological_mp3.dart';
 
 void main() {
-  test(
-      'readTags: ID3v2 tag parses even when the audio data has no MPEG '
+  test('readTags: ID3v2 tag parses even when the audio data has no MPEG '
       'frame sync anywhere (the exact shape that defeats the third-party '
       "parser's unbounded byte-by-byte scan)", () async {
     final tmp = await Directory.systemTemp.createTemp('no_frame_sync');
@@ -60,8 +59,7 @@ void main() {
     expect(tags.title, isNot('Placeholder Name'));
   });
 
-  test(
-      'LibraryModel.load: a batch that blows its timeout budget falls back '
+  test('LibraryModel.load: a batch that blows its timeout budget falls back '
       'to filename-derived tags for every record instead of hanging or '
       'reporting an error', () async {
     final tmp = await Directory.systemTemp.createTemp('enrich_resilience');
@@ -80,20 +78,22 @@ void main() {
     // fallback path (readTagsBatch falls back to parseFromFilename for any
     // missing file) without ever opening a file at all.
     final manifest = File('${libRoot.path}/.library.json');
-    await manifest.writeAsString(jsonEncode({
-      'schema': 1,
-      'tracks': {
-        'id-1': {
-          'paths': ['Artist - Weird Encode.mp3'],
-          'date_added': '2024-01-01T00:00:00Z',
+    await manifest.writeAsString(
+      jsonEncode({
+        'schema': 1,
+        'tracks': {
+          'id-1': {
+            'paths': ['Artist - Weird Encode.mp3'],
+            'date_added': '2024-01-01T00:00:00Z',
+          },
+          'id-2': {
+            'paths': ['Artist - Normal Song.mp3'],
+            'date_added': '2024-01-02T00:00:00Z',
+          },
         },
-        'id-2': {
-          'paths': ['Artist - Normal Song.mp3'],
-          'date_added': '2024-01-02T00:00:00Z',
-        },
-      },
-      'playlists': [],
-    }));
+        'playlists': [],
+      }),
+    );
 
     final cacheFile = File('${tmp.path}/meta_cache.json');
     final model = LibraryModel();
@@ -117,12 +117,12 @@ void main() {
     // case (see the shape pinned above) simply never got here.
     expect(model.status, 'ready');
     expect(model.allTracks, hasLength(2));
-    final weird =
-        model.allTracks.firstWhere((t) => t.contentId == 'id-1');
+    final weird = model.allTracks.firstWhere((t) => t.contentId == 'id-1');
     expect(weird.artist, 'Artist');
     expect(weird.title, 'Weird Encode');
-    final normalTrack =
-        model.allTracks.firstWhere((t) => t.contentId == 'id-2');
+    final normalTrack = model.allTracks.firstWhere(
+      (t) => t.contentId == 'id-2',
+    );
     expect(normalTrack.artist, 'Artist');
     expect(normalTrack.title, 'Normal Song');
 
@@ -131,8 +131,7 @@ void main() {
     expect(cacheFile.existsSync(), isTrue);
   });
 
-  test(
-      'LibraryModel.load: the merged cache is flushed to disk before '
+  test('LibraryModel.load: the merged cache is flushed to disk before '
       'enrichment finishes, not only at the very end', () async {
     final tmp = await Directory.systemTemp.createTemp('enrich_incremental');
     addTearDown(() => tmp.delete(recursive: true));
@@ -151,7 +150,8 @@ void main() {
       };
     }
     await manifest.writeAsString(
-        jsonEncode({'schema': 1, 'tracks': tracks, 'playlists': []}));
+      jsonEncode({'schema': 1, 'tracks': tracks, 'playlists': []}),
+    );
 
     final cacheFile = File('${tmp.path}/meta_cache.json');
     var sawMidRunSave = false;
@@ -177,10 +177,13 @@ void main() {
         .timeout(const Duration(seconds: 30));
 
     expect(model.status, 'ready');
-    expect(sawMidRunSave, isTrue,
-        reason:
-            'expected a 1000-entry cache on disk (5 batches x 200) before '
-            'the 6th batch finished, proving the cache saves incrementally');
+    expect(
+      sawMidRunSave,
+      isTrue,
+      reason:
+          'expected a 1000-entry cache on disk (5 batches x 200) before '
+          'the 6th batch finished, proving the cache saves incrementally',
+    );
     final finalSaved = jsonDecode(cacheFile.readAsStringSync()) as Map;
     expect(finalSaved, hasLength(1200));
   });

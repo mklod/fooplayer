@@ -55,8 +55,9 @@ Future<void> _pump(WidgetTester tester, LibraryModel lib) async {
 }
 
 void main() {
-  testWidgets('a row is selected on pointer DOWN, before any tap completes',
-      (tester) async {
+  testWidgets('a row is selected on pointer DOWN, before any tap completes', (
+    tester,
+  ) async {
     final lib = _library();
     await _pump(tester, lib);
 
@@ -68,16 +69,20 @@ void main() {
     // One frame -- no pointer-up, and nowhere near kDoubleTapTimeout.
     await tester.pump();
 
-    expect(lib.selectedTrackIds, {'b'},
-        reason: 'the highlight must not wait for the double-tap window');
+    expect(
+      lib.selectedTrackIds,
+      {'b'},
+      reason: 'the highlight must not wait for the double-tap window',
+    );
 
     await gesture.up();
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
     expect(lib.selectedTrackIds, {'b'}, reason: 'and it stays selected');
   });
 
-  testWidgets('double-click still plays, and selection survives it',
-      (tester) async {
+  testWidgets('double-click still plays, and selection survives it', (
+    tester,
+  ) async {
     final lib = _library();
     final played = <String>[];
     await tester.pumpWidget(
@@ -104,23 +109,25 @@ void main() {
     expect(lib.selectedTrackIds, {'a'});
   });
 
-  testWidgets('right-clicking a row puts Album artwork at the top of the menu',
-      (tester) async {
-    final lib = _library();
-    await _pump(tester, lib);
+  testWidgets(
+    'right-clicking a row puts Album artwork at the top of the menu',
+    (tester) async {
+      final lib = _library();
+      await _pump(tester, lib);
 
-    await tester.tap(find.text('Alpha'), buttons: kSecondaryButton);
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Alpha'), buttons: kSecondaryButton);
+      await tester.pumpAndSettle();
 
-    // No artwork services are wired here, so the item is (correctly) absent;
-    // what's asserted is the ORDER of what is shown -- artwork would precede
-    // "View in folder", which is itself first among the rest.
-    final viewInFolder = find.text('View in folder');
-    expect(viewInFolder, findsOneWidget);
-    final addToPlaylist = find.text('Add to playlist ▸');
-    expect(
-      tester.getTopLeft(viewInFolder).dy,
-      lessThan(tester.getTopLeft(addToPlaylist).dy),
-    );
-  });
+      // No artwork services are wired here, so the item is (correctly) absent;
+      // what's asserted is the ORDER of what is shown -- artwork would precede
+      // "View in folder", which is itself first among the rest.
+      final viewInFolder = find.text('View in folder');
+      expect(viewInFolder, findsOneWidget);
+      final addToPlaylist = find.text('Add to playlist ▸');
+      expect(
+        tester.getTopLeft(viewInFolder).dy,
+        lessThan(tester.getTopLeft(addToPlaylist).dy),
+      );
+    },
+  );
 }

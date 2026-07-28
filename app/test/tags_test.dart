@@ -5,7 +5,9 @@ import 'package:fooplayer_app/metadata/tags.dart';
 void main() {
   group('parseFromFilename', () {
     test('artist - title with album from parent dir', () {
-      final t = parseFromFilename('albums/Arctic Monkeys - Humbug/Arctic Monkeys - Crying Lightning.mp3');
+      final t = parseFromFilename(
+        'albums/Arctic Monkeys - Humbug/Arctic Monkeys - Crying Lightning.mp3',
+      );
       expect(t.artist, 'Arctic Monkeys');
       expect(t.title, 'Crying Lightning');
       expect(t.album, 'Arctic Monkeys - Humbug');
@@ -26,11 +28,14 @@ void main() {
   });
 
   group('parseFromFilename date-like parent folder is not an album', () {
-    test('a "YYYY-MM" parent directory (e.g. a dated export folder) yields no album', () {
-      final t = parseFromFilename('Various Artists/2012-11/Track One.mp3');
-      expect(t.album, isNull);
-      expect(t.title, 'Track One');
-    });
+    test(
+      'a "YYYY-MM" parent directory (e.g. a dated export folder) yields no album',
+      () {
+        final t = parseFromFilename('Various Artists/2012-11/Track One.mp3');
+        expect(t.album, isNull);
+        expect(t.title, 'Track One');
+      },
+    );
 
     test('a bare "YYYY" parent directory also yields no album', () {
       final t = parseFromFilename('Various Artists/1999/Track One.mp3');
@@ -39,23 +44,31 @@ void main() {
 
     test('a parent directory that merely starts with a date but has more '
         'text is still treated as a real album', () {
-      final t = parseFromFilename('Various Artists/2012-11 Tour Rehearsals/Track One.mp3');
+      final t = parseFromFilename(
+        'Various Artists/2012-11 Tour Rehearsals/Track One.mp3',
+      );
       expect(t.album, '2012-11 Tour Rehearsals');
     });
 
-    test('a top-level (no parent directory) file still has no album, same as before', () {
-      final t = parseFromFilename('2012-11.mp3');
-      expect(t.album, isNull);
-    });
+    test(
+      'a top-level (no parent directory) file still has no album, same as before',
+      () {
+        final t = parseFromFilename('2012-11.mp3');
+        expect(t.album, isNull);
+      },
+    );
   });
 
   group('parseFromFilename track-number prefix', () {
-    test('"NN Title.ext" -> trackNumber and a title with the prefix stripped', () {
-      final t = parseFromFilename('03 You Love Me (Remix).mp3');
-      expect(t.trackNumber, 3);
-      expect(t.title, 'You Love Me (Remix)');
-      expect(t.artist, isNull);
-    });
+    test(
+      '"NN Title.ext" -> trackNumber and a title with the prefix stripped',
+      () {
+        final t = parseFromFilename('03 You Love Me (Remix).mp3');
+        expect(t.trackNumber, 3);
+        expect(t.title, 'You Love Me (Remix)');
+        expect(t.artist, isNull);
+      },
+    );
 
     test('"Artist - Title.ext" with no leading number -> trackNumber null', () {
       final t = parseFromFilename('Artist - Title.mp3');
@@ -64,12 +77,15 @@ void main() {
       expect(t.title, 'Title');
     });
 
-    test('"NN - Title.ext" -> trackNumber and the "NN - " prefix cleanly stripped', () {
-      final t = parseFromFilename('07 - No One Gets Left Behind.mp3');
-      expect(t.trackNumber, 7);
-      expect(t.title, 'No One Gets Left Behind');
-      expect(t.artist, isNull);
-    });
+    test(
+      '"NN - Title.ext" -> trackNumber and the "NN - " prefix cleanly stripped',
+      () {
+        final t = parseFromFilename('07 - No One Gets Left Behind.mp3');
+        expect(t.trackNumber, 7);
+        expect(t.title, 'No One Gets Left Behind');
+        expect(t.artist, isNull);
+      },
+    );
 
     test('a leading four-digit year is not mistaken for a track number '
         '(falls through to the ordinary artist/title split instead)', () {
@@ -91,7 +107,10 @@ void main() {
     List<int> id3v2(Map<String, String> frames) {
       final frameBytes = <int>[];
       for (final e in frames.entries) {
-        final text = [0x00, ...e.value.codeUnits]; // latin-1 encoding byte + text
+        final text = [
+          0x00,
+          ...e.value.codeUnits,
+        ]; // latin-1 encoding byte + text
         frameBytes.addAll(e.key.codeUnits); // 4-char frame id
         final size = text.length;
         frameBytes.addAll([
@@ -121,11 +140,9 @@ void main() {
       final tmp = await Directory.systemTemp.createTemp('trck');
       // No numeric filename prefix: the number can ONLY come from the tag.
       final f = File('${tmp.path}/Can I.mp3');
-      await f.writeAsBytes(id3v2({
-        'TIT2': 'Can I',
-        'TALB': 'Urban Flora',
-        'TRCK': '3/12',
-      }));
+      await f.writeAsBytes(
+        id3v2({'TIT2': 'Can I', 'TALB': 'Urban Flora', 'TRCK': '3/12'}),
+      );
       final t = await readTags(f);
       expect(t.title, 'Can I');
       expect(t.album, 'Urban Flora');
@@ -171,31 +188,37 @@ void main() {
     await tmp.delete(recursive: true);
   });
 
-  test('readTags does not leak the file handle: file deletes immediately after', () async {
-    final tmp = await Directory.systemTemp.createTemp('handle_leak');
-    final f = File('${tmp.path}/Muse - New Born.mp3');
-    await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
-    await readTags(f);
-    // On Windows, an open RandomAccessFile prevents deletion outright. If
-    // readTags left the reader open, this throws (regression test for the
-    // audio_metadata_reader handle leak worked around in tags.dart).
-    expect(f.deleteSync, returnsNormally);
-    await tmp.delete(recursive: true);
-  });
+  test(
+    'readTags does not leak the file handle: file deletes immediately after',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('handle_leak');
+      final f = File('${tmp.path}/Muse - New Born.mp3');
+      await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
+      await readTags(f);
+      // On Windows, an open RandomAccessFile prevents deletion outright. If
+      // readTags left the reader open, this throws (regression test for the
+      // audio_metadata_reader handle leak worked around in tags.dart).
+      expect(f.deleteSync, returnsNormally);
+      await tmp.delete(recursive: true);
+    },
+  );
 
-  test('readTags on an unreadable/unparseable file yields durationMs null', () async {
-    final tmp = await Directory.systemTemp.createTemp('tags_dur');
-    final f = File('${tmp.path}/Muse - New Born.mp3');
-    await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
-    final t = await readTags(f);
-    expect(t.durationMs, isNull);
-    // No container parser recognized this file at all (see _readRawTags's
-    // `raw == null` early return) -- the mp3_duration.dart fallback only
-    // ever runs once a parser has actually matched, so it's correctly never
-    // attempted here.
-    expect(t.durationProbed, isFalse);
-    await tmp.delete(recursive: true);
-  });
+  test(
+    'readTags on an unreadable/unparseable file yields durationMs null',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('tags_dur');
+      final f = File('${tmp.path}/Muse - New Born.mp3');
+      await f.writeAsBytes(List.filled(64, 0x00)); // not a valid mp3
+      final t = await readTags(f);
+      expect(t.durationMs, isNull);
+      // No container parser recognized this file at all (see _readRawTags's
+      // `raw == null` early return) -- the mp3_duration.dart fallback only
+      // ever runs once a parser has actually matched, so it's correctly never
+      // attempted here.
+      expect(t.durationProbed, isFalse);
+      await tmp.delete(recursive: true);
+    },
+  );
 
   group('isMp3Path', () {
     test('matches .mp3 case-insensitively, not other extensions', () {
@@ -239,7 +262,9 @@ void main() {
       final total = frameBytes.length;
       return [
         ...'ID3'.codeUnits,
-        0x03, 0x00, 0x00,
+        0x03,
+        0x00,
+        0x00,
         (total >> 21) & 0x7F,
         (total >> 14) & 0x7F,
         (total >> 7) & 0x7F,
@@ -253,7 +278,12 @@ void main() {
     /// mp3_duration_test.dart's own MPEG2.5 case).
     List<int> mpeg25Frames(int frameCount) {
       const frameLen = 313;
-      final header = [0xFF, 0xE3, 0x30, 0x00]; // versionBits=0, layerBits=1(III), bitrateIndex=3, sampleRateIndex=0
+      final header = [
+        0xFF,
+        0xE3,
+        0x30,
+        0x00,
+      ]; // versionBits=0, layerBits=1(III), bitrateIndex=3, sampleRateIndex=0
       final out = <int>[];
       for (var i = 0; i < frameCount; i++) {
         out.addAll(header);
@@ -267,8 +297,14 @@ void main() {
       final tmp = await Directory.systemTemp.createTemp('mp3_fallback');
       final f = File('${tmp.path}/Some Artist - Some Title.mp3');
       await f.writeAsBytes([
-        ...id3v2Frames({'TIT2': 'Some Title', 'TPE1': 'Some Artist', 'TALB': 'Some Album'}),
-        ...mpeg25Frames(20), // 6260 bytes @ 24kbps -> 2086667us, see mp3_duration_test.dart
+        ...id3v2Frames({
+          'TIT2': 'Some Title',
+          'TPE1': 'Some Artist',
+          'TALB': 'Some Album',
+        }),
+        ...mpeg25Frames(
+          20,
+        ), // 6260 bytes @ 24kbps -> 2086667us, see mp3_duration_test.dart
       ]);
 
       final t = await readTags(f);
@@ -309,7 +345,8 @@ void main() {
       // (mp3.dart, `_parseAudioFrames`'s final `else if`) *does* compute a
       // duration for this shape (no Xing header, a directly-tabulated
       // MPEG1/LayerIII bitrate), so ours must not override it.
-      const frameLen = 417; // MPEG1 L3 128kbps/44100 -- see mp3_duration_test.dart
+      const frameLen =
+          417; // MPEG1 L3 128kbps/44100 -- see mp3_duration_test.dart
       final header = [0xFF, 0xFB, 0x90, 0x00];
       final f = File('${tmp.path}/track.mp3');
       final bytes = <int>[];
@@ -317,14 +354,23 @@ void main() {
         bytes.addAll(header);
         bytes.addAll(List.filled(frameLen - header.length, 0x00));
       }
-      bytes.addAll([0x54, 0x41, 0x47, ...List.filled(125, 0x00)]); // ID3v1 "TAG" trailer
+      bytes.addAll([
+        0x54,
+        0x41,
+        0x47,
+        ...List.filled(125, 0x00),
+      ]); // ID3v1 "TAG" trailer
       await f.writeAsBytes(bytes);
 
       final t = await readTags(f);
       expect(t.durationMs, isNotNull);
-      expect(t.durationProbed, isFalse,
-          reason: 'the tag parser already produced a duration; the '
-              'estimator must not have been invoked at all');
+      expect(
+        t.durationProbed,
+        isFalse,
+        reason:
+            'the tag parser already produced a duration; the '
+            'estimator must not have been invoked at all',
+      );
       await tmp.delete(recursive: true);
     });
   });
@@ -332,7 +378,12 @@ void main() {
   group('TrackTags json round-trip', () {
     test('durationMs round-trips through toJson/fromJson', () {
       const t = TrackTags(
-          title: 'T', artist: 'A', album: 'B', genre: 'G', durationMs: 245000);
+        title: 'T',
+        artist: 'A',
+        album: 'B',
+        genre: 'G',
+        durationMs: 245000,
+      );
       final j = t.toJson();
       expect(j['durationMs'], 245000);
       expect(TrackTags.fromJson(j).durationMs, 245000);

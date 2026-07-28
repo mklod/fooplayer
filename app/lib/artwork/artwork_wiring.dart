@@ -51,14 +51,14 @@ Future<List<int>?> readLocalArtworkFile(String path) async {
 /// A1's [ArtCandidate] as A3's grid view-model. Field names were chosen on
 /// both sides to make this a straight copy -- no reshaping, no loss.
 PickerCandidate toPickerCandidate(ArtCandidate c) => PickerCandidate(
-      url: c.url,
-      thumbUrl: c.thumbUrl,
-      source: c.source.id,
-      title: c.title,
-      artist: c.artist,
-      year: c.year,
-      width: c.width,
-    );
+  url: c.url,
+  thumbUrl: c.thumbUrl,
+  source: c.source.id,
+  title: c.title,
+  artist: c.artist,
+  year: c.year,
+  width: c.width,
+);
 
 /// Bounded, deduped, throttled image fetcher shared by the picker grid and
 /// the "apply this candidate" path.
@@ -213,9 +213,9 @@ class ArtworkWiring {
     bool backfillEnabled = true,
     int maxConcurrent = 3,
     Duration gap = defaultArtworkBackfillGap,
-  })  : images = images ?? ArtworkImageCache(fetch: imageFetch),
-        candidates = candidates ?? ArtworkCandidateCache(),
-        caaLimiter = caaLimiter ?? musicBrainzLimiter {
+  }) : images = images ?? ArtworkImageCache(fetch: imageFetch),
+       candidates = candidates ?? ArtworkCandidateCache(),
+       caaLimiter = caaLimiter ?? musicBrainzLimiter {
     backfill = ArtworkBackfill(
       resolver: resolver,
       search: searchForBackfill,
@@ -278,8 +278,8 @@ class ArtworkWiring {
     RateLimitPriority priority = RateLimitPriority.background,
     Duration? caaBudget,
   }) async {
-    final key = albumKey ??
-        artworkAlbumKey(artist: artist, album: album, title: album);
+    final key =
+        albumKey ?? artworkAlbumKey(artist: artist, album: album, title: album);
     if (!forceRefresh) {
       final hit = candidates.get(key);
       if (hit != null) return hit;
@@ -300,7 +300,10 @@ class ArtworkWiring {
     // pure so doing it at the seam costs nothing and keeps both consumers
     // (grid order, auto-apply) reading from the same ordering.
     final ranked = [
-      for (final s in rankCandidates(ArtQuery(artist: artist, album: album), found))
+      for (final s in rankCandidates(
+        ArtQuery(artist: artist, album: album),
+        found,
+      ))
         s.candidate,
     ];
     candidates.put(key, ranked);

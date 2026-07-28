@@ -141,8 +141,9 @@ class ArtworkBackfill {
   }) {
     if (!enabled) return Future<void>.value();
     final gen = ++_generation;
-    final next = (_chain ?? Future<void>.value())
-        .then((_) => _runBody(gen, requests, bypassNegativeCache));
+    final next = (_chain ?? Future<void>.value()).then(
+      (_) => _runBody(gen, requests, bypassNegativeCache),
+    );
     // Keep the chain alive past a failure so one bad pass can't wedge every
     // later one.
     _chain = next.catchError((Object _) {});
@@ -172,8 +173,9 @@ class ArtworkBackfill {
         // mark it unresolved.
         if (seen.add('${r.rootPath}\u0000${r.albumKey}')) queue.add(r);
       }
-      final workers =
-          queue.length < maxConcurrent ? queue.length : maxConcurrent;
+      final workers = queue.length < maxConcurrent
+          ? queue.length
+          : maxConcurrent;
       await Future.wait([
         for (var i = 0; i < workers; i++)
           _worker(gen, queue, bypassNegativeCache),
@@ -205,8 +207,7 @@ class ArtworkBackfill {
   Future<ArtworkLookupResult> lookupOne(
     ArtworkRequest req, {
     bool bypassNegativeCache = false,
-  }) =>
-      _lookup(req, _generation, bypassNegativeCache);
+  }) => _lookup(req, _generation, bypassNegativeCache);
 
   Future<ArtworkLookupResult> _lookup(
     ArtworkRequest req,

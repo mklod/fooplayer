@@ -72,7 +72,11 @@ class _LifecycleFlusher with WidgetsBindingObserver {
   /// on in-flight I/O, so this can't delay exit.
   final ArtworkBackfill? artworkBackfill;
 
-  _LifecycleFlusher(this.layoutPrefs, {this.rescanTimer, this.artworkBackfill}) {
+  _LifecycleFlusher(
+    this.layoutPrefs, {
+    this.rescanTimer,
+    this.artworkBackfill,
+  }) {
     WidgetsBinding.instance.addObserver(this);
     AppLifecycleListener(
       onExitRequested: () async {
@@ -180,20 +184,20 @@ void main() async {
       // Once the launch rescan itself settles, queue a FOLLOW-UP backfill
       // pass covering whatever it discovered -- see [rescanThenBackfill]'s
       // doc for why every rescan trigger (not just load()) needs this.
-      unawaited(rescanThenBackfill(
-        rescan: library.rescan,
-        backfill: artworkBackfill,
-        tracks: () => library.allTracks,
-      ));
+      unawaited(
+        rescanThenBackfill(
+          rescan: library.rescan,
+          backfill: artworkBackfill,
+          tracks: () => library.allTracks,
+        ),
+      );
     }
     // Background best-guess pass, queued once load() has fully settled
     // (feed rendered AND tag enrichment finished -- artist/album tags are
     // what the album key is built from, so running earlier would key off
     // filename guesses). Fire-and-forget: never awaited on any UI path, and
     // it never writes LibraryModel.status.
-    unawaited(
-      artworkBackfill.run(artworkBackfillRequests(library.allTracks)),
-    );
+    unawaited(artworkBackfill.run(artworkBackfillRequests(library.allTracks)));
   }
 
   // Settings-dialog add/remove calls writer() above then notifies -- react
@@ -212,11 +216,13 @@ void main() async {
   // found afterward sat un-arted until the app restarted.
   final rescanTimer = Timer.periodic(
     _rescanInterval,
-    (_) => unawaited(rescanThenBackfill(
-      rescan: library.rescan,
-      backfill: artworkBackfill,
-      tracks: () => library.allTracks,
-    )),
+    (_) => unawaited(
+      rescanThenBackfill(
+        rescan: library.rescan,
+        backfill: artworkBackfill,
+        tracks: () => library.allTracks,
+      ),
+    ),
   );
 
   _LifecycleFlusher(
@@ -224,17 +230,20 @@ void main() async {
     rescanTimer: rescanTimer,
     artworkBackfill: artworkBackfill,
   );
-  WidgetsBinding.instance
-      .addPostFrameCallback((_) => reloadLibrary(triggerLaunchRescan: true));
-  runApp(FooPlayerApp(
-    library: library,
-    player: player,
-    layoutPrefs: layoutPrefs,
-    libraryRootsPrefs: libraryRootsPrefs,
-    artworkResolver: artworkResolver,
-    artworkServices: artworkServices,
-    artworkBackfill: artworkBackfill,
-  ));
+  WidgetsBinding.instance.addPostFrameCallback(
+    (_) => reloadLibrary(triggerLaunchRescan: true),
+  );
+  runApp(
+    FooPlayerApp(
+      library: library,
+      player: player,
+      layoutPrefs: layoutPrefs,
+      libraryRootsPrefs: libraryRootsPrefs,
+      artworkResolver: artworkResolver,
+      artworkServices: artworkServices,
+      artworkBackfill: artworkBackfill,
+    ),
+  );
 }
 
 class FooPlayerApp extends StatelessWidget {
@@ -317,33 +326,33 @@ class FooPlayerApp extends StatelessWidget {
                 MiniPlayer(player: player, artworkResolver: artworkResolver),
             viewBuilders: {
               PhoneView.folders: (_) => FoldersView(
-                    library: library,
-                    store: store,
-                    onPlayTrack: player.playFrom,
-                  ),
+                library: library,
+                store: store,
+                onPlayTrack: player.playFrom,
+              ),
               PhoneView.artists: (_) => ArtistsView(
-                    library: library,
-                    store: store,
-                    onPlayTrack: player.playFrom,
-                  ),
+                library: library,
+                store: store,
+                onPlayTrack: player.playFrom,
+              ),
               PhoneView.albums: (_) => AlbumsView(
-                    library: library,
-                    store: store,
-                    onPlayTrack: player.playFrom,
-                  ),
+                library: library,
+                store: store,
+                onPlayTrack: player.playFrom,
+              ),
               PhoneView.playlists: (_) => PlaylistsView(
-                    library: library,
-                    store: store,
-                    onPlayTrack: player.playFrom,
-                  ),
+                library: library,
+                store: store,
+                onPlayTrack: player.playFrom,
+              ),
               // Settings as a page (plan: "reuses existing SettingsDialog
               // content"): same roots editor + prefs the desktop dialog
               // uses, so add/remove triggers the same config write +
               // library reload via libraryRootsPrefs' listener above.
               PhoneView.settings: (_) => PhoneSettingsView(
-                    library: library,
-                    libraryRootsPrefs: libraryRootsPrefs,
-                  ),
+                library: library,
+                libraryRootsPrefs: libraryRootsPrefs,
+              ),
             },
           );
         },

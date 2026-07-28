@@ -44,13 +44,13 @@ enum ArtSource {
 
   /// Human-facing label for the picker's source chip.
   String get label => switch (this) {
-        ArtSource.itunes => 'iTunes',
-        ArtSource.deezer => 'Deezer',
-        ArtSource.caa => 'Cover Art Archive',
-        ArtSource.local => 'Local file',
-        ArtSource.url => 'URL',
-        ArtSource.embedded => 'Embedded',
-      };
+    ArtSource.itunes => 'iTunes',
+    ArtSource.deezer => 'Deezer',
+    ArtSource.caa => 'Cover Art Archive',
+    ArtSource.local => 'Local file',
+    ArtSource.url => 'URL',
+    ArtSource.embedded => 'Embedded',
+  };
 }
 
 /// What we are looking artwork up for: one album, identified by whatever the
@@ -134,26 +134,25 @@ class ArtCandidate {
     String? artist,
     int? year,
     int? width,
-  }) =>
-      ArtCandidate(
-        url: url ?? this.url,
-        thumbUrl: thumbUrl ?? this.thumbUrl,
-        source: source ?? this.source,
-        title: title ?? this.title,
-        artist: artist ?? this.artist,
-        year: year ?? this.year,
-        width: width ?? this.width,
-      );
+  }) => ArtCandidate(
+    url: url ?? this.url,
+    thumbUrl: thumbUrl ?? this.thumbUrl,
+    source: source ?? this.source,
+    title: title ?? this.title,
+    artist: artist ?? this.artist,
+    year: year ?? this.year,
+    width: width ?? this.width,
+  );
 
   Map<String, dynamic> toJson() => {
-        'url': url,
-        'thumbUrl': thumbUrl,
-        'source': source.id,
-        'title': title,
-        'artist': artist,
-        'year': year,
-        'width': width,
-      };
+    'url': url,
+    'thumbUrl': thumbUrl,
+    'source': source.id,
+    'title': title,
+    'artist': artist,
+    'year': year,
+    'width': width,
+  };
 
   /// Tolerant inverse of [toJson]; returns null when the payload is not a
   /// usable candidate (no URL, unknown source) so callers can just filter.

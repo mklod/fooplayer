@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/metadata/meta_cache.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/track.dart';
 
@@ -20,30 +21,34 @@ Future<Directory> _root(Directory tmp, String name) =>
 Future<void> _writeManifest(
   Directory root, {
   required Map<String, Object?> tracks,
-}) =>
-    File('${root.path}/.library.json').writeAsString(jsonEncode({
-      'schema': 1,
-      'tracks': tracks,
-      'playlists': [],
-    }));
+}) => File(
+  '${root.path}/.library.json',
+).writeAsString(jsonEncode({'schema': 1, 'tracks': tracks, 'playlists': []}));
 
-Map<String, Object?> _trackJson(String path, String dateAdded) =>
-    {'paths': [path], 'date_added': dateAdded};
+Map<String, Object?> _trackJson(String path, String dateAdded) => {
+  'paths': [path],
+  'date_added': dateAdded,
+};
 
 void main() {
   late Directory tmp;
-  setUp(() async => tmp = await Directory.systemTemp.createTemp('instant_feed'));
+  setUp(
+    () async => tmp = await Directory.systemTemp.createTemp('instant_feed'),
+  );
   tearDown(() async => tmp.delete(recursive: true));
 
-  test(
-      'with an empty tag cache, tracks have properly split artist/title/album '
+  test('with an empty tag cache, tracks have properly split artist/title/album '
       'the moment Part A finishes -- not the raw manifest filename', () async {
     final root = await _root(tmp, 'lib');
-    await _writeManifest(root, tracks: {
-      'id1': _trackJson(
+    await _writeManifest(
+      root,
+      tracks: {
+        'id1': _trackJson(
           'albums/RÜFÜS du Sol - The Life/RÜFÜS du Sol - The Life.mp3',
-          '2024-01-01T00:00:00Z'),
-    });
+          '2024-01-01T00:00:00Z',
+        ),
+      },
+    );
 
     final model = LibraryModel();
     List<Track>? afterPartA;
@@ -60,7 +65,10 @@ void main() {
     });
 
     await model
-        .load(libraryRoots: [root], cacheFile: File('${tmp.path}/meta_cache.json'))
+        .load(
+          libraryRoots: [root],
+          cacheFile: File('${tmp.path}/meta_cache.json'),
+        )
         .timeout(const Duration(seconds: 30));
 
     expect(afterPartA, isNotNull);
@@ -73,9 +81,15 @@ void main() {
   test('a manifest filename with a leading track number is split into '
       'trackNumber and a clean title, immediately in Part A', () async {
     final root = await _root(tmp, 'lib2');
-    await _writeManifest(root, tracks: {
-      'id2': _trackJson('Album/03 You Love Me (Remix).mp3', '2024-01-01T00:00:00Z'),
-    });
+    await _writeManifest(
+      root,
+      tracks: {
+        'id2': _trackJson(
+          'Album/03 You Love Me (Remix).mp3',
+          '2024-01-01T00:00:00Z',
+        ),
+      },
+    );
 
     final model = LibraryModel();
     List<Track>? afterPartA;
@@ -86,7 +100,10 @@ void main() {
     });
 
     await model
-        .load(libraryRoots: [root], cacheFile: File('${tmp.path}/meta_cache2.json'))
+        .load(
+          libraryRoots: [root],
+          cacheFile: File('${tmp.path}/meta_cache2.json'),
+        )
         .timeout(const Duration(seconds: 30));
 
     expect(afterPartA, isNotNull);
@@ -98,20 +115,26 @@ void main() {
   test('a cached track (already tag-enriched) is untouched by the '
       'filename-parse fallback -- it keeps its real cached tags', () async {
     final root = await _root(tmp, 'lib3');
-    await _writeManifest(root, tracks: {
-      'id3': _trackJson('Some Raw Filename.mp3', '2024-01-01T00:00:00Z'),
-    });
+    await _writeManifest(
+      root,
+      tracks: {
+        'id3': _trackJson('Some Raw Filename.mp3', '2024-01-01T00:00:00Z'),
+      },
+    );
     final cacheFile = File('${tmp.path}/meta_cache3.json');
-    await cacheFile.writeAsString(jsonEncode({
-      'id3': {
-        'title': 'Real Tagged Title',
-        'artist': 'Real Tagged Artist',
-        'album': 'Real Tagged Album',
-        'genre': 'Rock',
-        'durationMs': 200000,
-        'trackNumber': 5,
-      }
-    }));
+    await cacheFile.writeAsString(
+      jsonEncode({
+        'id3': {
+          'title': 'Real Tagged Title',
+          'artist': 'Real Tagged Artist',
+          'album': 'Real Tagged Album',
+          'genre': 'Rock',
+          'durationMs': 200000,
+          'trackNumber': 5,
+          'rev': kMetaCacheRevision,
+        },
+      }),
+    );
 
     final model = LibraryModel();
     await model

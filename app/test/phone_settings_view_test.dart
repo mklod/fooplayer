@@ -29,22 +29,26 @@ Future<void> pumpSettings(
   required LibraryRootsPrefs prefs,
   Future<String?> Function()? pickDirectory,
 }) {
-  return tester.pumpWidget(MaterialApp(
-    theme: buildAppTheme(),
-    home: Scaffold(
-      body: PhoneSettingsView(
-        library: library,
-        libraryRootsPrefs: prefs,
-        pickDirectory: pickDirectory ?? () async => null,
+  return tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: PhoneSettingsView(
+          library: library,
+          libraryRootsPrefs: prefs,
+          pickDirectory: pickDirectory ?? () async => null,
+        ),
       ),
     ),
-  ));
+  );
 }
 
 void main() {
   testWidgets('lists the configured roots by full path', (tester) async {
     final prefs = LibraryRootsPrefs(
-        roots: [r'C:\music', r'D:\more music'], writer: (_) {});
+      roots: [r'C:\music', r'D:\more music'],
+      writer: (_) {},
+    );
     await pumpSettings(tester, library: fixtureLibrary(), prefs: prefs);
 
     expect(find.text('Library roots'), findsOneWidget);
@@ -53,31 +57,40 @@ void main() {
   });
 
   testWidgets(
-      'Add folder... goes through the picker into prefs and the new root '
-      'appears live (prefs listener rebuild)', (tester) async {
-    final written = <List<String>>[];
-    final prefs =
-        LibraryRootsPrefs(roots: [r'C:\music'], writer: written.add);
-    await pumpSettings(tester,
+    'Add folder... goes through the picker into prefs and the new root '
+    'appears live (prefs listener rebuild)',
+    (tester) async {
+      final written = <List<String>>[];
+      final prefs = LibraryRootsPrefs(
+        roots: [r'C:\music'],
+        writer: written.add,
+      );
+      await pumpSettings(
+        tester,
         library: fixtureLibrary(),
         prefs: prefs,
-        pickDirectory: () async => r'E:\picked folder');
+        pickDirectory: () async => r'E:\picked folder',
+      );
 
-    await tester.tap(find.byKey(const Key('add-folder-button')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('add-folder-button')));
+      await tester.pumpAndSettle();
 
-    expect(prefs.roots, [r'C:\music', r'E:\picked folder']);
-    expect(written, [
-      [r'C:\music', r'E:\picked folder']
-    ]);
-    // The page listens to prefs, so the tile appears without a reopen.
-    expect(find.text(r'E:\picked folder'), findsOneWidget);
-  });
+      expect(prefs.roots, [r'C:\music', r'E:\picked folder']);
+      expect(written, [
+        [r'C:\music', r'E:\picked folder'],
+      ]);
+      // The page listens to prefs, so the tile appears without a reopen.
+      expect(find.text(r'E:\picked folder'), findsOneWidget);
+    },
+  );
 
-  testWidgets('removing a root updates prefs and the tile disappears',
-      (tester) async {
+  testWidgets('removing a root updates prefs and the tile disappears', (
+    tester,
+  ) async {
     final prefs = LibraryRootsPrefs(
-        roots: [r'C:\music', r'D:\more music'], writer: (_) {});
+      roots: [r'C:\music', r'D:\more music'],
+      writer: (_) {},
+    );
     await pumpSettings(tester, library: fixtureLibrary(), prefs: prefs);
 
     await tester.tap(find.byKey(const Key('remove-root-D:\\more music')));
@@ -88,12 +101,15 @@ void main() {
     expect(find.text(r'C:\music'), findsOneWidget);
   });
 
-  testWidgets('missing-manifest root shows the inline seed note',
-      (tester) async {
+  testWidgets('missing-manifest root shows the inline seed note', (
+    tester,
+  ) async {
     final library = fixtureLibrary();
     library.rootsMissingManifest = [r'C:\new drop'];
     final prefs = LibraryRootsPrefs(
-        roots: [r'C:\music', r'C:\new drop'], writer: (_) {});
+      roots: [r'C:\music', r'C:\new drop'],
+      writer: (_) {},
+    );
     await pumpSettings(tester, library: library, prefs: prefs);
 
     expect(
@@ -105,27 +121,28 @@ void main() {
     );
   });
 
-  testWidgets(
-      'drawer Settings entry shows the real page when wired via '
+  testWidgets('drawer Settings entry shows the real page when wired via '
       'viewBuilders (production shape) -- no "coming soon"', (tester) async {
     final library = fixtureLibrary();
     final prefs = LibraryRootsPrefs(roots: [r'C:\music'], writer: (_) {});
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: PhoneShell(
-        library: library,
-        player: PlayerService(),
-        onPlayTrack: (_, _) {},
-        onTrackLongPress: (_, _) {},
-        viewBuilders: {
-          PhoneView.settings: (_) => PhoneSettingsView(
-                library: library,
-                libraryRootsPrefs: prefs,
-                pickDirectory: () async => null,
-              ),
-        },
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: PhoneShell(
+          library: library,
+          player: PlayerService(),
+          onPlayTrack: (_, _) {},
+          onTrackLongPress: (_, _) {},
+          viewBuilders: {
+            PhoneView.settings: (_) => PhoneSettingsView(
+              library: library,
+              libraryRootsPrefs: prefs,
+              pickDirectory: () async => null,
+            ),
+          },
+        ),
       ),
-    ));
+    );
 
     await tester.tap(find.byTooltip('Open navigation menu'));
     await tester.pumpAndSettle();

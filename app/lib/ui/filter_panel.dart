@@ -98,7 +98,8 @@ class FilterPanel extends StatelessWidget {
     this.onClearHeader,
   });
 
-  String _label(String value) => displayName == null ? value : displayName!(value);
+  String _label(String value) =>
+      displayName == null ? value : displayName!(value);
 
   /// Handles a click on value [v] -- see the class doc's "Selection model"
   /// paragraph for the plain-click-vs-Ctrl+click contract this implements.
@@ -159,8 +160,11 @@ class FilterPanel extends StatelessWidget {
                           onHeaderSegmentTap!(headerSegments!.length - 2),
                       child: const Padding(
                         padding: EdgeInsets.only(right: 4),
-                        child: Icon(Icons.arrow_upward,
-                            size: 15, color: AppColors.inkSecondary),
+                        child: Icon(
+                          Icons.arrow_upward,
+                          size: 15,
+                          color: AppColors.inkSecondary,
+                        ),
                       ),
                     ),
                   ),
@@ -177,9 +181,7 @@ class FilterPanel extends StatelessWidget {
                                   : '${selected.length} selected'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
+                          style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(fontWeight: FontWeight.w600),
                         ),
                 ),
@@ -189,7 +191,11 @@ class FilterPanel extends StatelessWidget {
                   onTap: onClearHeader ?? () => onSelect(const {}),
                   child: const Padding(
                     padding: EdgeInsets.all(4),
-                    child: Icon(Icons.close, size: 15, color: AppColors.inkSecondary),
+                    child: Icon(
+                      Icons.close,
+                      size: 15,
+                      color: AppColors.inkSecondary,
+                    ),
                   ),
                 ),
               ],
@@ -209,7 +215,11 @@ class FilterPanel extends StatelessWidget {
                 ListTile(
                   dense: true,
                   visualDensity: VisualDensity.compact,
-                  title: Text(_label(v), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  title: Text(
+                    _label(v),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   selected: selected.contains(v),
                   onTap: () => _handleTap(v),
                 ),
@@ -247,8 +257,7 @@ class _BreadcrumbRow extends StatelessWidget {
         children: [
           for (var i = 0; i < segments.length; i++) ...[
             if (i > 0)
-              Text(' / ',
-                  style: base?.copyWith(color: AppColors.inkSecondary)),
+              Text(' / ', style: base?.copyWith(color: AppColors.inkSecondary)),
             if (i < segments.length - 1 && onSegmentTap != null)
               _BreadcrumbLink(
                 key: Key('breadcrumb-seg-$i'),
@@ -299,8 +308,9 @@ class _BreadcrumbLinkState extends State<_BreadcrumbLink> {
         style: base?.copyWith(
           color: _hovered ? AppColors.ink : AppColors.accent,
           decoration: TextDecoration.underline,
-          decorationColor:
-              _hovered ? AppColors.ink : AppColors.accent.withValues(alpha: 0.5),
+          decorationColor: _hovered
+              ? AppColors.ink
+              : AppColors.accent.withValues(alpha: 0.5),
         ),
       ),
     );

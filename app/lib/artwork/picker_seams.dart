@@ -26,7 +26,8 @@ import 'package:file_selector/file_selector.dart' as file_selector;
 import '../model/track.dart';
 import 'album_key.dart';
 
-export 'album_key.dart' show ArtworkQuery, artworkAlbumKey, normalizeArtworkText;
+export 'album_key.dart'
+    show ArtworkQuery, artworkAlbumKey, normalizeArtworkText;
 
 /// Sidecar `source` ids, per the plan's `.artwork.json` schema
 /// (`"itunes|deezer|caa|local|url|embedded"`). Deliberately plain strings

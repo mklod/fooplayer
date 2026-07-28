@@ -65,18 +65,104 @@ class _FrameHeader {
 // isn't fixed per-frame, would need scanning multiple frames to measure) and
 // index 15 ("bad" -- reserved/invalid) are both represented as -1 so the
 // `<= 0` check in [_parseFrameHeader] rejects them uniformly.
-const _bitratesV1L1 = [-1, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, -1];
-const _bitratesV1L2 = [-1, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, -1];
-const _bitratesV1L3 = [-1, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, -1];
+const _bitratesV1L1 = [
+  -1,
+  32,
+  64,
+  96,
+  128,
+  160,
+  192,
+  224,
+  256,
+  288,
+  320,
+  352,
+  384,
+  416,
+  448,
+  -1,
+];
+const _bitratesV1L2 = [
+  -1,
+  32,
+  48,
+  56,
+  64,
+  80,
+  96,
+  112,
+  128,
+  160,
+  192,
+  224,
+  256,
+  320,
+  384,
+  -1,
+];
+const _bitratesV1L3 = [
+  -1,
+  32,
+  40,
+  48,
+  56,
+  64,
+  80,
+  96,
+  112,
+  128,
+  160,
+  192,
+  224,
+  256,
+  320,
+  -1,
+];
 // MPEG2/2.5 Layer II and Layer III share one bitrate table.
-const _bitratesV2L1 = [-1, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, -1];
-const _bitratesV2L2L3 = [-1, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, -1];
+const _bitratesV2L1 = [
+  -1,
+  32,
+  48,
+  56,
+  64,
+  80,
+  96,
+  112,
+  128,
+  144,
+  160,
+  176,
+  192,
+  224,
+  256,
+  -1,
+];
+const _bitratesV2L2L3 = [
+  -1,
+  8,
+  16,
+  24,
+  32,
+  40,
+  48,
+  56,
+  64,
+  80,
+  96,
+  112,
+  128,
+  144,
+  160,
+  -1,
+];
 
 const _sampleRatesMpeg1 = [44100, 48000, 32000, -1];
 const _sampleRatesMpeg2 = [22050, 24000, 16000, -1];
 const _sampleRatesMpeg25 = [11025, 12000, 8000, -1];
 
-int _be32(Uint8List b, int o) => (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
+int _be32(Uint8List b, int o) =>
+    (b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3];
 
 /// Parses the 4-byte MPEG audio frame header at `b[i..i+4)`. Returns null
 /// for anything that isn't a fully valid header: bad sync, a reserved
@@ -90,7 +176,8 @@ _FrameHeader? _parseFrameHeader(Uint8List b, int i) {
   if (b[i] != 0xFF || (b1 & 0xE0) != 0xE0) return null;
 
   final versionBits = (b1 >> 3) & 0x3; // 0=MPEG2.5 1=reserved 2=MPEG2 3=MPEG1
-  final layerBits = (b1 >> 1) & 0x3; // 0=reserved 1=Layer III 2=Layer II 3=Layer I
+  final layerBits =
+      (b1 >> 1) & 0x3; // 0=reserved 1=Layer III 2=Layer II 3=Layer I
   if (versionBits == 1 || layerBits == 0) return null;
 
   final bitrateIndex = (b2 >> 4) & 0xF;
@@ -103,16 +190,18 @@ _FrameHeader? _parseFrameHeader(Uint8List b, int i) {
 
   final List<int> bitrateTable;
   if (mpeg1) {
-    bitrateTable =
-        layerBits == 3 ? _bitratesV1L1 : (layerBits == 2 ? _bitratesV1L2 : _bitratesV1L3);
+    bitrateTable = layerBits == 3
+        ? _bitratesV1L1
+        : (layerBits == 2 ? _bitratesV1L2 : _bitratesV1L3);
   } else {
     bitrateTable = layerBits == 3 ? _bitratesV2L1 : _bitratesV2L2L3;
   }
   final bitrateKbps = bitrateTable[bitrateIndex];
   if (bitrateKbps <= 0) return null;
 
-  final sampleRateTable =
-      mpeg1 ? _sampleRatesMpeg1 : (mpeg25 ? _sampleRatesMpeg25 : _sampleRatesMpeg2);
+  final sampleRateTable = mpeg1
+      ? _sampleRatesMpeg1
+      : (mpeg25 ? _sampleRatesMpeg25 : _sampleRatesMpeg2);
   final sampleRate = sampleRateTable[sampleRateIndex];
   if (sampleRate <= 0) return null;
 
@@ -158,8 +247,16 @@ _FrameHeader? _parseFrameHeader(Uint8List b, int i) {
 /// when nothing usable is present, so the caller falls through to CBR math.
 int? _readXingFrameCount(Uint8List buf, int off) {
   if (off < 0 || off + 8 > buf.length) return null;
-  final isXing = buf[off] == 0x58 && buf[off + 1] == 0x69 && buf[off + 2] == 0x6E && buf[off + 3] == 0x67;
-  final isInfo = buf[off] == 0x49 && buf[off + 1] == 0x6E && buf[off + 2] == 0x66 && buf[off + 3] == 0x6F;
+  final isXing =
+      buf[off] == 0x58 &&
+      buf[off + 1] == 0x69 &&
+      buf[off + 2] == 0x6E &&
+      buf[off + 3] == 0x67;
+  final isInfo =
+      buf[off] == 0x49 &&
+      buf[off + 1] == 0x6E &&
+      buf[off + 2] == 0x66 &&
+      buf[off + 3] == 0x6F;
   if (!isXing && !isInfo) return null;
   final flags = _be32(buf, off + 4);
   if (flags & 0x1 == 0) return null; // frame-count field not present
@@ -174,7 +271,11 @@ int? _readXingFrameCount(Uint8List buf, int off) {
 int? _readVbriFrameCount(Uint8List buf, int frameStart) {
   final off = frameStart + 36;
   if (off < 0 || off + 18 > buf.length) return null;
-  final isVbri = buf[off] == 0x56 && buf[off + 1] == 0x42 && buf[off + 2] == 0x52 && buf[off + 3] == 0x49;
+  final isVbri =
+      buf[off] == 0x56 &&
+      buf[off + 1] == 0x42 &&
+      buf[off + 2] == 0x52 &&
+      buf[off + 3] == 0x49;
   if (!isVbri) return null;
   final frames = _be32(buf, off + 14);
   return frames > 0 ? frames : null;
@@ -210,13 +311,17 @@ Duration? _scanForDuration(
       final hdr = _parseFrameHeader(buf, i);
       if (hdr != null) {
         final nextSync = i + hdr.frameLengthBytes;
-        final corroborated = nextSync + 2 > buf.length ||
+        final corroborated =
+            nextSync + 2 > buf.length ||
             (buf[nextSync] == 0xFF && (buf[nextSync + 1] & 0xE0) == 0xE0);
         if (corroborated) {
           final frameCount =
-              _readXingFrameCount(buf, i + hdr.xingOffset) ?? _readVbriFrameCount(buf, i);
+              _readXingFrameCount(buf, i + hdr.xingOffset) ??
+              _readVbriFrameCount(buf, i);
           if (frameCount != null) {
-            return _secondsToDuration(frameCount * hdr.samplesPerFrame / hdr.sampleRate);
+            return _secondsToDuration(
+              frameCount * hdr.samplesPerFrame / hdr.sampleRate,
+            );
           }
           final audioBytes = audioEndAbsolute - (bufferFileOffset + i);
           if (audioBytes <= 0) return null;
@@ -266,7 +371,10 @@ Duration? estimateMp3Duration(Uint8List bytes) {
 /// start. Using this instead lets [estimateMp3DurationForFile] detect that
 /// oversized-tag case correctly and follow up with a second, targeted read.
 int _id3v2TagEnd(Uint8List head) {
-  if (head.length < 10 || head[0] != 0x49 || head[1] != 0x44 || head[2] != 0x33) {
+  if (head.length < 10 ||
+      head[0] != 0x49 ||
+      head[1] != 0x44 ||
+      head[2] != 0x33) {
     return 0;
   }
   final size = (head[6] << 21) | (head[7] << 14) | (head[8] << 7) | head[9];
@@ -311,13 +419,17 @@ Future<Duration?> estimateMp3DurationForFile(File f) async {
     // range.end is only trustworthy when `buf` happens to be the *whole*
     // file (see the class doc) -- otherwise fall back to the real length,
     // deliberately ignoring any trailing ID3v1/APEv2 tag (see doc above).
-    var audioEndAbsolute = (buf.length == length) ? mp3AudioRange(buf).end : length;
+    var audioEndAbsolute = (buf.length == length)
+        ? mp3AudioRange(buf).end
+        : length;
 
     if (scanStart >= length) return null; // tag (claimed) consumes the file
 
     if (scanStart + 64 > buf.length && buf.length < length) {
       final remaining = length - scanStart;
-      final secondReadLen = remaining < _tailWindowBytes ? remaining : _tailWindowBytes;
+      final secondReadLen = remaining < _tailWindowBytes
+          ? remaining
+          : _tailWindowBytes;
       await raf.setPosition(scanStart);
       buf = await raf.read(secondReadLen);
       bufferFileOffset = scanStart;

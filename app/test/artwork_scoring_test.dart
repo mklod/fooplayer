@@ -19,18 +19,19 @@ ArtCandidate cand({
   ArtSource source = ArtSource.itunes,
   int? width = 600,
   String? url,
-}) =>
-    ArtCandidate(
-      url: url ?? 'https://example.test/${source.id}/$artist-$title.jpg',
-      source: source,
-      title: title,
-      artist: artist,
-      width: width,
-    );
+}) => ArtCandidate(
+  url: url ?? 'https://example.test/${source.id}/$artist-$title.jpg',
+  source: source,
+  title: title,
+  artist: artist,
+  width: width,
+);
 
 Future<List<ArtCandidate>> itunesFrom(String fixture, ArtQuery q) =>
-    searchItunes(q,
-        fetch: FakeArtFetch.bodies({itunesHost: loadArtFixture(fixture)}).fetch);
+    searchItunes(
+      q,
+      fetch: FakeArtFetch.bodies({itunesHost: loadArtFixture(fixture)}).fetch,
+    );
 
 void main() {
   group('normalizeText', () {
@@ -83,32 +84,41 @@ void main() {
       }
     });
 
-    test('a title that is nothing but a bracketed group normalizes to empty',
-        () {
-      expect(normalizeText('( )'), '');
-    });
+    test(
+      'a title that is nothing but a bracketed group normalizes to empty',
+      () {
+        expect(normalizeText('( )'), '');
+      },
+    );
   });
 
   group('albumKey', () {
     test('joins normalized artist and album', () {
-      expect(albumKey(artist: 'Pink Floyd', album: 'The Dark Side of the Moon'),
-          'pink floyd|the dark side of the moon');
+      expect(
+        albumKey(artist: 'Pink Floyd', album: 'The Dark Side of the Moon'),
+        'pink floyd|the dark side of the moon',
+      );
     });
 
     test('edition variants collapse to the same key', () {
       expect(
         albumKey(artist: 'Pink Floyd', album: 'The Dark Side of the Moon'),
         albumKey(
-            artist: 'Pink Floyd',
-            album: 'The Dark Side of the Moon (2011 Remastered Version)'),
+          artist: 'Pink Floyd',
+          album: 'The Dark Side of the Moon (2011 Remastered Version)',
+        ),
       );
     });
 
     test('falls back to artist|title when the album is missing', () {
-      expect(albumKey(artist: 'Aphex Twin', album: '', title: 'Windowlicker'),
-          'aphex twin|windowlicker');
-      expect(albumKey(artist: 'Aphex Twin', title: 'Windowlicker'),
-          'aphex twin|windowlicker');
+      expect(
+        albumKey(artist: 'Aphex Twin', album: '', title: 'Windowlicker'),
+        'aphex twin|windowlicker',
+      );
+      expect(
+        albumKey(artist: 'Aphex Twin', title: 'Windowlicker'),
+        'aphex twin|windowlicker',
+      );
     });
 
     test('two album-less tracks by one artist do not collide', () {
@@ -120,7 +130,9 @@ void main() {
 
     test('candidateKey uses the candidate own artist/title', () {
       expect(
-        candidateKey(cand(artist: 'Pink Floyd', title: 'The Dark Side of the Moon')),
+        candidateKey(
+          cand(artist: 'Pink Floyd', title: 'The Dark Side of the Moon'),
+        ),
         'pink floyd|the dark side of the moon',
       );
     });
@@ -135,8 +147,7 @@ void main() {
     test('normalization differences are free', () {
       expect(textSimilarity('Björk', 'Bjork'), 1.0);
       expect(textSimilarity('Simon & Garfunkel', 'Simon and Garfunkel'), 1.0);
-      expect(
-          textSimilarity('Discovery', 'Discovery (Remastered)'), 1.0);
+      expect(textSimilarity('Discovery', 'Discovery (Remastered)'), 1.0);
     });
 
     test('a leading "The" barely costs anything', () {
@@ -144,13 +155,17 @@ void main() {
     });
 
     test('extra words cost real points (superset is not a match)', () {
-      expect(textSimilarity('OK Computer', 'OK Computer OKNOTOK 1997 2017'),
-          lessThan(0.7));
+      expect(
+        textSimilarity('OK Computer', 'OK Computer OKNOTOK 1997 2017'),
+        lessThan(0.7),
+      );
     });
 
     test('unrelated text scores low', () {
-      expect(textSimilarity('Pink Floyd', 'Easy Star All-Stars'),
-          lessThan(0.35));
+      expect(
+        textSimilarity('Pink Floyd', 'Easy Star All-Stars'),
+        lessThan(0.35),
+      );
     });
 
     test('a blank side is missing evidence, not a match', () {
@@ -179,67 +194,92 @@ void main() {
       expect(resolutionBonus(3000), 5);
     });
 
-    test('a perfect match maxes out at 100 and components sum to the total',
-        () {
-      const q = ArtQuery(artist: 'Daft Punk', album: 'Discovery');
-      final s = scoreCandidate(
+    test(
+      'a perfect match maxes out at 100 and components sum to the total',
+      () {
+        const q = ArtQuery(artist: 'Daft Punk', album: 'Discovery');
+        final s = scoreCandidate(
           q,
           cand(
-              artist: 'Daft Punk',
-              title: 'Discovery',
-              source: ArtSource.itunes,
-              width: 1000));
-      expect(s.artistScore, kArtistWeight);
-      expect(s.albumScore, kAlbumWeight);
-      expect(s.providerScore, 5);
-      expect(s.resolutionScore, 5);
-      expect(s.score, 100);
-    });
+            artist: 'Daft Punk',
+            title: 'Discovery',
+            source: ArtSource.itunes,
+            width: 1000,
+          ),
+        );
+        expect(s.artistScore, kArtistWeight);
+        expect(s.albumScore, kAlbumWeight);
+        expect(s.providerScore, 5);
+        expect(s.resolutionScore, 5);
+        expect(s.score, 100);
+      },
+    );
 
-    test('an unknown local artist can never reach the auto-apply threshold',
-        () {
-      const q = ArtQuery(artist: '', album: 'Discovery');
-      final s = scoreCandidate(
-          q, cand(artist: 'Daft Punk', title: 'Discovery', width: 1000));
-      expect(s.score, lessThan(kAutoApplyMinScore));
-    });
+    test(
+      'an unknown local artist can never reach the auto-apply threshold',
+      () {
+        const q = ArtQuery(artist: '', album: 'Discovery');
+        final s = scoreCandidate(
+          q,
+          cand(artist: 'Daft Punk', title: 'Discovery', width: 1000),
+        );
+        expect(s.score, lessThan(kAutoApplyMinScore));
+      },
+    );
   });
 
   group('ranking against captured payloads', () {
-    const q =
-        ArtQuery(artist: 'Pink Floyd', album: 'The Dark Side of the Moon');
+    const q = ArtQuery(
+      artist: 'Pink Floyd',
+      album: 'The Dark Side of the Moon',
+    );
 
-    test('the real album outranks a soundalike from the same response',
-        () async {
-      final cands = await itunesFrom('itunes_dark_side.json', q);
-      final ranked = rankCandidates(q, cands);
+    test(
+      'the real album outranks a soundalike from the same response',
+      () async {
+        final cands = await itunesFrom('itunes_dark_side.json', q);
+        final ranked = rankCandidates(q, cands);
 
-      expect(ranked.length, 3);
-      expect(ranked.first.candidate.artist, 'Pink Floyd');
-      expect(ranked.first.candidate.title, 'The Dark Side of the Moon');
-      expect(ranked.last.candidate.artist, 'Easy Star All-Stars');
-      expect(ranked.first.score, greaterThan(90));
-      expect(ranked.last.score, lessThan(kAutoApplyMinScore));
-    });
+        expect(ranked.length, 3);
+        expect(ranked.first.candidate.artist, 'Pink Floyd');
+        expect(ranked.first.candidate.title, 'The Dark Side of the Moon');
+        expect(ranked.last.candidate.artist, 'Easy Star All-Stars');
+        expect(ranked.first.score, greaterThan(90));
+        expect(ranked.last.score, lessThan(kAutoApplyMinScore));
+      },
+    );
 
     test('the plain title wins the tie against its own remaster', () async {
       final cands = await itunesFrom('itunes_dark_side.json', q);
       final ranked = rankCandidates(q, cands);
       expect(ranked[0].candidate.title, 'The Dark Side of the Moon');
-      expect(ranked[1].candidate.title,
-          'The Dark Side of the Moon (2011 Remastered Version)');
-      expect(ranked[0].score, ranked[1].score,
-          reason: 'the normalizer makes them equal; the tiebreak decides');
+      expect(
+        ranked[1].candidate.title,
+        'The Dark Side of the Moon (2011 Remastered Version)',
+      );
+      expect(
+        ranked[0].score,
+        ranked[1].score,
+        reason: 'the normalizer makes them equal; the tiebreak decides',
+      );
     });
 
-    test('edition variants stay in the grid but collapse for the margin',
-        () async {
-      final cands = await itunesFrom('itunes_dark_side.json', q);
-      expect(rankCandidates(q, cands).length, 3,
-          reason: 'the picker shows every distinct image');
-      expect(rankDistinctAlbums(q, cands).length, 2,
-          reason: 'DSOTM + its remaster are one album; Dub Side is another');
-    });
+    test(
+      'edition variants stay in the grid but collapse for the margin',
+      () async {
+        final cands = await itunesFrom('itunes_dark_side.json', q);
+        expect(
+          rankCandidates(q, cands).length,
+          3,
+          reason: 'the picker shows every distinct image',
+        );
+        expect(
+          rankDistinctAlbums(q, cands).length,
+          2,
+          reason: 'DSOTM + its remaster are one album; Dub Side is another',
+        );
+      },
+    );
 
     test('auto-applies the confident match', () async {
       final cands = await itunesFrom('itunes_dark_side.json', q);
@@ -251,56 +291,71 @@ void main() {
 
     test('Deezer payload ranks the real artist over a tribute band', () async {
       const dq = ArtQuery(artist: 'Daft Punk', album: 'Discovery');
-      final cands = await searchDeezer(dq,
-          fetch: FakeArtFetch.bodies(
-              {deezerHost: loadArtFixture('deezer_discovery.json')}).fetch);
+      final cands = await searchDeezer(
+        dq,
+        fetch: FakeArtFetch.bodies({
+          deezerHost: loadArtFixture('deezer_discovery.json'),
+        }).fetch,
+      );
       final guess = bestGuess(dq, cands);
       expect(guess, isNotNull);
       expect(guess!.artist, 'Daft Punk');
       expect(guess.width, 1000);
     });
 
-    test('MusicBrainz payload: the album beats its own box set by >= 10',
-        () async {
-      const mq = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
-      final cands = await searchCoverArtArchive(mq,
-          fetch: FakeArtFetch.bodies(
-              {mbHost: loadArtFixture('musicbrainz_ok_computer.json')}).fetch,
-          limiter: RateLimiter(
-              minInterval: Duration.zero, sleep: (_) async {}));
-      final ranked = rankDistinctAlbums(mq, cands);
-      expect(ranked.length, 3);
-      expect(ranked[0].candidate.title, 'OK Computer');
-      expect(ranked[0].score - ranked[1].score,
-          greaterThanOrEqualTo(kAutoApplyMinMargin));
-      expect(bestGuess(mq, cands)!.title, 'OK Computer');
-    });
+    test(
+      'MusicBrainz payload: the album beats its own box set by >= 10',
+      () async {
+        const mq = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
+        final cands = await searchCoverArtArchive(
+          mq,
+          fetch: FakeArtFetch.bodies({
+            mbHost: loadArtFixture('musicbrainz_ok_computer.json'),
+          }).fetch,
+          limiter: RateLimiter(minInterval: Duration.zero, sleep: (_) async {}),
+        );
+        final ranked = rankDistinctAlbums(mq, cands);
+        expect(ranked.length, 3);
+        expect(ranked[0].candidate.title, 'OK Computer');
+        expect(
+          ranked[0].score - ranked[1].score,
+          greaterThanOrEqualTo(kAutoApplyMinMargin),
+        );
+        expect(bestGuess(mq, cands)!.title, 'OK Computer');
+      },
+    );
 
     test('three providers agreeing is corroboration, not a tie', () async {
       const mq = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
       final cands = [
         cand(
-            artist: 'Radiohead',
-            title: 'OK Computer',
-            source: ArtSource.itunes,
-            width: 600),
+          artist: 'Radiohead',
+          title: 'OK Computer',
+          source: ArtSource.itunes,
+          width: 600,
+        ),
         cand(
-            artist: 'Radiohead',
-            title: 'OK Computer',
-            source: ArtSource.deezer,
-            width: 1000),
+          artist: 'Radiohead',
+          title: 'OK Computer',
+          source: ArtSource.deezer,
+          width: 1000,
+        ),
         cand(
-            artist: 'Radiohead',
-            title: 'OK Computer',
-            source: ArtSource.caa,
-            width: 500),
+          artist: 'Radiohead',
+          title: 'OK Computer',
+          source: ArtSource.caa,
+          width: 500,
+        ),
       ];
       expect(rankCandidates(mq, cands).length, 3);
       expect(rankDistinctAlbums(mq, cands).length, 1);
       final guess = bestGuess(mq, cands);
       expect(guess, isNotNull);
-      expect(guess!.source, ArtSource.itunes,
-          reason: 'equal scores break on the provider prior');
+      expect(
+        guess!.source,
+        ArtSource.itunes,
+        reason: 'equal scores break on the provider prior',
+      );
     });
   });
 
@@ -311,17 +366,25 @@ void main() {
       final ranked = rankDistinctAlbums(q, cands);
 
       expect(ranked.length, 2);
-      expect(ranked[0].score, greaterThanOrEqualTo(kAutoApplyMinScore),
-          reason: 'the top candidate is confident enough on its own...');
-      expect(ranked[0].score - ranked[1].score, lessThan(kAutoApplyMinMargin),
-          reason: '...but Greatest Hits II is too close to call');
+      expect(
+        ranked[0].score,
+        greaterThanOrEqualTo(kAutoApplyMinScore),
+        reason: 'the top candidate is confident enough on its own...',
+      );
+      expect(
+        ranked[0].score - ranked[1].score,
+        lessThan(kAutoApplyMinMargin),
+        reason: '...but Greatest Hits II is too close to call',
+      );
       expect(bestGuess(q, cands), isNull);
     });
 
     test('a confident top with no runner-up applies', () {
       const q = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
-      expect(bestGuess(q, [cand(artist: 'Radiohead', title: 'OK Computer')]),
-          isNotNull);
+      expect(
+        bestGuess(q, [cand(artist: 'Radiohead', title: 'OK Computer')]),
+        isNotNull,
+      );
     });
 
     test('a weak top never applies, however far ahead it is', () {
@@ -336,11 +399,14 @@ void main() {
     });
 
     test('no candidates -> null', () {
-      expect(bestGuess(const ArtQuery(artist: 'A', album: 'B'), const []),
-          isNull);
       expect(
-          bestGuessScored(const ArtQuery(artist: 'A', album: 'B'), const []),
-          isNull);
+        bestGuess(const ArtQuery(artist: 'A', album: 'B'), const []),
+        isNull,
+      );
+      expect(
+        bestGuessScored(const ArtQuery(artist: 'A', album: 'B'), const []),
+        isNull,
+      );
     });
 
     test('the thresholds are overridable for a manual/forced apply', () {
@@ -357,15 +423,28 @@ void main() {
   group('determinism', () {
     const q = ArtQuery(artist: 'Radiohead', album: 'OK Computer');
     final cands = [
-      cand(artist: 'Radiohead', title: 'OK Computer', source: ArtSource.caa, width: 500),
+      cand(
+        artist: 'Radiohead',
+        title: 'OK Computer',
+        source: ArtSource.caa,
+        width: 500,
+      ),
       cand(artist: 'Radiohead', title: 'Kid A', source: ArtSource.itunes),
-      cand(artist: 'Radiohead', title: 'OK Computer', source: ArtSource.deezer, width: 1000),
+      cand(
+        artist: 'Radiohead',
+        title: 'OK Computer',
+        source: ArtSource.deezer,
+        width: 1000,
+      ),
       cand(artist: 'Muse', title: 'OK Computer', source: ArtSource.itunes),
     ];
 
     test('input order does not change the ranking', () {
       final a = rankCandidates(q, cands).map((s) => s.candidate.url).toList();
-      final b = rankCandidates(q, cands.reversed).map((s) => s.candidate.url).toList();
+      final b = rankCandidates(
+        q,
+        cands.reversed,
+      ).map((s) => s.candidate.url).toList();
       expect(b, a);
     });
 
@@ -377,12 +456,16 @@ void main() {
 
     test('dedupe drops repeated URLs, keeping first appearance', () {
       final dup = cand(
-          artist: 'Radiohead', title: 'OK Computer', url: 'https://x/a.jpg');
+        artist: 'Radiohead',
+        title: 'OK Computer',
+        url: 'https://x/a.jpg',
+      );
       final other = cand(
-          artist: 'Radiohead',
-          title: 'OK Computer',
-          source: ArtSource.deezer,
-          url: 'https://x/a.jpg');
+        artist: 'Radiohead',
+        title: 'OK Computer',
+        source: ArtSource.deezer,
+        url: 'https://x/a.jpg',
+      );
       final out = dedupeCandidates([dup, other, ...cands]);
       expect(out.length, 1 + cands.length);
       expect(out.first.source, ArtSource.itunes);
@@ -391,8 +474,14 @@ void main() {
 
   group('ArtCandidate / ArtSource', () {
     test('source ids are the sidecar vocabulary and round-trip', () {
-      expect(ArtSource.values.map((s) => s.id).toList(),
-          ['itunes', 'deezer', 'caa', 'local', 'url', 'embedded']);
+      expect(ArtSource.values.map((s) => s.id).toList(), [
+        'itunes',
+        'deezer',
+        'caa',
+        'local',
+        'url',
+        'embedded',
+      ]);
       for (final s in ArtSource.values) {
         expect(ArtSource.fromId(s.id), s);
       }
@@ -402,13 +491,14 @@ void main() {
 
     test('thumbUrl defaults to url', () {
       expect(
-          const ArtCandidate(
-                  url: 'https://x/a.jpg',
-                  source: ArtSource.local,
-                  title: 't',
-                  artist: 'a')
-              .thumbUrl,
-          'https://x/a.jpg');
+        const ArtCandidate(
+          url: 'https://x/a.jpg',
+          source: ArtSource.local,
+          title: 't',
+          artist: 'a',
+        ).thumbUrl,
+        'https://x/a.jpg',
+      );
     });
 
     test('json round-trip', () {
@@ -420,8 +510,10 @@ void main() {
       expect(ArtCandidate.fromJson(null), isNull);
       expect(ArtCandidate.fromJson('nope'), isNull);
       expect(ArtCandidate.fromJson({'source': 'itunes'}), isNull);
-      expect(ArtCandidate.fromJson({'url': 'https://x', 'source': 'aol'}),
-          isNull);
+      expect(
+        ArtCandidate.fromJson({'url': 'https://x', 'source': 'aol'}),
+        isNull,
+      );
     });
 
     test('ArtQuery term and emptiness', () {

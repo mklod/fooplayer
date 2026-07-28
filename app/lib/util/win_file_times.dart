@@ -31,29 +31,39 @@ class FileTimes {
   static const int _ticksPerMs = 10000;
   static final int _epochOffset =
       DateTime.utc(1970).difference(DateTime.utc(1601)).inMilliseconds *
-          _ticksPerMs;
+      _ticksPerMs;
 
   DateTime get lastWriteUtc => DateTime.fromMillisecondsSinceEpoch(
-      (lastWrite - _epochOffset) ~/ _ticksPerMs,
-      isUtc: true);
+    (lastWrite - _epochOffset) ~/ _ticksPerMs,
+    isUtc: true,
+  );
 
   DateTime get creationUtc => DateTime.fromMillisecondsSinceEpoch(
-      (creation - _epochOffset) ~/ _ticksPerMs,
-      isUtc: true);
+    (creation - _epochOffset) ~/ _ticksPerMs,
+    isUtc: true,
+  );
 
   @override
   String toString() => 'FileTimes(created $creationUtc, written $lastWriteUtc)';
 }
 
-typedef _CreateFileWNative = IntPtr Function(Pointer<Utf16>, Uint32, Uint32,
-    Pointer<Void>, Uint32, Uint32, IntPtr);
-typedef _CreateFileWDart = int Function(
-    Pointer<Utf16>, int, int, Pointer<Void>, int, int, int);
+typedef _CreateFileWNative =
+    IntPtr Function(
+      Pointer<Utf16>,
+      Uint32,
+      Uint32,
+      Pointer<Void>,
+      Uint32,
+      Uint32,
+      IntPtr,
+    );
+typedef _CreateFileWDart =
+    int Function(Pointer<Utf16>, int, int, Pointer<Void>, int, int, int);
 
-typedef _FileTimeNative = Int32 Function(
-    IntPtr, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
-typedef _FileTimeDart = int Function(
-    int, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
+typedef _FileTimeNative =
+    Int32 Function(IntPtr, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
+typedef _FileTimeDart =
+    int Function(int, Pointer<Uint64>, Pointer<Uint64>, Pointer<Uint64>);
 
 typedef _CloseHandleNative = Int32 Function(IntPtr);
 typedef _CloseHandleDart = int Function(int);
@@ -62,10 +72,12 @@ final DynamicLibrary _kernel32 = DynamicLibrary.open('kernel32.dll');
 
 final _createFileW = _kernel32
     .lookupFunction<_CreateFileWNative, _CreateFileWDart>('CreateFileW');
-final _getFileTime =
-    _kernel32.lookupFunction<_FileTimeNative, _FileTimeDart>('GetFileTime');
-final _setFileTime =
-    _kernel32.lookupFunction<_FileTimeNative, _FileTimeDart>('SetFileTime');
+final _getFileTime = _kernel32.lookupFunction<_FileTimeNative, _FileTimeDart>(
+  'GetFileTime',
+);
+final _setFileTime = _kernel32.lookupFunction<_FileTimeNative, _FileTimeDart>(
+  'SetFileTime',
+);
 final _closeHandle = _kernel32
     .lookupFunction<_CloseHandleNative, _CloseHandleDart>('CloseHandle');
 
@@ -80,7 +92,14 @@ int _open(String path, int access) {
   final p = path.toNativeUtf16();
   try {
     return _createFileW(
-        p, access, _shareAll, nullptr, _openExisting, _fileAttributeNormal, 0);
+      p,
+      access,
+      _shareAll,
+      nullptr,
+      _openExisting,
+      _fileAttributeNormal,
+      0,
+    );
   } finally {
     malloc.free(p);
   }

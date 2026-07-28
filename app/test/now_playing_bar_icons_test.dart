@@ -15,31 +15,35 @@ import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/now_playing_bar.dart';
 
 List<Track> fixtureTracks() => [
-      Track(
-          contentId: 'a',
-          relPath: 'a.mp3',
-          rootPath: r'L:\Music',
-          dateAdded: DateTime.utc(2026, 7, 1),
-          title: 'Song A',
-          artist: 'Artist A',
-          album: 'Album A',
-          genre: 'Rock'),
-      Track(
-          contentId: 'b',
-          relPath: 'b.mp3',
-          rootPath: r'L:\Music',
-          dateAdded: DateTime.utc(2026, 7, 2),
-          title: 'Song B',
-          artist: 'Artist B',
-          album: 'Album B',
-          genre: 'Rock'),
-    ];
+  Track(
+    contentId: 'a',
+    relPath: 'a.mp3',
+    rootPath: r'L:\Music',
+    dateAdded: DateTime.utc(2026, 7, 1),
+    title: 'Song A',
+    artist: 'Artist A',
+    album: 'Album A',
+    genre: 'Rock',
+  ),
+  Track(
+    contentId: 'b',
+    relPath: 'b.mp3',
+    rootPath: r'L:\Music',
+    dateAdded: DateTime.utc(2026, 7, 2),
+    title: 'Song B',
+    artist: 'Artist B',
+    album: 'Album B',
+    genre: 'Rock',
+  ),
+];
 
 /// Finds the [Image] rendering the given bundled asset.
-Finder metroIcon(String asset) => find.byWidgetPredicate((w) =>
-    w is Image &&
-    w.image is AssetImage &&
-    (w.image as AssetImage).assetName == asset);
+Finder metroIcon(String asset) => find.byWidgetPredicate(
+  (w) =>
+      w is Image &&
+      w.image is AssetImage &&
+      (w.image as AssetImage).assetName == asset,
+);
 
 /// Pumps a wide-surface bar (so the shuffle/volume group, hidden below the
 /// 900px narrow threshold, is present) with a queue loaded.
@@ -51,9 +55,12 @@ Future<PlayerService> pumpBar(WidgetTester tester) async {
   // constructing the lazy Player.
   player.queueController.setQueue(fixtureTracks(), 0);
   await player.setVolume(1.0);
-  await tester.pumpWidget(MaterialApp(
+  await tester.pumpWidget(
+    MaterialApp(
       theme: buildAppTheme(),
-      home: Scaffold(body: NowPlayingBar(player: player))));
+      home: Scaffold(body: NowPlayingBar(player: player)),
+    ),
+  );
   await tester.pumpAndSettle();
   return player;
 }
@@ -78,10 +85,14 @@ void main() {
     expect(find.byIcon(Icons.volume_up), findsOneWidget);
 
     // Each glyph sits inside an IconButton (tap semantics/tooltips kept).
-    for (final asset in [kIconPrevious, kIconPlay, kIconNext, kIconShuffleOff]) {
+    for (final asset in [
+      kIconPrevious,
+      kIconPlay,
+      kIconNext,
+      kIconShuffleOff,
+    ]) {
       expect(
-        find.ancestor(
-            of: metroIcon(asset), matching: find.byType(IconButton)),
+        find.ancestor(of: metroIcon(asset), matching: find.byType(IconButton)),
         findsOneWidget,
         reason: '$asset should be wrapped in an IconButton',
       );
@@ -104,8 +115,9 @@ void main() {
     expect(metroIcon(kIconPause), findsOneWidget);
   });
 
-  testWidgets('shuffle glyph flips shuffle1/shuffle2 with state',
-      (tester) async {
+  testWidgets('shuffle glyph flips shuffle1/shuffle2 with state', (
+    tester,
+  ) async {
     final player = await pumpBar(tester);
 
     expect(player.shuffle, isFalse);
@@ -126,19 +138,29 @@ void main() {
     expect(metroIcon(kIconShuffleOff), findsOneWidget);
   });
 
-  testWidgets('metro glyphs carry no runtime tint (ink is baked into the PNGs)',
-      (tester) async {
-    await pumpBar(tester);
+  testWidgets(
+    'metro glyphs carry no runtime tint (ink is baked into the PNGs)',
+    (tester) async {
+      await pumpBar(tester);
 
-    // A runtime `color` + `BlendMode.srcIn` forces a saveLayer, and the
-    // Android emulator's software renderer (SwiftShader) paints that layer's
-    // bounds as a faint hairline box around every glyph. The ink color is
-    // baked into assets/icons/*.png instead, so no blend is needed here.
-    for (final asset in [kIconPrevious, kIconPlay, kIconNext, kIconShuffleOff]) {
-      final img = tester.widget<Image>(metroIcon(asset));
-      expect(img.color, isNull,
-          reason: '$asset must not force a saveLayer via a runtime tint');
-      expect(img.colorBlendMode, isNull);
-    }
-  });
+      // A runtime `color` + `BlendMode.srcIn` forces a saveLayer, and the
+      // Android emulator's software renderer (SwiftShader) paints that layer's
+      // bounds as a faint hairline box around every glyph. The ink color is
+      // baked into assets/icons/*.png instead, so no blend is needed here.
+      for (final asset in [
+        kIconPrevious,
+        kIconPlay,
+        kIconNext,
+        kIconShuffleOff,
+      ]) {
+        final img = tester.widget<Image>(metroIcon(asset));
+        expect(
+          img.color,
+          isNull,
+          reason: '$asset must not force a saveLayer via a runtime tint',
+        );
+        expect(img.colorBlendMode, isNull);
+      }
+    },
+  );
 }

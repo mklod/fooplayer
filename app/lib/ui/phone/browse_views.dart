@@ -53,14 +53,18 @@ class FoldersView extends StatelessWidget {
         final tracks = atTop
             ? const <Track>[]
             : sortTracks(
-                applyFilters(library.allTracks,
-                    folders: library.folderScopes, search: library.search),
+                applyFilters(
+                  library.allTracks,
+                  folders: library.folderScopes,
+                  search: library.search,
+                ),
                 library.sortColumn,
                 library.sortAscending,
               );
         final crumbs = library.folderBreadcrumbs;
-        final breadcrumbText =
-            atTop ? 'All folders' : (['All', ...crumbs]).join(' › ');
+        final breadcrumbText = atTop
+            ? 'All folders'
+            : (['All', ...crumbs]).join(' › ');
         return Column(
           children: [
             Container(
@@ -76,8 +80,10 @@ class FoldersView extends StatelessWidget {
                       padding: EdgeInsets.zero,
                       // Fits the 36px breadcrumb bar (the default 48px
                       // min-size would overflow it).
-                      constraints:
-                          const BoxConstraints(minWidth: 32, minHeight: 32),
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
                       tooltip: 'Up one level',
                       onPressed: () =>
                           library.popFolderTo(library.folderPath.length - 1),
@@ -89,7 +95,9 @@ class FoldersView extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontSize: 11.5, color: AppColors.inkSecondary),
+                        fontSize: 11.5,
+                        color: AppColors.inkSecondary,
+                      ),
                     ),
                   ),
                 ],
@@ -108,8 +116,11 @@ class FoldersView extends StatelessWidget {
                     final display = atTop ? p.basename(entry) : entry;
                     return ListTile(
                       leading: const Icon(Icons.folder_outlined, size: 18),
-                      title: Text(display,
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      title: Text(
+                        display,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                       trailing: const Icon(Icons.chevron_right, size: 18),
                       onTap: () => library.drillIntoFolder(entry),
                     );
@@ -170,22 +181,23 @@ class ArtistsView extends StatelessWidget {
           itemBuilder: (context, i) {
             final artist = artists[i];
             return ListTile(
-              title:
-                  Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+              title: Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis),
               trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => TrackListPage(
-                  title: artist,
-                  library: library,
-                  store: store,
-                  onPlayTrack: onPlayTrack,
-                  tracksOf: (lib) => sortTracks(
-                    applyFilters(lib.allTracks, artist: {artist}),
-                    SortColumn.dateAdded,
-                    false,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TrackListPage(
+                    title: artist,
+                    library: library,
+                    store: store,
+                    onPlayTrack: onPlayTrack,
+                    tracksOf: (lib) => sortTracks(
+                      applyFilters(lib.allTracks, artist: {artist}),
+                      SortColumn.dateAdded,
+                      false,
+                    ),
                   ),
                 ),
-              )),
+              ),
             );
           },
         );
@@ -229,19 +241,21 @@ class AlbumsView extends StatelessWidget {
             return ListTile(
               title: Text(album, maxLines: 1, overflow: TextOverflow.ellipsis),
               trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => TrackListPage(
-                  title: album,
-                  library: library,
-                  store: store,
-                  onPlayTrack: onPlayTrack,
-                  tracksOf: (lib) => sortTracks(
-                    applyFilters(lib.allTracks, album: {album}),
-                    SortColumn.trackNumber,
-                    true,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TrackListPage(
+                    title: album,
+                    library: library,
+                    store: store,
+                    onPlayTrack: onPlayTrack,
+                    tracksOf: (lib) => sortTracks(
+                      applyFilters(lib.allTracks, album: {album}),
+                      SortColumn.trackNumber,
+                      true,
+                    ),
                   ),
                 ),
-              )),
+              ),
             );
           },
         );
@@ -304,7 +318,7 @@ class PlaylistsView extends StatelessWidget {
     final byId = {for (final t in lib.allTracks) t.contentId: t};
     return [
       for (final id in matches.first.trackIds)
-        if (byId[id] != null) byId[id]!
+        if (byId[id] != null) byId[id]!,
     ];
   }
 
@@ -329,18 +343,23 @@ class PlaylistsView extends StatelessWidget {
             final count = pl.trackIds.length;
             return ListTile(
               leading: const Icon(Icons.queue_music, size: 18),
-              title:
-                  Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+              title: Text(
+                pl.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               subtitle: Text('$count ${count == 1 ? 'track' : 'tracks'}'),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => TrackListPage(
-                  title: pl.name,
-                  library: library,
-                  store: store,
-                  onPlayTrack: onPlayTrack,
-                  tracksOf: (lib) => playlistTracks(lib, pl.name),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => TrackListPage(
+                    title: pl.name,
+                    library: library,
+                    store: store,
+                    onPlayTrack: onPlayTrack,
+                    tracksOf: (lib) => playlistTracks(lib, pl.name),
+                  ),
                 ),
-              )),
+              ),
               onLongPress: () => _delete(context, pl.name),
             );
           },

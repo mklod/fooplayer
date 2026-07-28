@@ -443,34 +443,44 @@ void main() {
   });
 
   testWidgets(
-      'a thumbnail that fails to decode falls back to the placeholder icon, '
-      'not an unhandled error (adversarial review finding 6)', (tester) async {
-    final search = FakeArtworkSearch([
-      [itunesCandidate],
-    ]);
-    final store = FakeArtworkStore();
-    await pumpPicker(
-      tester,
-      svc: fakeArtworkServices(
-        search: search,
-        store: store,
-        // Not any recognized image format -- the candidate must still
-        // render (and stay pickable) via the placeholder, not crash.
-        loadThumb: (url) async => Uint8List.fromList([1, 2, 3, 4, 5, 6]),
-      ),
-    );
-    // The resolve() future, then the async image decode failure.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    'a thumbnail that fails to decode falls back to the placeholder icon, '
+    'not an unhandled error (adversarial review finding 6)',
+    (tester) async {
+      final search = FakeArtworkSearch([
+        [itunesCandidate],
+      ]);
+      final store = FakeArtworkStore();
+      await pumpPicker(
+        tester,
+        svc: fakeArtworkServices(
+          search: search,
+          store: store,
+          // Not any recognized image format -- the candidate must still
+          // render (and stay pickable) via the placeholder, not crash.
+          loadThumb: (url) async => Uint8List.fromList([1, 2, 3, 4, 5, 6]),
+        ),
+      );
+      // The resolve() future, then the async image decode failure.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
-    expect(tester.takeException(), isNull,
-        reason: 'a decode failure must be caught by errorBuilder, never '
-            'surface as an unhandled framework error');
-    expect(find.byIcon(Icons.album), findsOneWidget);
-    expect(find.byKey(const Key('artwork-candidate-0')), findsOneWidget,
-        reason: 'the candidate stays pickable even though its preview '
-            'failed to decode');
-  });
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'a decode failure must be caught by errorBuilder, never '
+            'surface as an unhandled framework error',
+      );
+      expect(find.byIcon(Icons.album), findsOneWidget);
+      expect(
+        find.byKey(const Key('artwork-candidate-0')),
+        findsOneWidget,
+        reason:
+            'the candidate stays pickable even though its preview '
+            'failed to decode',
+      );
+    },
+  );
 
   group('album key + query derivation (placeholder normalizer)', () {
     test('album key is normalizedArtist|normalizedAlbum', () {

@@ -17,10 +17,7 @@ class AppConfig {
   /// Serializes back to the v2 on-disk shape: [raw] (already carrying every
   /// preserved key, with `libraryRoots` set below) layered with the current
   /// `libraryRoots`.
-  Map<String, dynamic> toJson() => {
-        ...raw,
-        'libraryRoots': libraryRoots,
-      };
+  Map<String, dynamic> toJson() => {...raw, 'libraryRoots': libraryRoots};
 }
 
 /// Reads and parses [file] as a JSON object.
@@ -95,8 +92,10 @@ void writeConfigFile(File file, Map<String, dynamic> config) {
 /// key in [config] -- notably `"ui"` -- is carried over untouched, so a
 /// caller that persists [AppConfig.toJson] afterward never loses data this
 /// function doesn't itself own. [config] itself is not mutated.
-AppConfig migrateConfig(Map<String, dynamic> config,
-    {required String defaultRoot}) {
+AppConfig migrateConfig(
+  Map<String, dynamic> config, {
+  required String defaultRoot,
+}) {
   final migrated = Map<String, dynamic>.of(config);
 
   List<String>? roots;

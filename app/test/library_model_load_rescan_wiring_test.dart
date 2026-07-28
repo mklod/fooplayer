@@ -21,8 +21,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_core/fooplayer_core.dart';
 
-Future<String> _seedRoot(Directory root, String existingFileName,
-    List<int> existingBytes, String existingDateAdded) async {
+Future<String> _seedRoot(
+  Directory root,
+  String existingFileName,
+  List<int> existingBytes,
+  String existingDateAdded,
+) async {
   final existingFile = File('${root.path}/$existingFileName');
   await existingFile.writeAsBytes(existingBytes);
   final existingId = await contentIdForFile(existingFile);
@@ -41,69 +45,91 @@ void main() {
   tearDown(() async => tmp.delete(recursive: true));
 
   test(
-      "mirrors main.dart's actual launch wiring end to end: await load() "
-      'then call rescan() -- a file dropped in before launch is picked up',
-      () async {
-    final root = await Directory('${tmp.path}/lib').create();
-    await _seedRoot(
-        root, 'Existing Song.mp3', List<int>.filled(64, 0x11), '2020-01-01T00:00:00.000Z');
+    "mirrors main.dart's actual launch wiring end to end: await load() "
+    'then call rescan() -- a file dropped in before launch is picked up',
+    () async {
+      final root = await Directory('${tmp.path}/lib').create();
+      await _seedRoot(
+        root,
+        'Existing Song.mp3',
+        List<int>.filled(64, 0x11),
+        '2020-01-01T00:00:00.000Z',
+      );
 
-    // The "new" file already sits on disk BEFORE load() ever runs -- e.g.
-    // dropped into a watched folder before the app was launched -- so only
-    // rescan() (load() only reads the manifest) can find it.
-    await File('${root.path}/Artist - Launch Find.mp3')
-        .writeAsBytes(List<int>.filled(200, 0));
+      // The "new" file already sits on disk BEFORE load() ever runs -- e.g.
+      // dropped into a watched folder before the app was launched -- so only
+      // rescan() (load() only reads the manifest) can find it.
+      await File(
+        '${root.path}/Artist - Launch Find.mp3',
+      ).writeAsBytes(List<int>.filled(200, 0));
 
-    final cacheFile = File('${tmp.path}/meta_cache.json');
-    final model = LibraryModel();
+      final cacheFile = File('${tmp.path}/meta_cache.json');
+      final model = LibraryModel();
 
-    // This is main.dart's actual launch sequence, reproduced verbatim (see
-    // reloadLibrary() there): await load() to completion, THEN call
-    // rescan() -- not the removed onFirstFeedReady hook, which used to fire
-    // rescan() from *inside* load() while `busy` was still held, silently
-    // no-opping it every time (the bug this test pins).
-    await model
-        .load(libraryRoots: [root], cacheFile: cacheFile)
-        .timeout(const Duration(seconds: 30));
-    expect(model.busy, isFalse,
-        reason: 'load() must have released busy by the time it returns, or '
-            'the following rescan() call would silently no-op');
-    expect(model.allTracks, hasLength(1),
-        reason: 'load() alone must not see the new file -- it only reads '
-            'the manifest, not the filesystem');
+      // This is main.dart's actual launch sequence, reproduced verbatim (see
+      // reloadLibrary() there): await load() to completion, THEN call
+      // rescan() -- not the removed onFirstFeedReady hook, which used to fire
+      // rescan() from *inside* load() while `busy` was still held, silently
+      // no-opping it every time (the bug this test pins).
+      await model
+          .load(libraryRoots: [root], cacheFile: cacheFile)
+          .timeout(const Duration(seconds: 30));
+      expect(
+        model.busy,
+        isFalse,
+        reason:
+            'load() must have released busy by the time it returns, or '
+            'the following rescan() call would silently no-op',
+      );
+      expect(
+        model.allTracks,
+        hasLength(1),
+        reason:
+            'load() alone must not see the new file -- it only reads '
+            'the manifest, not the filesystem',
+      );
 
-    await model.rescan().timeout(const Duration(seconds: 30));
+      await model.rescan().timeout(const Duration(seconds: 30));
 
-    expect(model.status, 'added 1 new tracks');
-    expect(model.allTracks, hasLength(2));
-    expect(
-      model.allTracks.any((t) => t.relPath == 'Artist - Launch Find.mp3'),
-      isTrue,
-      reason: 'the real launch wiring must have found and merged the file',
-    );
+      expect(model.status, 'added 1 new tracks');
+      expect(model.allTracks, hasLength(2));
+      expect(
+        model.allTracks.any((t) => t.relPath == 'Artist - Launch Find.mp3'),
+        isTrue,
+        reason: 'the real launch wiring must have found and merged the file',
+      );
 
-    final onDisk = loadManifest(root);
-    expect(onDisk.tracks, hasLength(2));
-    expect(
-      onDisk.tracks.values
-          .any((e) => e.paths.contains('Artist - Launch Find.mp3')),
-      isTrue,
-    );
-  });
+      final onDisk = loadManifest(root);
+      expect(onDisk.tracks, hasLength(2));
+      expect(
+        onDisk.tracks.values.any(
+          (e) => e.paths.contains('Artist - Launch Find.mp3'),
+        ),
+        isTrue,
+      );
+    },
+  );
 
-  test(
-      'load() re-entrancy: a second load() that arrives while the first is '
+  test('load() re-entrancy: a second load() that arrives while the first is '
       'still running is queued, not run concurrently, and still eventually '
       'reflects the latest requested roots', () async {
     final rootA = await Directory('${tmp.path}/rootA').create();
     // Unparseable bytes -> a cache miss -> Part B enrichment actually runs
     // for this track, giving onProgress a real callback to fire from.
     final idA1 = await _seedRoot(
-        rootA, 'A1.mp3', List<int>.filled(64, 1), '2020-01-01T00:00:00.000Z');
+      rootA,
+      'A1.mp3',
+      List<int>.filled(64, 1),
+      '2020-01-01T00:00:00.000Z',
+    );
 
     final rootB = await Directory('${tmp.path}/rootB').create();
     final idB1 = await _seedRoot(
-        rootB, 'B1.mp3', List<int>.filled(64, 2), '2021-01-01T00:00:00.000Z');
+      rootB,
+      'B1.mp3',
+      List<int>.filled(64, 2),
+      '2021-01-01T00:00:00.000Z',
+    );
 
     final cacheFile = File('${tmp.path}/meta_cache.json');
     final model = LibraryModel();
@@ -127,21 +153,27 @@ void main() {
         // later by timing luck. Without the guard, load()'s Part A runs
         // fully synchronously (no `await` crossed) and would already have
         // overwritten allTracks with root B's track by this point.
-        idsImmediatelyAfterOverlapCallReturns =
-            model.allTracks.map((t) => t.contentId).toSet();
+        idsImmediatelyAfterOverlapCallReturns = model.allTracks
+            .map((t) => t.contentId)
+            .toSet();
       },
     );
 
     await first.timeout(const Duration(seconds: 30));
     await overlapping?.timeout(const Duration(seconds: 30));
 
-    expect(overlapping, isNotNull,
-        reason: 'onProgress never fired -- the test setup did not actually '
-            'exercise Part B enrichment');
+    expect(
+      overlapping,
+      isNotNull,
+      reason:
+          'onProgress never fired -- the test setup did not actually '
+          'exercise Part B enrichment',
+    );
     expect(
       idsImmediatelyAfterOverlapCallReturns,
       {idA1},
-      reason: 'a second load() arriving while the first is still busy must '
+      reason:
+          'a second load() arriving while the first is still busy must '
           'be queued, not run concurrently -- allTracks must still be root '
           "A's data immediately after the (guarded) overlapping call "
           'returns, before the first load has released busy',

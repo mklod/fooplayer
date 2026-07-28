@@ -18,21 +18,23 @@ import 'package:fooplayer_app/model/track.dart';
 const monthlyRoot = r'L:\Music\monthly';
 const albumsRoot = r'L:\Music\albums';
 
-Track tr(String id, String relPath,
-        {String rootPath = monthlyRoot,
-        String artist = '',
-        String album = '',
-        int? trackNumber}) =>
-    Track(
-      contentId: id,
-      relPath: relPath,
-      rootPath: rootPath,
-      dateAdded: DateTime.utc(2024, 1, 1),
-      title: id,
-      artist: artist,
-      album: album,
-      trackNumber: trackNumber,
-    );
+Track tr(
+  String id,
+  String relPath, {
+  String rootPath = monthlyRoot,
+  String artist = '',
+  String album = '',
+  int? trackNumber,
+}) => Track(
+  contentId: id,
+  relPath: relPath,
+  rootPath: rootPath,
+  dateAdded: DateTime.utc(2024, 1, 1),
+  title: id,
+  artist: artist,
+  album: album,
+  trackNumber: trackNumber,
+);
 
 void main() {
   late LibraryModel lib;
@@ -40,25 +42,44 @@ void main() {
   setUp(() {
     lib = LibraryModel();
     lib.allTracks = [
-      tr('a1', '2007-08/track1.mp3', artist: 'Muse', album: 'Origin', trackNumber: 1),
-      tr('a2', '2007-08/track2.mp3', artist: 'Muse', album: 'Origin', trackNumber: 2),
+      tr(
+        'a1',
+        '2007-08/track1.mp3',
+        artist: 'Muse',
+        album: 'Origin',
+        trackNumber: 1,
+      ),
+      tr(
+        'a2',
+        '2007-08/track2.mp3',
+        artist: 'Muse',
+        album: 'Origin',
+        trackNumber: 2,
+      ),
       tr('b1', '2007-09/sub/track3.mp3', artist: 'Feed Me', album: 'Calamari'),
       tr('c1', '2007-11/track4.mp3', artist: 'ZZ Top', album: 'Fandango'),
       tr('loose', 'loose.mp3', artist: 'Aphex Twin', album: 'Drukqs'),
-      tr('x1', 'Muse/Origin/song.mp3',
-          rootPath: albumsRoot, artist: 'Muse', album: 'Origin'),
+      tr(
+        'x1',
+        'Muse/Origin/song.mp3',
+        rootPath: albumsRoot,
+        artist: 'Muse',
+        album: 'Origin',
+      ),
     ];
   });
 
-  Set<String> visibleIds() =>
-      lib.visibleTracks.map((t) => t.contentId).toSet();
+  Set<String> visibleIds() => lib.visibleTracks.map((t) => t.contentId).toSet();
 
   group('drill-down navigation', () {
-    test('top level lists the roots; nothing selected -> no header, no filter', () {
-      expect(lib.folderEntries, [albumsRoot, monthlyRoot]); // basename-sorted
-      expect(lib.folderBreadcrumbs, isEmpty);
-      expect(visibleIds(), hasLength(6));
-    });
+    test(
+      'top level lists the roots; nothing selected -> no header, no filter',
+      () {
+        expect(lib.folderEntries, [albumsRoot, monthlyRoot]); // basename-sorted
+        expect(lib.folderBreadcrumbs, isEmpty);
+        expect(visibleIds(), hasLength(6));
+      },
+    );
 
     test('plain click on a root selects it AND replaces the pane entries '
         'with its subdirectories (no phantom entry for root-level tracks)', () {
@@ -79,15 +100,18 @@ void main() {
       expect(visibleIds(), {'a1', 'a2'});
     });
 
-    test('a deeper subfolder with children keeps drilling one level at a time', () {
-      lib.drillIntoFolder(monthlyRoot);
-      lib.drillIntoFolder('2007-09');
-      expect(lib.folderEntries, ['sub']);
-      expect(visibleIds(), {'b1'});
-      lib.drillIntoFolder('sub');
-      expect(lib.folderBreadcrumbs, ['monthly', '2007-09', 'sub']);
-      expect(visibleIds(), {'b1'});
-    });
+    test(
+      'a deeper subfolder with children keeps drilling one level at a time',
+      () {
+        lib.drillIntoFolder(monthlyRoot);
+        lib.drillIntoFolder('2007-09');
+        expect(lib.folderEntries, ['sub']);
+        expect(visibleIds(), {'b1'});
+        lib.drillIntoFolder('sub');
+        expect(lib.folderBreadcrumbs, ['monthly', '2007-09', 'sub']);
+        expect(visibleIds(), {'b1'});
+      },
+    );
   });
 
   group('Ctrl+click sibling selection', () {
@@ -174,19 +198,22 @@ void main() {
       expect(visibleIds(), {'a1', 'a2', 'b1', 'c1', 'loose'});
     });
 
-    test('cascade fires: downstream artist/album filters clear and a stale '
-        'trackNumber sort reverts, exactly like the other folder mutations', () {
-      lib.drillIntoFolder(monthlyRoot);
-      lib.drillIntoFolder('2007-08');
-      lib.setArtists({'Muse'});
-      lib.setAlbums({'Origin'}); // single album -> trackNumber ascending
-      expect(lib.sortColumn, SortColumn.trackNumber);
-      lib.popFolderTo(1);
-      expect(lib.artistFilters, isEmpty);
-      expect(lib.albumFilters, isEmpty);
-      expect(lib.sortColumn, SortColumn.dateAdded);
-      expect(lib.sortAscending, isFalse);
-    });
+    test(
+      'cascade fires: downstream artist/album filters clear and a stale '
+      'trackNumber sort reverts, exactly like the other folder mutations',
+      () {
+        lib.drillIntoFolder(monthlyRoot);
+        lib.drillIntoFolder('2007-08');
+        lib.setArtists({'Muse'});
+        lib.setAlbums({'Origin'}); // single album -> trackNumber ascending
+        expect(lib.sortColumn, SortColumn.trackNumber);
+        lib.popFolderTo(1);
+        expect(lib.artistFilters, isEmpty);
+        expect(lib.albumFilters, isEmpty);
+        expect(lib.sortColumn, SortColumn.dateAdded);
+        expect(lib.sortAscending, isFalse);
+      },
+    );
 
     test('no-ops (downstream picks preserved) when nothing would change: '
         'depth at/beyond the current path with no siblings selected', () {
@@ -302,12 +329,16 @@ void main() {
       expect(lib.folderSelectionIsSingleAlbum, isFalse);
     });
 
-    test('no folder selection at all never qualifies (full library must '
-        'keep the column hidden even if it coincidentally holds one album)', () {
-      lib.allTracks =
-          lib.allTracks.where((t) => t.album == 'Origin').toList();
-      expect(lib.folderSelectionIsSingleAlbum, isFalse);
-    });
+    test(
+      'no folder selection at all never qualifies (full library must '
+      'keep the column hidden even if it coincidentally holds one album)',
+      () {
+        lib.allTracks = lib.allTracks
+            .where((t) => t.album == 'Origin')
+            .toList();
+        expect(lib.folderSelectionIsSingleAlbum, isFalse);
+      },
+    );
 
     test('an empty scope (folder matching no tracks) does not qualify', () {
       lib.drillIntoFolder(r'L:\Music\NoSuchRoot');
@@ -327,7 +358,9 @@ void main() {
 
   group('interaction with the rest of the model', () {
     test('setPlaylist clears the whole folder selection', () {
-      lib.playlists = const [ManifestPlaylist(name: 'mix', trackIds: ['a1'])];
+      lib.playlists = const [
+        ManifestPlaylist(name: 'mix', trackIds: ['a1']),
+      ];
       lib.drillIntoFolder(monthlyRoot);
       lib.setFolderSiblings({'2007-08'});
       lib.setPlaylist('mix');
@@ -355,8 +388,7 @@ void main() {
       expect(lib.artistFilters, {'Muse'});
     });
 
-    test(
-        'a genuinely completed toggle (off, then back on to a new set) '
+    test('a genuinely completed toggle (off, then back on to a new set) '
         'still cascades on each real change, only the exact repeat is a '
         'no-op', () {
       lib.drillIntoFolder(monthlyRoot);

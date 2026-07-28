@@ -23,17 +23,20 @@ import 'package:fooplayer_app/ui/layout_prefs.dart';
 const monthlyRoot = r'L:\Music\monthly';
 const albumsRoot = r'L:\Music\albums';
 
-Track tr(String id, String relPath, String title,
-        {String rootPath = monthlyRoot}) =>
-    Track(
-      contentId: id,
-      relPath: relPath,
-      rootPath: rootPath,
-      dateAdded: DateTime.utc(2024, 1, 1),
-      title: title,
-      artist: 'Artist $id',
-      album: 'Album $id',
-    );
+Track tr(
+  String id,
+  String relPath,
+  String title, {
+  String rootPath = monthlyRoot,
+}) => Track(
+  contentId: id,
+  relPath: relPath,
+  rootPath: rootPath,
+  dateAdded: DateTime.utc(2024, 1, 1),
+  title: title,
+  artist: 'Artist $id',
+  album: 'Album $id',
+);
 
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
@@ -48,29 +51,36 @@ LibraryModel fixtureLibrary() {
 
 void main() {
   group('FilterPanel.headerSegments (widget contract)', () {
-    Future<void> pumpPanel(WidgetTester tester,
-        {required List<String> segments,
-        required ValueChanged<int> onTap}) async {
-      await tester.pumpWidget(MaterialApp(
-        theme: buildAppTheme(),
-        home: Scaffold(
-          body: FilterPanel(
-            title: 'Folder',
-            values: const ['child-a', 'child-b'],
-            selected: const {},
-            onSelect: (_) {},
-            headerSegments: segments,
-            onHeaderSegmentTap: onTap,
+    Future<void> pumpPanel(
+      WidgetTester tester, {
+      required List<String> segments,
+      required ValueChanged<int> onTap,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Scaffold(
+            body: FilterPanel(
+              title: 'Folder',
+              values: const ['child-a', 'child-b'],
+              selected: const {},
+              onSelect: (_) {},
+              headerSegments: segments,
+              onHeaderSegmentTap: onTap,
+            ),
           ),
         ),
-      ));
+      );
     }
 
     testWidgets('renders every segment; ancestors are links reporting their '
         'index, the last segment is plain and non-clickable', (tester) async {
       final taps = <int>[];
-      await pumpPanel(tester,
-          segments: const ['All', 'monthly', '2007-08'], onTap: taps.add);
+      await pumpPanel(
+        tester,
+        segments: const ['All', 'monthly', '2007-08'],
+        onTap: taps.add,
+      );
 
       expect(find.text('All'), findsOneWidget); // distinct from 'All (2)' row
       expect(find.text('monthly'), findsOneWidget);
@@ -84,18 +94,25 @@ void main() {
       // must not report anything.
       expect(
         find.ancestor(
-            of: find.byKey(const Key('breadcrumb-seg-2')),
-            matching: find.byType(InkWell)),
+          of: find.byKey(const Key('breadcrumb-seg-2')),
+          matching: find.byType(InkWell),
+        ),
         findsNothing,
       );
-      await tester.tap(find.byKey(const Key('breadcrumb-seg-2')),
-          warnIfMissed: false);
+      await tester.tap(
+        find.byKey(const Key('breadcrumb-seg-2')),
+        warnIfMissed: false,
+      );
       expect(taps, [0, 1]);
     });
 
     testWidgets('pinned header (with its clear X) shows for segments even '
         'while selected is empty', (tester) async {
-      await pumpPanel(tester, segments: const ['All', 'monthly'], onTap: (_) {});
+      await pumpPanel(
+        tester,
+        segments: const ['All', 'monthly'],
+        onTap: (_) {},
+      );
       expect(find.byKey(const Key('filter-clear')), findsOneWidget);
     });
   });
@@ -103,13 +120,17 @@ void main() {
   group('HomeScreen wiring (end-to-end)', () {
     Future<LibraryModel> pumpHome(WidgetTester tester) async {
       final lib = fixtureLibrary();
-      await tester.pumpWidget(MaterialApp(
+      await tester.pumpWidget(
+        MaterialApp(
           theme: buildAppTheme(),
           home: HomeScreen(
-              library: lib,
-              player: PlayerService(),
-              layoutPrefs: LayoutPrefs(),
-              libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}))));
+            library: lib,
+            player: PlayerService(),
+            layoutPrefs: LayoutPrefs(),
+            libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          ),
+        ),
+      );
       return lib;
     }
 
@@ -144,8 +165,9 @@ void main() {
       expect(find.byKey(const Key('breadcrumb-seg-2')), findsNothing);
     });
 
-    testWidgets("the leading 'All' segment fully resets, same as the X",
-        (tester) async {
+    testWidgets("the leading 'All' segment fully resets, same as the X", (
+      tester,
+    ) async {
       final lib = await pumpHome(tester);
       await drillTo(tester, ['monthly', '2007-09']);
 
@@ -160,8 +182,9 @@ void main() {
       expect(find.text('Other Song'), findsOneWidget);
     });
 
-    testWidgets('the pinned X still fully resets from any depth',
-        (tester) async {
+    testWidgets('the pinned X still fully resets from any depth', (
+      tester,
+    ) async {
       final lib = await pumpHome(tester);
       await drillTo(tester, ['monthly', '2007-09', 'sub']);
 
@@ -174,30 +197,33 @@ void main() {
     });
   });
 
-  testWidgets('up-one-level button pops exactly one folder level',
-      (tester) async {
+  testWidgets('up-one-level button pops exactly one folder level', (
+    tester,
+  ) async {
     // Mike reported he could not go one folder up while browsing deeper than
     // one level: segments were clickable but looked like plain text, and a
     // deep path scrolls its tail out of view. The header now has an explicit
     // control that never depends on spotting the right segment.
     final tapped = <int>[];
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: Scaffold(
-        body: SizedBox(
-          width: 300,
-          height: 400,
-          child: FilterPanel(
-            title: 'Folder',
-            values: const ['2007-08', '2007-09'],
-            selected: const {},
-            onSelect: (_) {},
-            headerSegments: const ['All', 'monthly', '2007-08'],
-            onHeaderSegmentTap: tapped.add,
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: FilterPanel(
+              title: 'Folder',
+              values: const ['2007-08', '2007-09'],
+              selected: const {},
+              onSelect: (_) {},
+              headerSegments: const ['All', 'monthly', '2007-08'],
+              onHeaderSegmentTap: tapped.add,
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
 
     final up = find.byKey(const Key('folder-up'));
@@ -210,23 +236,25 @@ void main() {
   });
 
   testWidgets('no up-one-level control at the root level', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: Scaffold(
-        body: SizedBox(
-          width: 300,
-          height: 400,
-          child: FilterPanel(
-            title: 'Folder',
-            values: const ['albums', 'monthly'],
-            selected: const {},
-            onSelect: (_) {},
-            headerSegments: const ['All'],
-            onHeaderSegmentTap: (_) {},
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 300,
+            height: 400,
+            child: FilterPanel(
+              title: 'Folder',
+              values: const ['albums', 'monthly'],
+              selected: const {},
+              onSelect: (_) {},
+              headerSegments: const ['All'],
+              onHeaderSegmentTap: (_) {},
+            ),
           ),
         ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('folder-up')), findsNothing);

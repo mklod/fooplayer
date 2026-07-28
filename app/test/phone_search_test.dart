@@ -17,38 +17,43 @@ LibraryModel fixtureLibrary() {
   final m = LibraryModel();
   m.allTracks = [
     Track(
-        contentId: 'old',
-        relPath: 'old.mp3',
-        dateAdded: DateTime.utc(2020, 1, 1),
-        title: 'Oldest Song',
-        artist: 'Feed Me',
-        album: 'Calamari Tuesday'),
+      contentId: 'old',
+      relPath: 'old.mp3',
+      dateAdded: DateTime.utc(2020, 1, 1),
+      title: 'Oldest Song',
+      artist: 'Feed Me',
+      album: 'Calamari Tuesday',
+    ),
     Track(
-        contentId: 'new',
-        relPath: 'new.mp3',
-        dateAdded: DateTime.utc(2026, 7, 1),
-        title: 'Newest Song',
-        artist: 'Muse',
-        album: 'Absolution'),
+      contentId: 'new',
+      relPath: 'new.mp3',
+      dateAdded: DateTime.utc(2026, 7, 1),
+      title: 'Newest Song',
+      artist: 'Muse',
+      album: 'Absolution',
+    ),
   ];
   m.status = 'ready';
   return m;
 }
 
 void main() {
-  testWidgets('search icon opens the page; typing filters the feed live',
-      (tester) async {
+  testWidgets('search icon opens the page; typing filters the feed live', (
+    tester,
+  ) async {
     final lib = fixtureLibrary();
     final played = <(List<Track>, int)>[];
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: PhoneShell(
-        library: lib,
-        player: PlayerService(),
-        onPlayTrack: (tracks, index) => played.add((tracks, index)),
-        onTrackLongPress: (_, _) {},
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: PhoneShell(
+          library: lib,
+          player: PlayerService(),
+          onPlayTrack: (tracks, index) => played.add((tracks, index)),
+          onTrackLongPress: (_, _) {},
+        ),
       ),
-    ));
+    );
 
     await tester.tap(find.byKey(const Key('phone-search')));
     await tester.pumpAndSettle();
@@ -58,8 +63,7 @@ void main() {
     expect(find.text('Oldest Song'), findsOneWidget);
 
     // Artist substring match, case-insensitive, filtering live.
-    await tester.enterText(
-        find.byKey(const Key('phone-search-field')), 'muse');
+    await tester.enterText(find.byKey(const Key('phone-search-field')), 'muse');
     await tester.pump();
     expect(find.text('Newest Song'), findsOneWidget);
     expect(find.text('Oldest Song'), findsNothing);
@@ -83,16 +87,20 @@ void main() {
   });
 
   testWidgets('no match shows an empty result list', (tester) async {
-    await tester.pumpWidget(MaterialApp(
-      theme: buildAppTheme(),
-      home: PhoneSearchPage(
-        library: fixtureLibrary(),
-        onPlayTrack: (_, _) {},
-        onTrackLongPress: (_, _) {},
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: PhoneSearchPage(
+          library: fixtureLibrary(),
+          onPlayTrack: (_, _) {},
+          onTrackLongPress: (_, _) {},
+        ),
       ),
-    ));
+    );
     await tester.enterText(
-        find.byKey(const Key('phone-search-field')), 'zzz no such');
+      find.byKey(const Key('phone-search-field')),
+      'zzz no such',
+    );
     await tester.pump();
     expect(find.text('Newest Song'), findsNothing);
     expect(find.text('Oldest Song'), findsNothing);

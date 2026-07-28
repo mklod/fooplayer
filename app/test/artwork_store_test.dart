@@ -56,49 +56,58 @@ void main() {
       );
 
   group('sidecar round-trip', () {
-    test('putImage writes the image under <root>/.artwork/ and records it',
-        () async {
-      final store = newStore();
-      final entry = await store.putImage(_key, _bytes,
-          source: 'itunes', query: 'daft punk discovery');
+    test(
+      'putImage writes the image under <root>/.artwork/ and records it',
+      () async {
+        final store = newStore();
+        final entry = await store.putImage(
+          _key,
+          _bytes,
+          source: 'itunes',
+          query: 'daft punk discovery',
+        );
 
-      expect(entry, isNotNull);
-      expect(entry!.source, 'itunes');
-      expect(entry.external, isFalse);
-      expect(entry.file, '${artworkHash(_key)}.jpg');
+        expect(entry, isNotNull);
+        expect(entry!.source, 'itunes');
+        expect(entry.external, isFalse);
+        expect(entry.file, '${artworkHash(_key)}.jpg');
 
-      final img = File(p.join(root.path, artworkCacheDirName, entry.file));
-      expect(img.existsSync(), isTrue);
-      expect(img.readAsBytesSync(), _bytes);
+        final img = File(p.join(root.path, artworkCacheDirName, entry.file));
+        expect(img.existsSync(), isTrue);
+        expect(img.readAsBytesSync(), _bytes);
 
-      final sidecar = File(p.join(root.path, artworkSidecarName));
-      expect(sidecar.existsSync(), isTrue);
-      final json = jsonDecode(sidecar.readAsStringSync()) as Map;
-      expect(json['schema'], 1);
-      expect((json['art'] as Map)[_key], isA<Map>());
-      expect(((json['art'] as Map)[_key] as Map)['source'], 'itunes');
-      expect(((json['art'] as Map)[_key] as Map)['query'],
-          'daft punk discovery');
-      // Never writes into an album directory, only the root's own dot-files.
-      expect(json.containsKey('tracks'), isFalse);
-    });
-
-    test('a fresh store over the same root reads back entry and bytes',
-        () async {
-      await newStore().putImage(_key, _bytes, source: 'deezer');
-
-      final reopened = newStore();
-      await reopened.ensureLoaded();
-      final entry = reopened.entryFor(_key);
-      expect(entry, isNotNull);
-      expect(entry!.source, 'deezer');
-      expect(await reopened.readImage(_key), _bytes);
-      expect(reopened.entryFor('nobody|nothing'), isNull);
-      expect(await reopened.readImage('nobody|nothing'), isNull);
-    });
+        final sidecar = File(p.join(root.path, artworkSidecarName));
+        expect(sidecar.existsSync(), isTrue);
+        final json = jsonDecode(sidecar.readAsStringSync()) as Map;
+        expect(json['schema'], 1);
+        expect((json['art'] as Map)[_key], isA<Map>());
+        expect(((json['art'] as Map)[_key] as Map)['source'], 'itunes');
+        expect(
+          ((json['art'] as Map)[_key] as Map)['query'],
+          'daft punk discovery',
+        );
+        // Never writes into an album directory, only the root's own dot-files.
+        expect(json.containsKey('tracks'), isFalse);
+      },
+    );
 
     test(
-        'putImage rejects bytes that are not a recognized image, as a '
+      'a fresh store over the same root reads back entry and bytes',
+      () async {
+        await newStore().putImage(_key, _bytes, source: 'deezer');
+
+        final reopened = newStore();
+        await reopened.ensureLoaded();
+        final entry = reopened.entryFor(_key);
+        expect(entry, isNotNull);
+        expect(entry!.source, 'deezer');
+        expect(await reopened.readImage(_key), _bytes);
+        expect(reopened.entryFor('nobody|nothing'), isNull);
+        expect(await reopened.readImage('nobody|nothing'), isNull);
+      },
+    );
+
+    test('putImage rejects bytes that are not a recognized image, as a '
         'backstop against a caller that skipped/lost its own validation '
         '(adversarial review finding 6)', () async {
       final store = newStore();
@@ -106,51 +115,74 @@ void main() {
 
       final entry = await store.putImage(_key, html, source: 'url');
 
-      expect(entry, isNull,
-          reason: 'a non-image payload must never be stored as a '
-              '"successful" pick');
+      expect(
+        entry,
+        isNull,
+        reason:
+            'a non-image payload must never be stored as a '
+            '"successful" pick',
+      );
       expect(store.entryFor(_key), isNull);
       final cacheDir = Directory(p.join(root.path, artworkCacheDirName));
-      expect(cacheDir.existsSync(), isFalse,
-          reason: 'nothing should even be written to disk for rejected bytes');
-    });
-
-    test('putImage still accepts a real image after a rejected attempt',
-        () async {
-      final store = newStore();
-      final html = utf8.encode('<html>nope</html>');
-      expect(await store.putImage(_key, html, source: 'url'), isNull);
-
-      final entry = await store.putImage(_key, _bytes, source: 'itunes');
-      expect(entry, isNotNull);
-      expect(await store.readImage(_key), _bytes);
+      expect(
+        cacheDir.existsSync(),
+        isFalse,
+        reason: 'nothing should even be written to disk for rejected bytes',
+      );
     });
 
     test(
-        'replacing a pick with a DIFFERENT extension deletes the prior '
+      'putImage still accepts a real image after a rejected attempt',
+      () async {
+        final store = newStore();
+        final html = utf8.encode('<html>nope</html>');
+        expect(await store.putImage(_key, html, source: 'url'), isNull);
+
+        final entry = await store.putImage(_key, _bytes, source: 'itunes');
+        expect(entry, isNotNull);
+        expect(await store.readImage(_key), _bytes);
+      },
+    );
+
+    test('replacing a pick with a DIFFERENT extension deletes the prior '
         'file (adversarial review finding 4)', () async {
       final store = newStore();
-      final first =
-          await store.putImage(_key, _bytes, source: 'itunes', extension: '.jpg');
-      final firstImg = File(p.join(root.path, artworkCacheDirName, first!.file));
+      final first = await store.putImage(
+        _key,
+        _bytes,
+        source: 'itunes',
+        extension: '.jpg',
+      );
+      final firstImg = File(
+        p.join(root.path, artworkCacheDirName, first!.file),
+      );
       expect(firstImg.existsSync(), isTrue);
       expect(first.file, '${artworkHash(_key)}.jpg');
 
       final pngBytes = _pngFixture(List<int>.generate(32, (i) => 255 - i));
-      final second = await store.putImage(_key, pngBytes,
-          source: 'local', extension: '.png');
+      final second = await store.putImage(
+        _key,
+        pngBytes,
+        source: 'local',
+        extension: '.png',
+      );
       expect(second, isNotNull);
       expect(second!.file, '${artworkHash(_key)}.png');
 
       // The NEW file exists with the NEW bytes...
-      final secondImg =
-          File(p.join(root.path, artworkCacheDirName, second.file));
+      final secondImg = File(
+        p.join(root.path, artworkCacheDirName, second.file),
+      );
       expect(secondImg.existsSync(), isTrue);
       expect(secondImg.readAsBytesSync(), pngBytes);
       // ...and the OLD .jpg is gone, not left behind as an orphan.
-      expect(firstImg.existsSync(), isFalse,
-          reason: 'a replace with a different extension must not leave '
-              'the prior pick\'s file behind forever');
+      expect(
+        firstImg.existsSync(),
+        isFalse,
+        reason:
+            'a replace with a different extension must not leave '
+            'the prior pick\'s file behind forever',
+      );
 
       // The .artwork/ dir holds exactly the current pick's file.
       final cacheDir = Directory(p.join(root.path, artworkCacheDirName));
@@ -162,14 +194,17 @@ void main() {
       expect(names, [second.file]);
     });
 
-    test(
-        'replacing a pick with the SAME extension still works (no crash, '
+    test('replacing a pick with the SAME extension still works (no crash, '
         'no orphan of itself)', () async {
       final store = newStore();
       await store.putImage(_key, _bytes, source: 'itunes', extension: '.jpg');
       final replaced = _pngFixture(List<int>.generate(64, (i) => 63 - i));
-      final second =
-          await store.putImage(_key, replaced, source: 'local', extension: '.jpg');
+      final second = await store.putImage(
+        _key,
+        replaced,
+        source: 'local',
+        extension: '.jpg',
+      );
       expect(second, isNotNull);
       expect(await store.readImage(_key), replaced);
 
@@ -197,96 +232,120 @@ void main() {
       expect(reopened.entryFor(_key), isNull);
     });
 
-    test('a corrupt sidecar degrades to "nothing recorded", never throws',
-        () async {
-      File(p.join(root.path, artworkSidecarName))
-          .writeAsStringSync('{ not json at all');
-      final store = newStore();
-      await store.ensureLoaded();
-      expect(store.entryFor(_key), isNull);
-      // ...and it can still be written over.
-      expect(await store.putImage(_key, _bytes, source: 'url'), isNotNull);
-    });
+    test(
+      'a corrupt sidecar degrades to "nothing recorded", never throws',
+      () async {
+        File(
+          p.join(root.path, artworkSidecarName),
+        ).writeAsStringSync('{ not json at all');
+        final store = newStore();
+        await store.ensureLoaded();
+        expect(store.entryFor(_key), isNull);
+        // ...and it can still be written over.
+        expect(await store.putImage(_key, _bytes, source: 'url'), isNotNull);
+      },
+    );
   });
 
   group('atomicity', () {
-    test('leaves no .tmp behind and creates a .bak on the second save',
-        () async {
-      final store = newStore();
-      await store.putImage(_key, _bytes, source: 'itunes');
+    test(
+      'leaves no .tmp behind and creates a .bak on the second save',
+      () async {
+        final store = newStore();
+        await store.putImage(_key, _bytes, source: 'itunes');
 
-      final sidecar = File(p.join(root.path, artworkSidecarName));
-      final bak = File(p.join(root.path, artworkSidecarBakName));
-      final tmpFile = File(p.join(root.path, artworkSidecarTmpName));
+        final sidecar = File(p.join(root.path, artworkSidecarName));
+        final bak = File(p.join(root.path, artworkSidecarBakName));
+        final tmpFile = File(p.join(root.path, artworkSidecarTmpName));
 
-      expect(sidecar.existsSync(), isTrue);
-      expect(tmpFile.existsSync(), isFalse, reason: 'tmp renamed into place');
-      expect(bak.existsSync(), isFalse, reason: 'nothing to back up yet');
+        expect(sidecar.existsSync(), isTrue);
+        expect(tmpFile.existsSync(), isFalse, reason: 'tmp renamed into place');
+        expect(bak.existsSync(), isFalse, reason: 'nothing to back up yet');
 
-      final firstContents = sidecar.readAsStringSync();
-      await store.putImage('other|album', _bytes, source: 'deezer');
+        final firstContents = sidecar.readAsStringSync();
+        await store.putImage('other|album', _bytes, source: 'deezer');
 
-      expect(bak.existsSync(), isTrue);
-      expect(bak.readAsStringSync(), firstContents,
-          reason: '.bak holds the PREVIOUS complete sidecar');
-      expect(tmpFile.existsSync(), isFalse);
-      final reloaded =
-          jsonDecode(sidecar.readAsStringSync()) as Map<String, dynamic>;
-      expect((reloaded['art'] as Map).keys, containsAll([_key, 'other|album']));
-    });
+        expect(bak.existsSync(), isTrue);
+        expect(
+          bak.readAsStringSync(),
+          firstContents,
+          reason: '.bak holds the PREVIOUS complete sidecar',
+        );
+        expect(tmpFile.existsSync(), isFalse);
+        final reloaded =
+            jsonDecode(sidecar.readAsStringSync()) as Map<String, dynamic>;
+        expect(
+          (reloaded['art'] as Map).keys,
+          containsAll([_key, 'other|album']),
+        );
+      },
+    );
 
-    test('concurrent saves are serialized -- no interleaved renames, no loss',
-        () async {
-      final store = newStore();
-      await Future.wait([
-        store.putImage('a|1', _bytes, source: 'itunes'),
-        store.putImage('a|2', _bytes, source: 'itunes'),
-        store.putImage('a|3', _bytes, source: 'itunes'),
-      ]);
+    test(
+      'concurrent saves are serialized -- no interleaved renames, no loss',
+      () async {
+        final store = newStore();
+        await Future.wait([
+          store.putImage('a|1', _bytes, source: 'itunes'),
+          store.putImage('a|2', _bytes, source: 'itunes'),
+          store.putImage('a|3', _bytes, source: 'itunes'),
+        ]);
 
-      final reopened = newStore();
-      await reopened.ensureLoaded();
-      expect(reopened.entryFor('a|1'), isNotNull);
-      expect(reopened.entryFor('a|2'), isNotNull);
-      expect(reopened.entryFor('a|3'), isNotNull);
-      expect(File(p.join(root.path, artworkSidecarTmpName)).existsSync(),
-          isFalse);
-    });
+        final reopened = newStore();
+        await reopened.ensureLoaded();
+        expect(reopened.entryFor('a|1'), isNotNull);
+        expect(reopened.entryFor('a|2'), isNotNull);
+        expect(reopened.entryFor('a|3'), isNotNull);
+        expect(
+          File(p.join(root.path, artworkSidecarTmpName)).existsSync(),
+          isFalse,
+        );
+      },
+    );
 
-    test('a mutation made while a save is queued still lands on disk',
-        () async {
-      final store = newStore();
-      // Fire a burst without awaiting: the coalescer must fold these into
-      // the smallest number of writes that still contains all of them.
-      final futures = [
-        for (var i = 0; i < 25; i++)
-          store.recordMiss('burst|$i', query: 'q$i'),
-      ];
-      await Future.wait(futures);
+    test(
+      'a mutation made while a save is queued still lands on disk',
+      () async {
+        final store = newStore();
+        // Fire a burst without awaiting: the coalescer must fold these into
+        // the smallest number of writes that still contains all of them.
+        final futures = [
+          for (var i = 0; i < 25; i++)
+            store.recordMiss('burst|$i', query: 'q$i'),
+        ];
+        await Future.wait(futures);
 
-      final reopened = newStore();
-      await reopened.ensureLoaded();
-      expect(reopened.sidecar.misses.length, 25);
-      for (var i = 0; i < 25; i++) {
-        expect(reopened.isNegative('burst|$i'), isTrue);
-      }
-      expect(File(p.join(root.path, artworkSidecarTmpName)).existsSync(),
-          isFalse);
-    });
+        final reopened = newStore();
+        await reopened.ensureLoaded();
+        expect(reopened.sidecar.misses.length, 25);
+        for (var i = 0; i < 25; i++) {
+          expect(reopened.isNegative('burst|$i'), isTrue);
+        }
+        expect(
+          File(p.join(root.path, artworkSidecarTmpName)).existsSync(),
+          isFalse,
+        );
+      },
+    );
 
-    test('does not touch the library manifest sitting in the same root',
-        () async {
-      final manifest = File(p.join(root.path, '.library.json'))
-        ..writeAsStringSync('{"schema":1,"tracks":{},"playlists":[]}');
-      final before = manifest.readAsStringSync();
+    test(
+      'does not touch the library manifest sitting in the same root',
+      () async {
+        final manifest = File(p.join(root.path, '.library.json'))
+          ..writeAsStringSync('{"schema":1,"tracks":{},"playlists":[]}');
+        final before = manifest.readAsStringSync();
 
-      final store = newStore();
-      await store.putImage(_key, _bytes, source: 'itunes');
-      await store.recordMiss('x|y');
+        final store = newStore();
+        await store.putImage(_key, _bytes, source: 'itunes');
+        await store.recordMiss('x|y');
 
-      expect(manifest.readAsStringSync(), before);
-      expect(File(p.join(root.path, '.library.json.bak')).existsSync(), isFalse);
-    });
+        expect(manifest.readAsStringSync(), before);
+        expect(
+          File(p.join(root.path, '.library.json.bak')).existsSync(),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('read-only root fallback', () {
@@ -304,22 +363,30 @@ void main() {
     ArtworkStore roStore() =>
         ArtworkStore(root: unwritableRoot, appDataDir: appData);
 
-    test('falls back to the app data dir and flags the entry external',
-        () async {
-      final store = roStore();
-      final entry = await store.putImage(_key, _bytes,
-          source: 'itunes', query: 'daft punk discovery');
+    test(
+      'falls back to the app data dir and flags the entry external',
+      () async {
+        final store = roStore();
+        final entry = await store.putImage(
+          _key,
+          _bytes,
+          source: 'itunes',
+          query: 'daft punk discovery',
+        );
 
-      expect(entry, isNotNull);
-      expect(entry!.external, isTrue);
-      expect(store.external, isTrue);
+        expect(entry, isNotNull);
+        expect(entry!.external, isTrue);
+        expect(store.external, isTrue);
 
-      final img = File(p.join(store.externalDir.path, entry.file));
-      expect(img.existsSync(), isTrue);
-      expect(img.readAsBytesSync(), _bytes);
-      expect(File(p.join(store.externalDir.path, artworkSidecarName))
-          .existsSync(), isTrue);
-    });
+        final img = File(p.join(store.externalDir.path, entry.file));
+        expect(img.existsSync(), isTrue);
+        expect(img.readAsBytesSync(), _bytes);
+        expect(
+          File(p.join(store.externalDir.path, artworkSidecarName)).existsSync(),
+          isTrue,
+        );
+      },
+    );
 
     test('external entries survive a reopen', () async {
       await roStore().putImage(_key, _bytes, source: 'itunes');
@@ -351,23 +418,24 @@ void main() {
   });
 
   group('negative-result cache', () {
-    test('recordMiss makes isNegative true and persists across reopen',
-        () async {
-      final store = newStore();
-      expect(store.isNegative(_key), isFalse);
-      await store.recordMiss(_key, query: 'daft punk discovery');
-      expect(store.isNegative(_key), isTrue);
+    test(
+      'recordMiss makes isNegative true and persists across reopen',
+      () async {
+        final store = newStore();
+        expect(store.isNegative(_key), isFalse);
+        await store.recordMiss(_key, query: 'daft punk discovery');
+        expect(store.isNegative(_key), isTrue);
 
-      final reopened = newStore();
-      await reopened.ensureLoaded();
-      expect(reopened.isNegative(_key), isTrue);
-      expect(reopened.sidecar.misses[_key]!.query, 'daft punk discovery');
-    });
+        final reopened = newStore();
+        await reopened.ensureLoaded();
+        expect(reopened.isNegative(_key), isTrue);
+        expect(reopened.sidecar.misses[_key]!.query, 'daft punk discovery');
+      },
+    );
 
     test('expires after the TTL', () async {
       var clock = DateTime.utc(2026, 1, 1);
-      final store =
-          newStore(now: () => clock, ttl: const Duration(days: 14));
+      final store = newStore(now: () => clock, ttl: const Duration(days: 14));
       await store.recordMiss(_key);
       expect(store.isNegative(_key), isTrue);
 
@@ -410,10 +478,16 @@ void main() {
       await reopened.ensureLoaded();
       expect(reopened.entryFor(_key), isNull);
       expect(reopened.isSuppressed(_key), isTrue);
-      expect(reopened.isNegative(_key), isTrue,
-          reason: 'the auto pass must not re-apply a rejected cover');
-      expect(reopened.sidecar.misses[_key]!.query, 'daft punk',
-          reason: 'keeps what was searched, for the picker');
+      expect(
+        reopened.isNegative(_key),
+        isTrue,
+        reason: 'the auto pass must not re-apply a rejected cover',
+      );
+      expect(
+        reopened.sidecar.misses[_key]!.query,
+        'daft punk',
+        reason: 'keeps what was searched, for the picker',
+      );
     });
 
     test('a suppression never expires, unlike an automatic miss', () async {
@@ -424,8 +498,11 @@ void main() {
       await store.remove(_key);
 
       clock = clock.add(const Duration(days: 400));
-      expect(store.isNegative('auto|miss'), isFalse,
-          reason: 'an automatic miss still expires');
+      expect(
+        store.isNegative('auto|miss'),
+        isFalse,
+        reason: 'an automatic miss still expires',
+      );
       expect(store.isNegative(_key), isTrue);
       expect(store.isSuppressed(_key), isTrue);
     });
@@ -447,7 +524,11 @@ void main() {
       final store = newStore();
       await store.putImage(_key, _bytes, source: 'itunes');
       await store.remove(_key);
-      await store.putImage(_key, _pngFixture(const [1, 2, 3, 4]), source: 'local');
+      await store.putImage(
+        _key,
+        _pngFixture(const [1, 2, 3, 4]),
+        source: 'local',
+      );
       expect(store.isSuppressed(_key), isFalse);
       expect(store.isNegative(_key), isFalse);
       expect(store.entryFor(_key)?.source, 'local');
@@ -467,26 +548,35 @@ void main() {
       await store.putImage(_key, _bytes, source: 'itunes');
       await store.remove(_key);
 
-      final json = jsonDecode(
-        File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
-      ) as Map;
+      final json =
+          jsonDecode(
+                File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
+              )
+              as Map;
       expect(((json['misses'] as Map)[_key] as Map)['suppressed'], isTrue);
 
       // An automatic miss must NOT carry the flag.
       await store.recordMiss('auto|miss');
-      final json2 = jsonDecode(
-        File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
-      ) as Map;
-      expect((json2['misses'] as Map)['auto|miss'],
-          isNot(contains('suppressed')));
+      final json2 =
+          jsonDecode(
+                File(p.join(root.path, artworkSidecarName)).readAsStringSync(),
+              )
+              as Map;
+      expect(
+        (json2['misses'] as Map)['auto|miss'],
+        isNot(contains('suppressed')),
+      );
     });
   });
 
   group('write-location probe (must never block the UI isolate)', () {
     test('probes once for the whole lifetime of a store', () async {
       final store = newStore();
-      expect(store.writeDirProbeCount, 0,
-          reason: 'nothing probed until something is actually written');
+      expect(
+        store.writeDirProbeCount,
+        0,
+        reason: 'nothing probed until something is actually written',
+      );
 
       await store.putImage(_key, _bytes, source: 'itunes');
       expect(store.writeDirProbeCount, 1);
@@ -495,8 +585,11 @@ void main() {
         await store.recordMiss('miss|$i');
       }
       await store.putImage('another|album', _bytes, source: 'deezer');
-      expect(store.writeDirProbeCount, 1,
-          reason: 'the probe is memoized, not re-run per save');
+      expect(
+        store.writeDirProbeCount,
+        1,
+        reason: 'the probe is memoized, not re-run per save',
+      );
     });
 
     test('concurrent first writes share ONE probe', () async {
@@ -509,34 +602,44 @@ void main() {
       expect(store.sidecar.art.length, 6);
     });
 
-    test('a store with NO writable location memoizes that outcome too',
-        () async {
-      // Both the root AND the app data dir sit under a regular file, so
-      // neither can ever be created: the "nothing is writable" branch.
-      final blocker = File(p.join(tmp.path, 'blocker-all'))
-        ..writeAsStringSync('not a directory');
-      final store = ArtworkStore(
-        root: Directory(p.join(blocker.path, 'music')),
-        appDataDir: Directory(p.join(blocker.path, 'appdata')),
-      );
+    test(
+      'a store with NO writable location memoizes that outcome too',
+      () async {
+        // Both the root AND the app data dir sit under a regular file, so
+        // neither can ever be created: the "nothing is writable" branch.
+        final blocker = File(p.join(tmp.path, 'blocker-all'))
+          ..writeAsStringSync('not a directory');
+        final store = ArtworkStore(
+          root: Directory(p.join(blocker.path, 'music')),
+          appDataDir: Directory(p.join(blocker.path, 'appdata')),
+        );
 
-      expect(await store.putImage(_key, _bytes, source: 'itunes'), isNull);
-      for (var i = 0; i < 10; i++) {
-        await store.recordMiss('miss|$i');
-      }
-      expect(store.writeDirProbeCount, 1,
-          reason: 'a failed probe must not be retried once per save');
-    });
+        expect(await store.putImage(_key, _bytes, source: 'itunes'), isNull);
+        for (var i = 0; i < 10; i++) {
+          await store.recordMiss('miss|$i');
+        }
+        expect(
+          store.writeDirProbeCount,
+          1,
+          reason: 'a failed probe must not be retried once per save',
+        );
+      },
+    );
   });
 
   group('empty root (fixture tracks default Track.rootPath to "")', () {
     test('never reads or writes relative to the working directory', () async {
-      final cwdSidecar = File(p.join(Directory.current.path,
-          artworkSidecarName));
-      final cwdCache =
-          Directory(p.join(Directory.current.path, artworkCacheDirName));
-      expect(cwdSidecar.existsSync(), isFalse,
-          reason: 'precondition: nothing here yet');
+      final cwdSidecar = File(
+        p.join(Directory.current.path, artworkSidecarName),
+      );
+      final cwdCache = Directory(
+        p.join(Directory.current.path, artworkCacheDirName),
+      );
+      expect(
+        cwdSidecar.existsSync(),
+        isFalse,
+        reason: 'precondition: nothing here yet',
+      );
 
       final store = ArtworkStore(root: Directory(''), appDataDir: appData);
       await store.ensureLoaded();
