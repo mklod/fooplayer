@@ -42,7 +42,11 @@ import subprocess
 import sys
 import time
 
-AUDIO_TO_CONVERT = {".m4a", ".flac"}
+# FLAC is NOT converted by default: the content ID already skips FLAC
+# metadata blocks, so a PICTURE block embeds with no identity change and no
+# lossless->lossy re-encode. Only .m4a genuinely needs converting, because the
+# core hashes an .m4a file whole.
+DEFAULT_FORMATS = [".m4a"]
 BACKUP_ROOT = r"L:\BACKUPS\fooplayer-file-fixes\pre-mp3-conversion"
 
 
@@ -101,9 +105,13 @@ def main():
     ap.add_argument("--roots", nargs="+", required=True)
     ap.add_argument("--apply", action="store_true",
                     help="actually convert; omit for a dry run")
-    ap.add_argument("--quality", default="0",
-                    help="LAME VBR quality, 0 = highest (~245 kbps)")
+    ap.add_argument("--quality", default="2",
+                    help="LAME VBR quality; 2 (~190 kbps) gives a ~135 kbps "
+                         "AAC source headroom without inflating it like 0 does")
     ap.add_argument("--core", default=r"L:\PROJECTS\fooplayer\core")
+    ap.add_argument("--formats", nargs="+", default=DEFAULT_FORMATS,
+                    help="extensions to convert (default: .m4a only -- FLAC "
+                         "carries a cover natively and must not be re-encoded)")
     args = ap.parse_args()
 
     total = converted = skipped = 0
@@ -122,7 +130,7 @@ def main():
         targets = []
         for dp, _, fs in os.walk(root):
             for fn in fs:
-                if os.path.splitext(fn)[1].lower() in AUDIO_TO_CONVERT:
+                if os.path.splitext(fn)[1].lower() in set(args.formats):
                     targets.append(os.path.join(dp, fn))
         if not targets:
             continue

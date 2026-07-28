@@ -7,9 +7,10 @@
 | Component | State |
 |---|---|
 | Core engine (`fooplayer_core`: content-ID hashing, manifests, scanner, seed, `foolib` CLI) | ✅ Stable, merged, untouched by later rounds (36/36 tests) |
-| Library manifests | ✅ Five scoped roots seeded (monthly 1,844 / alt-times 2,398 / albums 685 / loose-2020 437 / loose-old 92); dates permanent, retag-proof |
+| Library manifests | ✅ Five scoped roots seeded (monthly 1,844 / alt-times 2,398 / albums 685 / loose-2020 437 / loose-old 92); dates permanent, retag-proof. Library is now 100% MP3 + 3 FLAC (the 13 m4a were converted 2026-07-27, date-added carried across) |
 | Windows desktop app | ✅ Daily driver. iTunes-style light UI, sortable columns, folder drill-down with breadcrumb + ↑ up-one-level, ctrl/shift multi-select (rows and filters), search ✕, auto-rescan, on-play duration backfill, click-to-select / double-click-play, instant right-click menus, playlists (create/delete/add/remove) with the four-column playlist view + cover/title/"N tracks · MM min" header, metro transport glyphs, blue shuffle |
 | Android app | ✅ Phone-native UI v1, verified live on the emulator: drawer shell (Library/Folders/Artists/Albums/Playlists/Settings), date feed, mini-player, Now Playing with metro transport (no volume slider — hardware keys own it), browse views, playlist management. Launcher icon + "fooplayer" label |
+| Artwork in file tags | ✅ Engine done and applied to FLAC + converted m4a: ID3v2 APIC / FLAC PICTURE, content ID and dates provably unchanged, unsafe files refused. **Not yet run across the ~3,659 art-less MP3s — Mike's call** |
 | Album artwork | ✅ Auto-enrichment (iTunes / Deezer / Cover Art Archive — keyless; conservative auto-apply at ≥75 score with ≥10 margin) + picker on both platforms (grid, choose file, paste URL, search again, remove). Stored per-root in `.artwork/` + `.artwork.json` sidecar; two adversarial-review passes' findings fixed |
 | Test suite | ✅ 682 app tests + 36 core tests, `flutter analyze` clean; Windows release and debug APK both build from one tree |
 | Android emulator | ✅ Healthy under Microsoft WHPX (15s boots), data partition 16 GB, seeded with the real 444-file "loose tracks - 2020 and later" library. AEHD driver permanently removed after it bluescreened the machine |
@@ -29,6 +30,9 @@
 *Worktrees must live on `C:` — the NAS share can't host Flutter's plugin symlinks. The `foobar-app` folder name is legacy; the path is stale, its branch and contents are current.*
 
 ## Last session (2026-07-27)
+
+- Cover art now embeds into the files themselves (MP3 APIC / FLAC PICTURE) with content ID and dates provably unchanged; applied to the 3 FLACs and the 13 converted m4a. The full-library pass over ~3,659 art-less MP3s is built but deliberately not run yet.
+- One caveat for the running app: it still holds the pre-conversion library in memory — restart it (or Rescan) to pick up the converted tracks.
 
 - Fixed the add-to-playlist failure Mike reported. It was not the owning-root routing patched earlier: playlist writes gated on the library's coarse `busy` flag, which covers background tag reading (minutes on this library), so writes were refused all session and the refusal only surfaced after a 5-second deadline. The lock now covers only phases that touch a manifest. Reproduced and re-verified live in the running app, including the remove path.
 - Playlist view completed to the reference design (four columns + cover/title/summary header); right-click menus open with no animation.
