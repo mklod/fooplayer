@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/gestures.dart' show kPrimaryButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -661,41 +662,53 @@ class _TrackRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        onTap: onSelect,
-        onDoubleTap: onPlay,
-        onSecondaryTapDown: (details) => _showTrackContextMenu(
-          context: context,
-          globalPosition: details.globalPosition,
-          track: track,
-          launchExplorer: launchExplorer,
-          library: library,
-          playlistStore: playlistStore,
-          artwork: artwork,
-        ),
-        // The default ink splash + pressed highlight take hundreds of ms to
-        // play out, which made single-click selection feel sluggish. Both
-        // are suppressed; the snappy [_kSelectionAnimationDuration] tile
-        // color fade below is the selection feedback instead (hover
-        // feedback is untouched).
-        splashFactory: NoSplash.splashFactory,
-        highlightColor: Colors.transparent,
-        // Individual rows must NOT grab keyboard focus on tap -- the
-        // enclosing [TrackListView] owns one list-wide [FocusNode] so
-        // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
-        // regardless of which row was last clicked; a per-row focus node
-        // would otherwise steal primary focus away from it on every click.
-        canRequestFocus: false,
-        child: AnimatedContainer(
-          duration: _kSelectionAnimationDuration,
-          curve: Curves.easeOut,
-          color: isSelected ? AppColors.selectionFill : Colors.transparent,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            child: Row(
-              children: playlistMode
-                  ? _playlistCells(context)
-                  : _libraryCells(context),
+      // Selection fires on pointer DOWN, the way Explorer and foobar2000
+      // behave. It used to hang off InkWell.onTap, which Flutter withholds
+      // for the whole kDoubleTapTimeout window (~300ms) while it decides
+      // whether a second tap is coming -- so the row sat unhighlighted long
+      // enough to read as a stutter. Measured at library scale, the model
+      // work behind a selection is ~5ms total, so that wait WAS the lag.
+      // Double-click-to-play is unaffected: the first press selects, the
+      // second completes the double tap.
+      child: Listener(
+        onPointerDown: (event) {
+          if (event.buttons == kPrimaryButton) onSelect();
+        },
+        child: InkWell(
+          onDoubleTap: onPlay,
+          onSecondaryTapDown: (details) => _showTrackContextMenu(
+            context: context,
+            globalPosition: details.globalPosition,
+            track: track,
+            launchExplorer: launchExplorer,
+            library: library,
+            playlistStore: playlistStore,
+            artwork: artwork,
+          ),
+          // The default ink splash + pressed highlight take hundreds of ms to
+          // play out, which made single-click selection feel sluggish. Both
+          // are suppressed; the snappy [_kSelectionAnimationDuration] tile
+          // color fade below is the selection feedback instead (hover
+          // feedback is untouched).
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
+          // Individual rows must NOT grab keyboard focus on tap -- the
+          // enclosing [TrackListView] owns one list-wide [FocusNode] so
+          // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
+          // regardless of which row was last clicked; a per-row focus node
+          // would otherwise steal primary focus away from it on every click.
+          canRequestFocus: false,
+          child: AnimatedContainer(
+            duration: _kSelectionAnimationDuration,
+            curve: Curves.easeOut,
+            color: isSelected ? AppColors.selectionFill : Colors.transparent,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                children: playlistMode
+                    ? _playlistCells(context)
+                    : _libraryCells(context),
+              ),
             ),
           ),
         ),
@@ -962,6 +975,15 @@ Future<void> _showTrackContextMenu({
       Offset.zero & overlayBox.size,
     ),
     items: [
+      // Artwork sits at the top: it's the item reached for most often, and
+      // the one worth hitting without reading the menu.
+      if (artwork != null)
+        PopupMenuItem(
+          value: _TrackMenuAction.albumArtwork,
+          child: Text(
+            multi ? 'Album artwork... (this track)' : 'Album artwork...',
+          ),
+        ),
       PopupMenuItem(
         value: _TrackMenuAction.viewInFolder,
         child: Text(multi ? 'View in folder (this track)' : 'View in folder'),
@@ -974,13 +996,6 @@ Future<void> _showTrackContextMenu({
         const PopupMenuItem(
           value: _TrackMenuAction.removeFromPlaylist,
           child: Text('Remove from playlist'),
-        ),
-      if (artwork != null)
-        PopupMenuItem(
-          value: _TrackMenuAction.albumArtwork,
-          child: Text(
-            multi ? 'Album artwork... (this track)' : 'Album artwork...',
-          ),
         ),
     ],
   );

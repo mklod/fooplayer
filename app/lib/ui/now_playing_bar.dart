@@ -3,7 +3,9 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
+import '../artwork/artwork_picker.dart';
 import '../artwork/artwork_resolver.dart';
+import '../artwork/picker_seams.dart';
 import '../metadata/tags.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
@@ -161,31 +163,49 @@ class _AlbumArtState extends State<AlbumArt> {
         });
   }
 
+  /// Shown when there's no cover: a crisply outlined tile rather than a bare
+  /// icon. The drop shadow below is deliberately NOT applied to it -- a
+  /// shadow with no sleeve to cast it just reads as a hazy square smudged
+  /// around a floating icon, which is exactly how it looked before.
+  Widget _placeholder() => Container(
+    width: widget.size,
+    height: widget.size,
+    decoration: BoxDecoration(
+      color: AppColors.panelBg,
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(color: AppColors.hairline),
+    ),
+    child: Icon(
+      Icons.album,
+      size: widget.size * 0.42,
+      color: AppColors.inkSecondary,
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
-    // Subtle drop shadow so the cover reads as a physical sleeve sitting on
-    // the bar rather than a flat patch of colour.
+    // Subtle drop shadow so a real cover reads as a physical sleeve sitting
+    // on the bar rather than a flat patch of colour. No art, no sleeve, no
+    // shadow -- see [_placeholder].
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(4),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.ink.withValues(alpha: 0.18),
-            blurRadius: widget.size >= 120 ? 14 : 6,
-            spreadRadius: 0,
-            offset: Offset(0, widget.size >= 120 ? 4 : 2),
-          ),
-        ],
+        boxShadow: bytes == null
+            ? const []
+            : [
+                BoxShadow(
+                  color: AppColors.ink.withValues(alpha: 0.18),
+                  blurRadius: widget.size >= 120 ? 14 : 6,
+                  spreadRadius: 0,
+                  offset: Offset(0, widget.size >= 120 ? 4 : 2),
+                ),
+              ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(4),
         child: bytes == null
-            ? SizedBox(
-                width: widget.size,
-                height: widget.size,
-                child: Icon(Icons.album, size: widget.size * 0.7),
-              )
+            ? _placeholder()
             : Image.memory(
                 bytes,
                 width: widget.size,
@@ -199,11 +219,7 @@ class _AlbumArtState extends State<AlbumArt> {
                 // one written before that check existed) must fall back to
                 // the placeholder on a decode failure, not Flutter's red
                 // error box.
-                errorBuilder: (context, error, stackTrace) => SizedBox(
-                  width: widget.size,
-                  height: widget.size,
-                  child: Icon(Icons.album, size: widget.size * 0.7),
-                ),
+                errorBuilder: (context, error, stackTrace) => _placeholder(),
               ),
       ),
     );
@@ -362,6 +378,10 @@ class _LcdCluster extends StatelessWidget {
   final double seekWidth;
   final bool compact;
 
+  /// Present when the picker can actually be opened; see
+  /// [NowPlayingBar.artwork].
+  final ArtworkServices? artwork;
+
   const _LcdCluster({
     super.key,
     required this.track,
@@ -374,6 +394,7 @@ class _LcdCluster extends StatelessWidget {
     required this.seekWidth,
     this.compact = false,
     this.resolver,
+    this.artwork,
   });
 
   @override
@@ -382,13 +403,37 @@ class _LcdCluster extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        AlbumArt(
-          contentId: track.contentId,
-          file: file,
-          size: artSize,
-          resolver: resolver,
-          track: track,
-        ),
+        // The hero cover is the most obvious thing to click when the art is
+        // wrong, so clicking it opens the picker for the playing track --
+        // the same dialog the row context menu reaches. Inert (and with no
+        // pointer cursor) when no artwork services are wired.
+        if (artwork == null)
+          AlbumArt(
+            contentId: track.contentId,
+            file: file,
+            size: artSize,
+            resolver: resolver,
+            track: track,
+          )
+        else
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              key: const Key('now-playing-art-tap'),
+              onTap: () => showArtworkPickerDialog(
+                context,
+                track: track,
+                services: artwork!,
+              ),
+              child: AlbumArt(
+                contentId: track.contentId,
+                file: file,
+                size: artSize,
+                resolver: resolver,
+                track: track,
+              ),
+            ),
+          ),
         const SizedBox(width: 16),
         Flexible(
           child: ConstrainedBox(
@@ -559,7 +604,17 @@ class NowPlayingBar extends StatelessWidget {
   /// the bar without an app-level resolver rely on.
   final ArtworkResolver? artworkResolver;
 
-  const NowPlayingBar({super.key, required this.player, this.artworkResolver});
+  /// Backs tapping the hero cover to open the artwork picker for whatever is
+  /// playing. Null (the default, and what widget tests build) leaves the
+  /// cover inert rather than opening a picker with nothing behind it.
+  final ArtworkServices? artwork;
+
+  const NowPlayingBar({
+    super.key,
+    required this.player,
+    this.artworkResolver,
+    this.artwork,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -630,6 +685,7 @@ class NowPlayingBar extends StatelessWidget {
                         transport: _Transport(player: player, compact: narrow),
                         compact: narrow,
                         artSize: artSize,
+                        artwork: artwork,
                         seekWidth: seekWidth,
                         onSeek: (v) => player.seek(
                           Duration(

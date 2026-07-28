@@ -231,7 +231,11 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          NowPlayingBar(player: player, artworkResolver: artworkResolver),
+          NowPlayingBar(
+            player: player,
+            artworkResolver: artworkResolver,
+            artwork: artworkServices,
+          ),
         ],
       ),
     );
