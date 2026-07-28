@@ -282,7 +282,10 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_heroBytes != null) ...[_hero(), const SizedBox(width: 16)],
+              // Generous gutter: the hero and the candidates are two
+              // different kinds of thing -- what you have versus what you
+              // could have -- and a tight gap made them read as one grid.
+              if (_heroBytes != null) ...[_hero(), const SizedBox(width: 32)],
               Expanded(child: _body(current)),
             ],
           ),
