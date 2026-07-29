@@ -2,6 +2,50 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## TODO
+> [!tip] Queued for next build
+> - **Responsive mobile layout.** A widescreen tablet in landscape is as good as
+>   a desktop and should get a desktop-like UI — the multi-pane layout, not the
+>   phone one. A phone in portrait keeps a separate compact view. One breakpoint
+>   decision on width/orientation, two layouts behind it.
+
+## Build 2026-07-29--1429
+
+### Changes
+
+- **Android could not read the music folder at all.** The app held no storage
+  permission whatsoever, so a folder with 474 tracks and a manifest sitting in
+  it showed an empty library. Added `READ_MEDIA_AUDIO` + all-files access
+  (the manifest and artwork sidecars are not media files, so media-scoped
+  permission can never read them), a permission request at startup, and a
+  **Set up** button on any root that has no manifest — on a phone there is no
+  CLI, so "seed with foolib" was a dead end.
+- **Setting up a folder reset every download date to today.** Found on the
+  tablet: the music had been copied over as one folder, so every file's mtime
+  was the copy's timestamp and the real 2019–2026 dates survived only in the
+  `.library.json` that travelled with it. Seeding `/Music` above it minted a
+  fresh date for all 467 tracks. Seeding now **adopts** dates from any manifest
+  already inside the folder, keyed by content ID, earliest wins. Durations come
+  across too.
+- **The same bug on the rescan path**, which is the one that matters going
+  forward: dropping `monthly/` into an already-set-up root would have dated
+  those tracks today. Now they keep what their manifest says. The walk only
+  runs when a scan actually turns up something new, so the five-minute tick
+  costs nothing extra.
+
+> [!warning] Testing Checklist
+> - [ ] Tablet: Library shows all 474 tracks, newest first
+>   - Notes:
+> - [ ] Tablet: Folders → Music → `loose tracks - 2020 and later` drills in
+>   - Notes:
+> - [ ] Tablet: dates are the real ones (oldest track is Jan 2019, not today)
+>   - Notes:
+> - [ ] Copy another folder (e.g. `monthly`) onto the tablet with its
+>       `.library.json`, wait for a rescan, confirm its dates survive
+>   - Notes:
+> - [ ] Desktop: unchanged — no root re-seeded, no dates moved
+>   - Notes:
+
 ## 2026-07-29 — tags become editable, the phone becomes a music player, and the queue becomes real
 
 The long session after the artwork work. Roughly half of it was features and
