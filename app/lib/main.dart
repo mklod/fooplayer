@@ -28,6 +28,7 @@ import 'ui/phone/browse_views.dart';
 import 'ui/phone/mini_player.dart';
 import 'ui/phone/phone_settings_view.dart';
 import 'ui/phone/phone_shell.dart';
+import 'ui/phone/storage_access.dart';
 import 'ui/phone/track_context_sheet.dart';
 
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
@@ -167,6 +168,14 @@ void main() async {
   final config = appConfig.raw;
   if (needsMigrationWrite(rawConfig)) {
     _writeConfig(config, dataDir);
+  }
+
+  // Ask for storage before the first load, on Android. Without it the app can
+  // LIST a music folder and open nothing in it -- which presents as an empty
+  // library rather than as a permission problem, and cost an evening on the
+  // tablet before anyone thought to check.
+  if (Platform.isAndroid && !await hasFullStorageAccess()) {
+    await requestFullStorageAccess();
   }
 
   final library = LibraryModel();

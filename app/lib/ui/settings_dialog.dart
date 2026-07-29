@@ -28,6 +28,12 @@ class LibraryRootsEditor extends StatelessWidget {
   final ValueChanged<String> onAddRoot;
   final ValueChanged<String> onRemoveRoot;
 
+  /// Scans a folder that has no manifest and writes one, so a freshly added
+  /// music folder actually shows its contents. Null hides the affordance and
+  /// leaves the old "seed with foolib" wording -- which is fine on a desktop
+  /// with the CLI to hand and useless anywhere else.
+  final Future<void> Function(String root)? onSetUpRoot;
+
   const LibraryRootsEditor({
     super.key,
     required this.roots,
@@ -36,6 +42,7 @@ class LibraryRootsEditor extends StatelessWidget {
     this.pickDirectory = defaultPickDirectory,
     required this.onAddRoot,
     required this.onRemoveRoot,
+    this.onSetUpRoot,
   });
 
   Future<void> _addFolder() async {
@@ -73,17 +80,33 @@ class LibraryRootsEditor extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: missing.contains(root)
-                        ? const Text('no library manifest — seed with foolib')
+                        ? Text(
+                            onSetUpRoot == null
+                                ? 'no library manifest — seed with foolib'
+                                : 'not set up yet — tap Set up to scan it',
+                          )
                         : failed.contains(root)
                         ? const Text(
                             'library manifest is corrupt — reseed with foolib to repair',
                           )
                         : null,
-                    trailing: IconButton(
-                      key: Key('remove-root-$root'),
-                      icon: const Icon(Icons.remove_circle_outline),
-                      tooltip: 'Remove',
-                      onPressed: () => onRemoveRoot(root),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (onSetUpRoot != null &&
+                            (missing.contains(root) || failed.contains(root)))
+                          TextButton(
+                            key: Key('setup-root-$root'),
+                            onPressed: () => onSetUpRoot!(root),
+                            child: const Text('Set up'),
+                          ),
+                        IconButton(
+                          key: Key('remove-root-$root'),
+                          icon: const Icon(Icons.remove_circle_outline),
+                          tooltip: 'Remove',
+                          onPressed: () => onRemoveRoot(root),
+                        ),
+                      ],
                     ),
                   ),
               ],
@@ -115,6 +138,8 @@ class SettingsDialog extends StatelessWidget {
   final ValueChanged<String> onAddRoot;
   final ValueChanged<String> onRemoveRoot;
 
+  final Future<void> Function(String root)? onSetUpRoot;
+
   const SettingsDialog({
     super.key,
     required this.roots,
@@ -123,6 +148,7 @@ class SettingsDialog extends StatelessWidget {
     this.pickDirectory = defaultPickDirectory,
     required this.onAddRoot,
     required this.onRemoveRoot,
+    this.onSetUpRoot,
   });
 
   @override

@@ -101,7 +101,7 @@ void main() {
     expect(find.text(r'C:\music'), findsOneWidget);
   });
 
-  testWidgets('missing-manifest root shows the inline seed note', (
+  testWidgets('a folder that is not set up says so, and offers to do it', (
     tester,
   ) async {
     final library = fixtureLibrary();
@@ -112,12 +112,20 @@ void main() {
     );
     await pumpSettings(tester, library: library, prefs: prefs);
 
+    // "seed with foolib" was a dead end on a phone: there is no CLI to run,
+    // so adding a music folder just showed nothing, forever.
     expect(
       find.descendant(
         of: find.byKey(const Key('root-tile-C:\\new drop')),
-        matching: find.text('no library manifest — seed with foolib'),
+        matching: find.text('not set up yet — tap Set up to scan it'),
       ),
       findsOneWidget,
+    );
+    expect(find.byKey(const Key('setup-root-C:\\new drop')), findsOneWidget);
+    expect(
+      find.byKey(const Key('setup-root-C:\\music')),
+      findsNothing,
+      reason: 'a root that is already set up needs no button',
     );
   });
 

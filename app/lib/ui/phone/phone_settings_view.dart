@@ -6,7 +6,11 @@
 // wraps) rendered as the shell body, live against the same sources the
 // desktop dialog listens to -- [LibraryRootsPrefs] for the configured
 // roots and [LibraryModel] for the per-root manifest health notes.
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+
+import 'storage_access.dart';
 
 import '../../model/library_model.dart';
 import '../../model/library_roots_prefs.dart';
@@ -64,6 +68,12 @@ class PhoneSettingsView extends StatelessWidget {
               pickDirectory: pickDirectory,
               onAddRoot: libraryRootsPrefs.addRoot,
               onRemoveRoot: libraryRootsPrefs.removeRoot,
+              // Android has no foolib to seed a folder with, so setting one
+              // up has to be something the app itself can do.
+              onSetUpRoot: (root) async {
+                if (!await requestFullStorageAccess()) return;
+                await library.seedRoot(Directory(root));
+              },
             ),
           ],
         ),

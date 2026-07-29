@@ -11,6 +11,24 @@
          Its absence is silent: playback works, the notification simply never
          appears. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Reading a music folder the user picked.
+
+         READ_MEDIA_AUDIO (13+) and READ_EXTERNAL_STORAGE (32 and below) cover
+         the audio files themselves. They are NOT enough on their own: this
+         app keeps its library manifest and artwork sidecar beside the music
+         as .library.json / .artwork.json, and those are not media, so the
+         media-scoped permissions cannot read them. Without all-files access
+         the app can list a folder and not open a single file in it, which is
+         exactly how it looked on the tablet: a folder full of tracks and an
+         empty library. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
     <application
         android:label="fooplayer"
         android:name="${applicationName}"
