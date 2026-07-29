@@ -10,9 +10,11 @@
 // Usage: dart run tool/verify_tag_write.dart <file.mp3> [<file.mp3> ...]
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fooplayer_app/artwork/tag_embed.dart';
 import 'package:fooplayer_app/artwork/tag_embed_io.dart';
+import 'package:fooplayer_app/metadata/tags.dart';
 import 'package:fooplayer_core/fooplayer_core.dart' show contentIdForBytes;
 import 'package:path/path.dart' as p;
 
@@ -48,11 +50,28 @@ Future<int> main(List<String> args) async {
       final mtimeAfter = await copy.lastModified();
 
       final idOk = idBefore == idAfter;
-      final audioOk = audioBytesUnchanged(before, after);
+      final audioOk = p.extension(path).toLowerCase() == '.flac'
+          ? flacAudioBytesUnchanged(before, after)
+          : audioBytesUnchanged(before, after);
       final dateOk = mtimeAfter == originalTimes;
-      final tag = parseId3(after);
-      final hasArt = tag.frames.any((f) => f.id == 'APIC');
-      final hadArt = parseId3(before).frames.any((f) => f.id == 'APIC');
+      final isFlac = p.extension(path).toLowerCase() == '.flac';
+      bool art(List<int> bytes) => isFlac
+          ? parseFlacBlocks(Uint8List.fromList(bytes))
+                .blocks
+                .any((b) => b.$1 == kFlacBlockPicture)
+          : parseId3(Uint8List.fromList(bytes)).frames.any((f) => f.id == 'APIC');
+      final hasArt = art(after);
+      final hadArt = art(before);
+      final tags = isFlac
+          ? parseVorbisComment(parseFlacBlocks(after)
+                  .blocks
+                  .firstWhere((b) => b.$1 == kFlacBlockVorbisComment)
+                  .$2)
+              .comments
+              .where((c) => c.toUpperCase().startsWith('ARTIST=') ||
+                  c.toUpperCase().startsWith('ALBUM='))
+              .toList()
+          : <String>[];
 
       final ok =
           report.outcome == EmbedOutcome.embedded &&
@@ -69,7 +88,16 @@ Future<int> main(List<String> args) async {
           'audio ${audioOk ? "identical" : "MOVED"}  '
           'date ${dateOk ? "restored" : "LOST"}  '
           'cover ${hadArt ? (hasArt ? "kept" : "LOST") : "n/a"}');
+      // Round-trip through the app's OWN reader, not just the writer's
+      // idea of what it wrote -- that is the pair that has to agree.
+      final readBack = await readTags(copy);
+      final readOk = readBack.artist == 'VERIFY Artist ünïcøde' &&
+          readBack.album == 'VERIFY Album';
+      if (!readOk) bad++;
+      stdout.writeln('       reader sees artist=${readBack.artist} '
+          'album=${readBack.album} ${readOk ? "" : "<-- MISMATCH"}');
       stdout.writeln('       ${before.length} -> ${after.length} bytes');
+      if (tags.isNotEmpty) stdout.writeln('       wrote: ${tags.join('  ')}');
     }
   } finally {
     await work.delete(recursive: true);

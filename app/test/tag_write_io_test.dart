@@ -118,14 +118,43 @@ void main() {
     expect(await f.readAsBytes(), bytes, reason: 'left exactly as it was');
   });
 
-  test('FLAC is refused explicitly rather than half-attempted', () async {
+  test('a FLAC takes the edit as Vorbis comments, dates intact', () async {
+    // Two of the three FLACs in this library carry no tags at all, so the
+    // "no comment block yet" path is the real-world one.
     final f = File(p.join(tmp.path, 'song.flac'));
-    await f.writeAsBytes([0x66, 0x4C, 0x61, 0x43, 0, 0, 0, 34]);
+    final body = <int>[
+      0x66, 0x4C, 0x61, 0x43,
+      0x80, 0x00, 0x00, 0x22, // last block, STREAMINFO, 34 bytes
+      ...List<int>.filled(34, 0x11),
+      ..._audio(),
+    ];
+    await f.writeAsBytes(body);
+    final before = await f.readAsBytes();
+    final wasId = contentIdForBytes('song.flac', before);
+    final downloaded = DateTime(2009, 12, 3, 13, 1);
+    await f.setLastModified(downloaded);
 
-    final report = await writeTags(f, const TagEdits(title: 'x'));
+    final report = await writeTags(
+      f,
+      const TagEdits(artist: 'Zero 7', album: 'Destiny CD Single'),
+    );
 
-    expect(report.outcome, EmbedOutcome.refused);
-    expect(report.reason, contains('FLAC'));
+    expect(report.outcome, EmbedOutcome.embedded);
+    expect(report.timesPreserved, isTrue);
+
+    final after = await f.readAsBytes();
+    expect(contentIdForBytes('song.flac', after), wasId);
+    expect(flacAudioBytesUnchanged(before, after), isTrue);
+    expect(await f.lastModified(), downloaded);
+
+    final comments = parseVorbisComment(
+      parseFlacBlocks(after)
+          .blocks
+          .firstWhere((b) => b.$1 == kFlacBlockVorbisComment)
+          .$2,
+    ).comments;
+    expect(comments, contains('ARTIST=Zero 7'));
+    expect(comments, contains('ALBUM=Destiny CD Single'));
   });
 
   test('embedding a cover still works through the shared rewrite', () async {

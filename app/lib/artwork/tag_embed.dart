@@ -731,14 +731,14 @@ Uint8List buildFlacPictureBlock(Uint8List image, String mime) {
 /// order (STREAMINFO stays first, as the format requires), and the audio
 /// frames after the metadata are copied verbatim -- so the content ID is
 /// unchanged. Throws [EmbedException] if this isn't a FLAC stream.
-Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
-  final mime = imageMimeOf(image);
-  if (mime == null) {
-    throw const EmbedException(
-      EmbedRefusal.unsupportedImage,
-      'image is neither JPEG nor PNG',
-    );
-  }
+/// A FLAC file's metadata blocks and where its audio frames begin.
+///
+/// Walking this is the whole safety story for FLAC: the content ID hashes
+/// from [audioStart] onward, so any amount of metadata rewriting is safe
+/// provided that tail is copied through untouched.
+({List<(int, Uint8List)> blocks, int audioStart}) parseFlacBlocks(
+  Uint8List original,
+) {
   if (original.length < 8 ||
       original[0] != 0x66 ||
       original[1] != 0x4C ||
@@ -749,8 +749,7 @@ Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
       'not a FLAC stream (no fLaC marker at offset 0)',
     );
   }
-
-  final kept = <(int, Uint8List)>[]; // (block type, block body)
+  final blocks = <(int, Uint8List)>[];
   var o = 4;
   var sawLast = false;
   while (o + 4 <= original.length && !sawLast) {
@@ -766,23 +765,29 @@ Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
         'truncated FLAC metadata block',
       );
     }
-    if (type != kFlacBlockPicture && type != kFlacBlockPadding) {
-      kept.add((
-        type,
-        Uint8List.sublistView(original, bodyStart, bodyStart + len),
-      ));
-    }
+    blocks.add((
+      type,
+      Uint8List.sublistView(original, bodyStart, bodyStart + len),
+    ));
     o = bodyStart + len;
   }
-  final audioStart = o;
+  return (blocks: blocks, audioStart: o);
+}
 
-  kept.add((kFlacBlockPicture, buildFlacPictureBlock(image, mime)));
-
+/// Reassembles a FLAC from [blocks] plus the audio tail of [original].
+///
+/// STREAMINFO has to stay first, which it does because callers only ever
+/// filter and append, never reorder.
+Uint8List _assembleFlac(
+  Uint8List original,
+  int audioStart,
+  List<(int, Uint8List)> blocks,
+) {
   final out = BytesBuilder(copy: false);
   out.add(Uint8List.fromList([0x66, 0x4C, 0x61, 0x43]));
-  for (var i = 0; i < kept.length; i++) {
-    final (type, body) = kept[i];
-    final isLast = i == kept.length - 1;
+  for (var i = 0; i < blocks.length; i++) {
+    final (type, body) = blocks[i];
+    final isLast = i == blocks.length - 1;
     out.add(
       Uint8List.fromList([
         (isLast ? 0x80 : 0x00) | type,
@@ -795,6 +800,147 @@ Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
   }
   out.add(Uint8List.sublistView(original, audioStart));
   return out.takeBytes();
+}
+
+Uint8List buildTaggedFlac(Uint8List original, Uint8List image) {
+  final mime = imageMimeOf(image);
+  if (mime == null) {
+    throw const EmbedException(
+      EmbedRefusal.unsupportedImage,
+      'image is neither JPEG nor PNG',
+    );
+  }
+  final parsed = parseFlacBlocks(original);
+  final kept = [
+    for (final b in parsed.blocks)
+      if (b.$1 != kFlacBlockPicture && b.$1 != kFlacBlockPadding) b,
+    (kFlacBlockPicture, buildFlacPictureBlock(image, mime)),
+  ];
+  return _assembleFlac(original, parsed.audioStart, kept);
+}
+
+/// FLAC's tags: a vendor string plus a list of `FIELD=value` lines.
+///
+/// Note the endianness -- every length here is LITTLE-endian, unlike the
+/// big-endian block headers that surround it. That inconsistency is in the
+/// format itself, and getting it backwards produces a file that looks fine
+/// until something tries to read it.
+const int kFlacBlockVorbisComment = 4;
+
+({String vendor, List<String> comments}) parseVorbisComment(Uint8List body) {
+  var o = 0;
+  int readLe32() {
+    final v =
+        body[o] | (body[o + 1] << 8) | (body[o + 2] << 16) | (body[o + 3] << 24);
+    o += 4;
+    return v;
+  }
+
+  if (body.length < 8) return (vendor: '', comments: const []);
+  final vendorLen = readLe32();
+  if (o + vendorLen > body.length) return (vendor: '', comments: const []);
+  final vendor = utf8.decode(
+    Uint8List.sublistView(body, o, o + vendorLen),
+    allowMalformed: true,
+  );
+  o += vendorLen;
+  if (o + 4 > body.length) return (vendor: vendor, comments: const []);
+  final count = readLe32();
+  final comments = <String>[];
+  for (var i = 0; i < count && o + 4 <= body.length; i++) {
+    final len = readLe32();
+    if (o + len > body.length) break;
+    comments.add(
+      utf8.decode(
+        Uint8List.sublistView(body, o, o + len),
+        allowMalformed: true,
+      ),
+    );
+    o += len;
+  }
+  return (vendor: vendor, comments: comments);
+}
+
+Uint8List buildVorbisComment(String vendor, List<String> comments) {
+  final out = BytesBuilder();
+  void writeLe32(int v) => out.add([
+    v & 0xff,
+    (v >> 8) & 0xff,
+    (v >> 16) & 0xff,
+    (v >> 24) & 0xff,
+  ]);
+  final vendorBytes = utf8.encode(vendor);
+  writeLe32(vendorBytes.length);
+  out.add(vendorBytes);
+  writeLe32(comments.length);
+  for (final c in comments) {
+    final bytes = utf8.encode(c);
+    writeLe32(bytes.length);
+    out.add(bytes);
+  }
+  return out.takeBytes();
+}
+
+/// Vorbis field names for the fields [TagEdits] can set.
+const Map<String, String> kVorbisFieldFor = {
+  'TIT2': 'TITLE',
+  'TPE1': 'ARTIST',
+  'TALB': 'ALBUM',
+  'TPE2': 'ALBUMARTIST',
+  'TCON': 'GENRE',
+  'TRCK': 'TRACKNUMBER',
+};
+
+/// Rewrites a FLAC's Vorbis comments per [edits].
+///
+/// Every comment the edit doesn't name survives, as does the vendor string,
+/// the cover art and every other metadata block. An empty value removes the
+/// field -- which is how two of this library's three FLACs, tagged with
+/// nothing at all, are meant to end up tagged with something.
+Uint8List buildRetaggedFlac(Uint8List original, TagEdits edits) {
+  if (edits.isEmpty) return Uint8List.fromList(original);
+  final parsed = parseFlacBlocks(original);
+
+  final wanted = <String, String>{
+    for (final e in edits.frames.entries) kVorbisFieldFor[e.key]!: e.value,
+  };
+
+  final existing = parsed.blocks
+      .where((b) => b.$1 == kFlacBlockVorbisComment)
+      .firstOrNull;
+  final parsedComment = existing == null
+      ? (vendor: '', comments: const <String>[])
+      : parseVorbisComment(existing.$2);
+
+  final comments = <String>[
+    for (final c in parsedComment.comments)
+      // Field names are case-insensitive in Vorbis, and real files use every
+      // spelling of them.
+      if (!wanted.containsKey(
+        c.split('=').first.toUpperCase(),
+      ))
+        c,
+    for (final e in wanted.entries)
+      if (e.value.isNotEmpty) '${e.key}=${e.value}',
+  ];
+
+  final rebuilt = buildVorbisComment(parsedComment.vendor, comments);
+  final blocks = <(int, Uint8List)>[];
+  var replaced = false;
+  for (final b in parsed.blocks) {
+    if (b.$1 == kFlacBlockPadding) continue; // reclaimed, as when embedding
+    if (b.$1 == kFlacBlockVorbisComment) {
+      if (!replaced) {
+        blocks.add((kFlacBlockVorbisComment, rebuilt));
+        replaced = true;
+      }
+      continue;
+    }
+    blocks.add(b);
+  }
+  if (!replaced) blocks.add((kFlacBlockVorbisComment, rebuilt));
+
+  return _assembleFlac(original, parsed.audioStart, blocks);
 }
 
 /// Offset where FLAC audio frames begin (past all metadata blocks).
