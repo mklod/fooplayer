@@ -30,8 +30,19 @@ Safety
   and is written tmp-then-rename with a .bak, matching the app's own
   discipline.
 
+Files whose extension lies
+--------------------------
+`--files` converts named paths regardless of extension, for the case the
+extension scan cannot see: a file called `.mp3` that is really an MP4.  There
+is one in this library -- `MrSuicideSheep - Best of 2025.mp3`, 3h41m of AAC in
+a mov/mp4 container -- and it is the file that would not play, the one the
+embedder's `notMpeg` guard exists to refuse.  Since source and destination
+name collide there, the encode goes to a temp file and is renamed into place
+only after it has been verified.
+
 Usage:
   python convert_to_mp3.py --roots <root> [<root> ...] [--apply] [--quality 0]
+  python convert_to_mp3.py --root <root> --files <path> [...] [--apply]
 """
 
 import argparse
@@ -62,17 +73,27 @@ def probe_duration(path):
 
 
 def content_id(paths, repo_core):
-    """Content IDs from the core's OWN hashing -- never a reimplementation."""
+    """Content IDs from the core's OWN hashing -- never a reimplementation.
+
+    This used to invoke `tool_cid.dart`, which is not in the repository and
+    may never have been: every call returned nothing, so the conversion of a
+    file whose extension lies failed at the last step with "could not compute
+    new content ID".  `core/bin/content_id.dart` is the committed equivalent.
+    """
     if not paths:
         return {}
     r = subprocess.run(
-        ["dart", "run", "tool_cid.dart", *paths],
+        ["dart", "run", "bin/content_id.dart", *paths],
         cwd=repo_core, capture_output=True, text=True)
     out = {}
     for line in r.stdout.splitlines():
         parts = line.strip().split("  ", 1)
         if len(parts) == 2 and len(parts[0]) == 64:
             out[parts[1]] = parts[0]
+    if not out:
+        # Say why, rather than leaving the caller to report a bare failure.
+        print(f"        content_id: dart exited {r.returncode}: "
+              f"{(r.stderr or r.stdout).strip()[:200]}")
     return out
 
 
@@ -112,6 +133,10 @@ def main():
     ap.add_argument("--formats", nargs="+", default=DEFAULT_FORMATS,
                     help="extensions to convert (default: .m4a only -- FLAC "
                          "carries a cover natively and must not be re-encoded)")
+    ap.add_argument("--files", nargs="+",
+                    help="convert these exact paths whatever their extension "
+                         "(for a file whose extension lies, e.g. an MP4 named "
+                         ".mp3); requires --roots with the single owning root")
     args = ap.parse_args()
 
     total = converted = skipped = 0
@@ -127,11 +152,16 @@ def main():
             for rel in entry.get("paths", []):
                 by_path[rel.replace("/", "\\").lower()] = cid
 
-        targets = []
-        for dp, _, fs in os.walk(root):
-            for fn in fs:
-                if os.path.splitext(fn)[1].lower() in set(args.formats):
-                    targets.append(os.path.join(dp, fn))
+        if args.files:
+            targets = [f for f in args.files
+                       if os.path.abspath(f).lower().startswith(
+                           os.path.abspath(root).lower())]
+        else:
+            targets = []
+            for dp, _, fs in os.walk(root):
+                for fn in fs:
+                    if os.path.splitext(fn)[1].lower() in set(args.formats):
+                        targets.append(os.path.join(dp, fn))
         if not targets:
             continue
 
@@ -140,11 +170,17 @@ def main():
             total += 1
             rel = os.path.relpath(src, root)
             dst = os.path.splitext(src)[0] + ".mp3"
+            # A file whose extension already says .mp3 but whose contents are
+            # not MPEG converts onto its own name. Encode beside it and rename
+            # in only once the result is verified, so a failure leaves the
+            # original exactly where it was.
+            in_place = os.path.normcase(dst) == os.path.normcase(src)
+            work = dst + ".converting.mp3" if in_place else dst
             old_cid = by_path.get(rel.lower())
             entry = tracks.get(old_cid) if old_cid else None
             date_added = entry.get("date_added") if entry else None
 
-            if os.path.exists(dst):
+            if os.path.exists(dst) and not in_place:
                 print(f"  SKIP  {rel}  (a .mp3 of the same name already exists)")
                 skipped += 1
                 continue
@@ -162,29 +198,44 @@ def main():
                 continue
 
             t0 = time.time()
-            r = convert(src, dst, args.quality)
-            if r.returncode != 0 or not os.path.exists(dst):
+            r = convert(src, work, args.quality)
+            if r.returncode != 0 or not os.path.exists(work):
                 print(f"  FAIL  {rel}: ffmpeg: {r.stderr.strip()[:160]}")
-                if os.path.exists(dst):
-                    os.remove(dst)
+                if os.path.exists(work):
+                    os.remove(work)
                 skipped += 1
                 continue
 
-            dst_dur = probe_duration(dst)
+            dst_dur = probe_duration(work)
             if src_dur and dst_dur and abs(src_dur - dst_dur) > 1.0:
                 print(f"  FAIL  {rel}: duration drift {src_dur:.1f} -> {dst_dur:.1f}"
                       f" -- output discarded, original untouched")
-                os.remove(dst)
+                os.remove(work)
                 skipped += 1
                 continue
+
+            if in_place:
+                # Original out of the way first, so the rename can never
+                # land on top of the only copy of the source.
+                os.makedirs(BACKUP_ROOT, exist_ok=True)
+                shutil.move(src, os.path.join(BACKUP_ROOT,
+                                              os.path.basename(src)))
+                os.replace(work, dst)
 
             os.utime(dst, (st.st_atime, st.st_mtime))
 
             new_cid = content_id([dst], args.core).get(os.path.basename(dst))
             if not new_cid:
-                print(f"  FAIL  {rel}: could not compute new content ID"
-                      f" -- output discarded")
-                os.remove(dst)
+                print(f"  FAIL  {rel}: could not compute new content ID")
+                if in_place:
+                    # The original is already in the backup; put it back
+                    # rather than leaving the library short a file.
+                    os.remove(dst)
+                    shutil.move(os.path.join(BACKUP_ROOT,
+                                             os.path.basename(src)), src)
+                    print("        original restored")
+                else:
+                    os.remove(dst)
                 skipped += 1
                 continue
 
@@ -196,8 +247,10 @@ def main():
                 pl["track_ids"] = [new_cid if t == old_cid else t
                                    for t in pl.get("track_ids", [])]
 
-            os.makedirs(BACKUP_ROOT, exist_ok=True)
-            shutil.move(src, os.path.join(BACKUP_ROOT, os.path.basename(src)))
+            if not in_place:  # the in-place path banked the original already
+                os.makedirs(BACKUP_ROOT, exist_ok=True)
+                shutil.move(src, os.path.join(BACKUP_ROOT,
+                                              os.path.basename(src)))
 
             converted += 1
             print(f"  OK    {rel} -> {os.path.basename(dst)}  "
