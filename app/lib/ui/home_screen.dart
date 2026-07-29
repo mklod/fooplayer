@@ -975,7 +975,13 @@ class _BottomBarsState extends State<_BottomBars> {
               widget.player.current?.contentId,
             ),
           ),
-        ActivityBar(activity: widget.activity, library: widget.library),
+        ActivityBar(
+          activity: widget.activity,
+          library: widget.library,
+          player: widget.player,
+          nowPlayingHidden: widget.layoutPrefs.nowPlayingHidden,
+          onExpand: widget.layoutPrefs.showNowPlaying,
+        ),
       ],
     ),
   );

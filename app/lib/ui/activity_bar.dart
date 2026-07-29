@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../model/activity_model.dart';
 import '../model/library_model.dart';
+import '../player/player_service.dart';
 import 'app_theme.dart';
 
 /// The window's persistent footer: what is running on the left, how many
@@ -22,15 +23,39 @@ class ActivityBar extends StatelessWidget {
   final ActivityModel activity;
   final LibraryModel library;
 
-  const ActivityBar({super.key, required this.activity, required this.library});
+  /// Consulted so the footer can carry the transport when the now-playing
+  /// strip is collapsed. Null in widget tests that build the bar alone.
+  final PlayerService? player;
+
+  /// Whether that strip is currently hidden.
+  final bool nowPlayingHidden;
+
+  /// Brings the strip back. Collapsing it used to be a one-way door: there
+  /// was no way back to the controls short of restarting the app.
+  final VoidCallback? onExpand;
+
+  const ActivityBar({
+    super.key,
+    required this.activity,
+    required this.library,
+    this.player,
+    this.nowPlayingHidden = false,
+    this.onExpand,
+  });
+
+  /// `m:ss`, matching the seek bar's own formatting.
+  static String _clock(Duration d) {
+    final total = d.inSeconds;
+    return '${total ~/ 60}:${(total % 60).toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([activity, library]),
+      listenable: Listenable.merge([activity, library, ?player]),
       builder: (context, _) {
         final jobs = activity.active;
-        return Container(
+        final bar = Container(
           key: const Key('activity-bar'),
           decoration: const BoxDecoration(
             color: AppColors.panelBg,
@@ -41,13 +66,16 @@ class ActivityBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: jobs.isEmpty
-                    ? const SizedBox(height: 18)
-                    : Column(
+                // Background work wins the left-hand side while it lasts --
+                // it is transient and worth interrupting for. The rest of the
+                // time, that space carries what is playing.
+                child: jobs.isNotEmpty
+                    ? Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [for (final job in jobs) _row(job)],
-                      ),
+                      )
+                    : _nowPlayingLine() ?? const SizedBox(height: 18),
               ),
               const SizedBox(width: 16),
               Text(
@@ -61,7 +89,67 @@ class ActivityBar extends StatelessWidget {
             ],
           ),
         );
+
+        // The whole strip is the way back to the player. No button: the bar
+        // is one line of text and a target that small would be worse than
+        // clicking anywhere along it.
+        if (!nowPlayingHidden || onExpand == null) return bar;
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            key: const Key('footer-expand'),
+            behavior: HitTestBehavior.opaque,
+            onTap: onExpand,
+            child: bar,
+          ),
+        );
       },
+    );
+  }
+
+  /// "Title — Artist    1:04 / 4:27", in the footer's own type.
+  ///
+  /// Deliberately text and not a progress bar: this is the collapsed state,
+  /// and a bar here would just be a smaller version of the thing that was
+  /// collapsed. Numbers say the same in one line.
+  Widget? _nowPlayingLine() {
+    final p = player;
+    if (p == null || !nowPlayingHidden) return null;
+    final track = p.current;
+    if (track == null) return null;
+
+    final total = p.duration;
+    final pos = (total != null && p.position > total) ? total : p.position;
+    final label = track.artist.isEmpty
+        ? track.title
+        : '${track.title} — ${track.artist}';
+
+    return Row(
+      key: const Key('footer-now-playing'),
+      children: [
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.inkSecondary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 18),
+        Text(
+          total == null
+              ? _clock(pos)
+              : '${_clock(pos)} / ${_clock(total)}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.inkSecondary,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
     );
   }
 
