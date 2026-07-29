@@ -9,31 +9,56 @@
 import 'package:flutter/material.dart';
 
 import '../model/activity_model.dart';
+import '../model/library_model.dart';
 import 'app_theme.dart';
 
+/// The window's persistent footer: what is running on the left, how many
+/// tracks are in view on the right.
+///
+/// Always present, even idle -- the track count is a permanent readout, and a
+/// strip that appears and disappears under the now-playing bar would jump the
+/// layout every time a background job started.
 class ActivityBar extends StatelessWidget {
   final ActivityModel activity;
+  final LibraryModel library;
 
-  const ActivityBar({super.key, required this.activity});
+  const ActivityBar({super.key, required this.activity, required this.library});
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: activity,
+      listenable: Listenable.merge([activity, library]),
       builder: (context, _) {
         final jobs = activity.active;
-        if (jobs.isEmpty) return const SizedBox.shrink();
         return Container(
           key: const Key('activity-bar'),
           decoration: const BoxDecoration(
             color: AppColors.panelBg,
             border: Border(top: BorderSide(color: AppColors.hairline)),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [for (final job in jobs) _row(job)],
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: jobs.isEmpty
+                    ? const SizedBox(height: 18)
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [for (final job in jobs) _row(job)],
+                      ),
+              ),
+              const SizedBox(width: 16),
+              Text(
+                '${_thousands(library.visibleTracks.length)} tracks',
+                key: const Key('footer-track-count'),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.inkSecondary,
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -76,4 +101,14 @@ class ActivityBar extends StatelessWidget {
       ],
     ),
   );
+}
+
+String _thousands(int n) {
+  final s = n.toString();
+  final buf = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+    buf.write(s[i]);
+  }
+  return buf.toString();
 }

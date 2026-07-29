@@ -381,7 +381,7 @@ void main() {
     },
   );
 
-  testWidgets('status line sits at the sidebar bottom, below Settings', (
+  testWidgets('the track count is a window footer, not a sidebar line', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(1200, 800));
@@ -401,17 +401,28 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final status = find.byKey(const Key('sidebar-status'));
-    expect(status, findsOneWidget);
-    // Directly above the Settings entry, and inside the sidebar (left of the
-    // track list) rather than under it.
-    // Sits at the very bottom of the sidebar, beneath the button stack.
-    final statusY = tester.getCenter(status).dy;
+    // It used to live in the sidebar under Settings; it is now a persistent
+    // footer along the bottom of the window, right-aligned, sharing the strip
+    // with whatever background work is running.
+    expect(find.byKey(const Key('sidebar-status')), findsNothing);
+
+    final count = find.byKey(const Key('footer-track-count'));
+    expect(count, findsOneWidget);
+
     final settingsY = tester
         .getCenter(find.byKey(const Key('settings-gear')))
         .dy;
-    expect(statusY, greaterThan(settingsY));
-    expect(tester.getCenter(status).dx, lessThan(300));
+    expect(
+      tester.getCenter(count).dy,
+      greaterThan(settingsY),
+      reason: 'below the sidebar stack',
+    );
+    expect(
+      tester.getCenter(count).dx,
+      greaterThan(900),
+      reason: 'right-hand side of a 1200px window, not in the sidebar',
+    );
+
     // No artwork backfill wired -> no Enrich artwork entry.
     expect(find.byKey(const Key('enrich-artwork')), findsNothing);
   });
