@@ -632,19 +632,14 @@ class LibraryModel extends ChangeNotifier {
     if (roots.isEmpty || cacheFile == null) return;
 
     _busy = true;
-    var holdsManifestPhase = false;
     try {
-      // The per-root isolates below do a read-modify-write of each
-      // `.library.json`, so they must not interleave with a PlaylistStore
-      // mutation. Rescan is the one caller that can afford to give up: it
-      // runs again on its 5-minute timer (and on the Refresh button).
-      if (!await _beginManifestPhase(const Duration(seconds: 3))) {
-        if (!quiet) {
-          status = 'rescan skipped (a playlist write was in progress)';
-        }
-        return;
-      }
-      holdsManifestPhase = true;
+      // NOTE the lock is NOT taken here. It used to wrap this whole loop,
+      // which meant it was held across `scanLibrary` -- a walk-and-hash of
+      // every file in the root, minutes over SMB on this library. A
+      // PlaylistStore write waits five seconds before giving up, so for most
+      // of every rescan "New playlist" failed with "the library is busy".
+      // Only the manifest read-modify-write below actually needs
+      // exclusivity, and that is local JSON work measured in milliseconds.
       final knownIds = {for (final t in allTracks) t.contentId};
       var tracks = List<Track>.of(allTracks);
       final newIndices = <int>[];
@@ -662,22 +657,21 @@ class LibraryModel extends ChangeNotifier {
           notifyListeners();
         }
 
-        List<(String, String, String)> newRecords;
+        // Scan only -- this isolate no longer touches the manifest, which is
+        // what lets the lock stay off during the slow part.
+        //
+        // Still the kill-capable runIsolateWithTimeout rather than
+        // `Isolate.run(...).timeout(...)`: Future.timeout does not cancel the
+        // isolate, so a timed-out root would keep walking the share as a
+        // zombie, competing for the same SMB transport as everything else.
+        List<core.ScannedTrack> scanned;
         try {
-          // MUST be the kill-capable runIsolateWithTimeout, never
-          // `Isolate.run(...).timeout(...)`: Future.timeout does not cancel
-          // the isolate, so a timed-out root's scan would keep running as a
-          // zombie and call core.saveManifest at some arbitrary later time
-          // -- AFTER this rescan's `finally` has released [_busy] -- racing
-          // (and silently clobbering) a PlaylistStore mutation's own
-          // manifest save made under tryBeginManifestWrite. Killing the
-          // isolate at the deadline guarantees a timed-out root performs no
-          // late manifest write.
-          newRecords =
-              await runIsolateWithTimeout<
-                List<(String, String, String)>,
-                String
-              >(_rescanRootIsolateEntry, root.path, timeout: rootTimeout);
+          scanned =
+              await runIsolateWithTimeout<List<core.ScannedTrack>, String>(
+                _scanRootIsolateEntry,
+                root.path,
+                timeout: rootTimeout,
+              );
         } on TimeoutException {
           status = 'rescan of $rootName timed out';
           notifyListeners();
@@ -686,6 +680,38 @@ class LibraryModel extends ChangeNotifier {
           status = 'rescan of $rootName failed: $e';
           notifyListeners();
           continue;
+        }
+
+        // NOW take the lock, for the part that actually writes: load the
+        // manifest, diff it, and save only if something changed. A rescan
+        // that finds nothing -- the overwhelmingly common case -- no longer
+        // rewrites the manifest at all.
+        final newRecords = <(String, String, String)>[];
+        if (!await _beginManifestPhase(const Duration(seconds: 5))) {
+          if (!quiet) {
+            status = 'rescan skipped (a playlist write was in progress)';
+          }
+          continue; // this root waits for the next tick
+        }
+        try {
+          final manifest = core.loadManifest(root);
+          final diff = core.diffAgainstManifest(manifest, scanned);
+          if (!diff.isEmpty) {
+            core.applyDiff(manifest, diff, scanned, DateTime.now);
+            await core.saveManifest(manifest, root);
+            for (final t in diff.newTracks) {
+              final entry = manifest.tracks[t.contentId];
+              if (entry != null) {
+                newRecords.add((t.contentId, entry.paths.first, entry.dateAdded));
+              }
+            }
+          }
+        } catch (e) {
+          status = 'rescan of $rootName failed: $e';
+          notifyListeners();
+          continue;
+        } finally {
+          _endManifestPhase();
         }
 
         if (newRecords.isEmpty) continue;
@@ -717,11 +743,6 @@ class LibraryModel extends ChangeNotifier {
         notifyListeners();
       }
 
-      // Every manifest write this rescan makes is done; enrichment below
-      // only touches the meta cache, so playlist edits are free again.
-      _endManifestPhase();
-      holdsManifestPhase = false;
-
       if (newIndices.isNotEmpty) {
         tracks = await _enrichNewTracks(tracks, newIndices, cacheFile);
         allTracks = tracks;
@@ -735,11 +756,6 @@ class LibraryModel extends ChangeNotifier {
       }
     } finally {
       _busy = false;
-      // Belt and braces: the happy path released this above, but a throw
-      // in between must not leave the flag stuck -- that would refuse every
-      // later playlist write. Conditional because the give-up path never
-      // held it, and clearing it there would release the OTHER writer's.
-      if (holdsManifestPhase) _endManifestPhase();
       notifyListeners();
       // A load() that arrived while this rescan held `_busy` is queued
       // (see [_pendingLoad]/[load]'s re-entrancy doc) rather than dropped
@@ -1762,24 +1778,18 @@ bool _setEquals(Set<String> a, Set<String> b) {
 /// never a `Manifest` or `ScannedTrack` object graph. The caller (running
 /// on the main isolate) reconstructs whatever [Track]s it needs from these
 /// records.
-void _rescanRootIsolateEntry((String, SendPort) args) async {
+/// Walks and hashes one root. Deliberately does NOT touch the manifest.
+///
+/// It used to load, diff, apply and save in here, which meant the caller had
+/// to hold the manifest lock for the entire walk -- minutes over SMB -- and
+/// a user trying to make a playlist meanwhile was told the library was busy.
+/// The manifest work is local JSON and belongs on the main isolate, where it
+/// can be guarded for the milliseconds it actually takes.
+void _scanRootIsolateEntry((String, SendPort) args) async {
   final (rootPath, resultPort) = args;
-  List<(String, String, String)> result;
+  List<core.ScannedTrack> result;
   try {
-    final root = Directory(rootPath);
-    final scanned = await core.scanLibrary(root);
-    final manifest = core.loadManifest(root);
-    final diff = core.diffAgainstManifest(manifest, scanned);
-    core.applyDiff(manifest, diff, scanned, DateTime.now);
-    await core.saveManifest(manifest, root);
-    result = [
-      for (final t in diff.newTracks)
-        (
-          t.contentId,
-          manifest.tracks[t.contentId]!.paths.first,
-          manifest.tracks[t.contentId]!.dateAdded,
-        ),
-    ];
+    result = await core.scanLibrary(Directory(rootPath));
   } catch (e, s) {
     Isolate.exit(resultPort, [e, s]);
   }
