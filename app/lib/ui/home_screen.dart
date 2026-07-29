@@ -123,6 +123,7 @@ class HomeScreen extends StatelessWidget {
                         artworkResolver: artworkResolver,
                         artworkServices: artworkServices,
                         activity: activity ?? _idleActivity,
+                        layoutPrefs: layoutPrefs,
                       ),
                     ),
                   ),
@@ -285,6 +286,7 @@ class HomeScreen extends StatelessWidget {
             player: player,
             library: library,
             activity: activity ?? _idleActivity,
+            layoutPrefs: layoutPrefs,
             artworkResolver: artworkResolver,
             artworkServices: artworkServices,
           ),
@@ -295,6 +297,10 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _Sidebar extends StatefulWidget {
+  /// Forwarded to the selected-track cover preview, which has to know
+  /// whether the now-playing strip is up. See [_SelectedArtPreview].
+  final LayoutPrefs layoutPrefs;
+
   final LibraryModel library;
   final LibraryRootsPrefs libraryRootsPrefs;
   final PlaylistStore playlistStore;
@@ -321,6 +327,7 @@ class _Sidebar extends StatefulWidget {
   final ActivityModel activity;
 
   const _Sidebar({
+    required this.layoutPrefs,
     required this.library,
     required this.libraryRootsPrefs,
     required this.playlistStore,
@@ -636,6 +643,7 @@ class _SidebarState extends State<_Sidebar> {
           ),
           _SelectedArtPreview(
             library: library,
+            layoutPrefs: widget.layoutPrefs,
             player: widget.player,
             resolver: widget.artworkResolver,
             artwork: widget.artworkServices,
@@ -827,8 +835,16 @@ class _SelectedArtPreview extends StatelessWidget {
   /// the now-playing cover does for the playing one. Null leaves it inert.
   final ArtworkServices? artwork;
 
+  /// Consulted so the preview can come back when the now-playing strip is
+  /// dismissed. Hiding that strip is done PRECISELY so the window can show
+  /// the selected track's cover instead -- if this stayed keyed on "is
+  /// anything loaded", dismissing it would hide both covers and the
+  /// dismissal would achieve nothing.
+  final LayoutPrefs layoutPrefs;
+
   const _SelectedArtPreview({
     required this.library,
+    required this.layoutPrefs,
     required this.player,
     this.resolver,
     this.artwork,
@@ -837,9 +853,14 @@ class _SelectedArtPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: Listenable.merge([library, player]),
+      // layoutPrefs too: dismissing the strip has to repaint this.
+      listenable: Listenable.merge([library, player, layoutPrefs]),
       builder: (context, _) {
-        if (player.current != null) return const SizedBox.shrink();
+        // Show the selection's cover whenever the now-playing strip is not
+        // up -- either nothing is loaded, or the strip has been dismissed.
+        if (player.current != null && !layoutPrefs.nowPlayingHidden) {
+          return const SizedBox.shrink();
+        }
         final selected = library.selectedTrackIds;
         if (selected.isEmpty) return const SizedBox.shrink();
         // The most recently clicked row wins; with a wide multi-selection,
@@ -903,11 +924,13 @@ class _BottomBars extends StatefulWidget {
   final ActivityModel activity;
   final ArtworkResolver? artworkResolver;
   final ArtworkServices? artworkServices;
+  final LayoutPrefs layoutPrefs;
 
   const _BottomBars({
     required this.player,
     required this.library,
     required this.activity,
+    required this.layoutPrefs,
     this.artworkResolver,
     this.artworkServices,
   });
@@ -917,13 +940,6 @@ class _BottomBars extends StatefulWidget {
 }
 
 class _BottomBarsState extends State<_BottomBars> {
-  /// Closing the strip should not mean losing it for the session: it comes
-  /// back the moment a different track starts, which is the only time it has
-  /// something new to say. Without that, dismissing it once would leave the
-  /// window with no transport controls until a restart.
-  bool _dismissed = false;
-  String? _dismissedFor;
-
   @override
   void initState() {
     super.initState();
@@ -936,32 +952,31 @@ class _BottomBarsState extends State<_BottomBars> {
     super.dispose();
   }
 
+  /// A different track brings the strip back -- see [LayoutPrefs].
   void _onPlayerChanged() {
-    if (!_dismissed) return;
+    final prefs = widget.layoutPrefs;
+    if (!prefs.nowPlayingHidden) return;
     final id = widget.player.current?.contentId;
-    if (id != null && id != _dismissedFor) {
-      setState(() {
-        _dismissed = false;
-        _dismissedFor = null;
-      });
-    }
+    if (id != null && id != prefs.nowPlayingHiddenFor) prefs.showNowPlaying();
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      if (!_dismissed)
-        NowPlayingBar(
-          player: widget.player,
-          artworkResolver: widget.artworkResolver,
-          artwork: widget.artworkServices,
-          onDismiss: () => setState(() {
-            _dismissed = true;
-            _dismissedFor = widget.player.current?.contentId;
-          }),
-        ),
-      ActivityBar(activity: widget.activity, library: widget.library),
-    ],
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.layoutPrefs,
+    builder: (context, _) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (!widget.layoutPrefs.nowPlayingHidden)
+          NowPlayingBar(
+            player: widget.player,
+            artworkResolver: widget.artworkResolver,
+            artwork: widget.artworkServices,
+            onDismiss: () => widget.layoutPrefs.hideNowPlaying(
+              widget.player.current?.contentId,
+            ),
+          ),
+        ActivityBar(activity: widget.activity, library: widget.library),
+      ],
+    ),
   );
 }

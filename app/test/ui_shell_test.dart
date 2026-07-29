@@ -426,4 +426,25 @@ void main() {
     // No artwork backfill wired -> no Enrich artwork entry.
     expect(find.byKey(const Key('enrich-artwork')), findsNothing);
   });
+
+  testWidgets('dismissing now playing brings back the selected cover', (
+    tester,
+  ) async {
+    // The whole point of dismissing the strip: click a track and look at its
+    // artwork WITHOUT double-clicking it into playback. The preview hides
+    // while the strip is up (the strip already shows a big cover), so if it
+    // stayed keyed on "is anything loaded", dismissing would hide both and
+    // achieve nothing.
+    final prefs = LayoutPrefs();
+    expect(prefs.nowPlayingHidden, isFalse);
+
+    prefs.hideNowPlaying('some-track');
+    expect(prefs.nowPlayingHidden, isTrue);
+    expect(prefs.nowPlayingHiddenFor, 'some-track');
+
+    // A different track brings it back; the same one does not.
+    prefs.showNowPlaying();
+    expect(prefs.nowPlayingHidden, isFalse);
+    expect(prefs.nowPlayingHiddenFor, isNull);
+  });
 }

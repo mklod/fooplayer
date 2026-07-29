@@ -78,6 +78,36 @@ class LayoutPrefs extends ChangeNotifier {
   double get filterHeight => _filterHeight;
   bool get filtersCollapsed => _filtersCollapsed;
 
+  /// Whether the now-playing strip is hidden.
+  ///
+  /// Deliberately NOT persisted, and deliberately not owned by the strip
+  /// itself: the sidebar's selected-track cover needs the same answer. That
+  /// preview hides while the strip is up, because the strip already shows a
+  /// large cover and two of them is clutter -- so if the strip's own state
+  /// were private, dismissing it would leave BOTH covers hidden, which is
+  /// the opposite of why anyone dismisses it.
+  bool get nowPlayingHidden => _nowPlayingHidden;
+  bool _nowPlayingHidden = false;
+
+  /// The track the strip was hidden for. Hiding is not for the session --
+  /// it lifts as soon as something different starts, which is the only time
+  /// the strip has something new to say.
+  String? get nowPlayingHiddenFor => _nowPlayingHiddenFor;
+  String? _nowPlayingHiddenFor;
+
+  void hideNowPlaying(String? contentId) {
+    _nowPlayingHidden = true;
+    _nowPlayingHiddenFor = contentId;
+    notifyListeners();
+  }
+
+  void showNowPlaying() {
+    if (!_nowPlayingHidden) return;
+    _nowPlayingHidden = false;
+    _nowPlayingHiddenFor = null;
+    notifyListeners();
+  }
+
   /// Collapses/expands the filter row (the stored height is kept, so
   /// expanding restores exactly the size the user had dragged to).
   void setFiltersCollapsed(bool collapsed) {
