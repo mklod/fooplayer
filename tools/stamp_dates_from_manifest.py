@@ -62,17 +62,25 @@ TOLERANCE_SECONDS = 2
 
 
 def manifest_entries(root_name):
-    """(absolute path, target epoch seconds) for every track in one root."""
+    """(absolute path, target epoch seconds) for every track in one root.
+
+    A manifest entry is keyed by content ID and can name SEVERAL paths -- the
+    same audio filed in two places.  Every one of them is the same download
+    and gets the same date.  The first run of this script stamped `paths[0]`
+    only, which left 66 duplicate copies sitting on whatever date the copy
+    event gave them (2012-11-22 and friends) while their twins read
+    correctly -- invisible unless you happened to open the second folder.
+    """
     root = os.path.join(LIBRARY, root_name)
     path = os.path.join(root, ".library.json")
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     for entry in data["tracks"].values():
-        rel = entry["paths"][0].replace("/", os.sep)
         target = datetime.datetime.fromisoformat(
             entry["date_added"].replace("Z", "+00:00")
         ).timestamp()
-        yield os.path.join(root, rel), target
+        for rel in entry["paths"]:
+            yield os.path.join(root, rel.replace("/", os.sep)), target
 
 
 def stamp(path, target):

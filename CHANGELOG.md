@@ -2,6 +2,83 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-28 — evening: artwork embedded across the library, and the app stops lying about it
+
+The covers are in the files now, not just in a sidecar only fooplayer can
+read. Along the way three things turned out to be reporting bugs rather than
+the failures they looked like.
+
+**The library view got a footer.** The track count moved out of the sidebar,
+where it competed with the button stack and the art preview for a narrow
+column, down to the bottom right of the window. It shares that strip with
+background work — what is running on the left, how much is in view on the
+right — and the strip is permanent, because one that appeared and vanished
+under the now-playing bar jumped the whole layout every time a pass started.
+
+**"El Manana appears to have artwork, but it is not embedded" was the app
+misreporting its own work.** Both that file and the Echos *Euphoria* track
+had their covers on disk the whole time; the Art/Emb columns read a flag
+captured when a file's tags were last read, and nothing re-reads them after a
+write. Re-reading library-wide costs minutes over SMB, so the pass now names
+the tracks it wrote and the model marks exactly those. The same
+rebuild-the-whole-record bug was already live in the duration write-back,
+which silently dropped the flag from any track that got its duration by being
+played.
+
+**The end-of-pass report was a six-second SnackBar closing a fifteen-minute
+job.** Miss the moment and the entire outcome was gone — which is how a run
+that skipped 4,047 files for a mundane reason ("no artwork chosen for this
+album") read as a run that had failed. It is a dialog now, listing each
+reason with its count, biggest first, and a file whose dates didn't survive
+gets its own red block with the paths named.
+
+**"notMpeg: no MPEG frame sync where the audio should start" was right once
+and wrong 28 times.** Of the 29 mp3-named files library-wide that fail that
+check, 28 are ordinary MP3s carrying 42–1,035 bytes of junk between their
+tag's declared end and the first audio frame — the whole *Passafire —
+Submersible* album, the *Streets — all got our runnins EP*, three Gym Class
+Heroes singles, two DJ Invasion mixes, a Tony Hawk OST track, a Kid Cudi one.
+Players resync past that; the guard stopped at the first non-zero byte. The
+twenty-ninth is `MrSuicideSheep - Best of 2025.mp3`, an MP4 container wearing
+an `.mp3` name — the file that doesn't play, and the reason the guard exists.
+
+The scan now continues through up to 8 KB of junk under two conditions that
+keep the sheep refused: the file must have opened with a real ID3v2 tag (one
+every player already skips, so rewriting it cannot make things worse), and
+the far side of the junk must be a header that could actually *decode* —
+version, layer, bitrate and sample rate all outside their reserved values. A
+bare `FF Ex` sync pattern matches roughly one byte pair in 2,048, which is
+fine when checking the single position audio must start at and useless when
+scanning hundreds of bytes forward.
+
+**Coverage, measured by reading the files rather than asking the app:**
+
+| Root | Files | Carry a cover | Bare |
+|---|---|---|---|
+| albums | 685 | 684 | 1 |
+| monthly | 1,904 | 1,726 | 178 |
+| loose tracks — 2020 and later | 474 | 430 | 44 |
+| loose tracks — old | 92 | 49 | 43 |
+| alternative times | 2,398 | 375 | 2,023 |
+
+The bare files are overwhelmingly the `alternative times` VA bootleg
+compilations, where no provider has a cover and no loose image sits in the
+folder — nothing was skipped in error.
+
+**And 66 download dates were quietly wrong.** An independent check of every
+file against its manifest — not trusting the embed pass's own self-report —
+found 66 disagreements, none touched that day. Every one was the *second*
+path of a two-path manifest entry: `stamp_dates_from_manifest.py` iterated
+`paths[0]` only, so where the same audio is filed in two places one copy was
+corrected and its twin left on whatever date the copy event gave it
+(2012-11-22 and friends). Invisible unless you happened to open the second
+folder. Fixed, applied, and re-verified: **5,553 of 5,553 files now match
+their manifest date.**
+
+Also: a raw NUL byte had been written into `artwork_embed_pass.dart` as a
+cache-key separator, which made ripgrep classify the file as binary and skip
+it entirely — a search for anything in it silently returned nothing.
+
 ## 2026-07-28 — every download date in the library is now accounted for
 
 The `monthly` root was re-derived from its folder names (1,841 tracks, canon by
