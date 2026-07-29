@@ -111,4 +111,31 @@ void main() {
       expect(clearButton, findsNothing);
     },
   );
+
+  testWidgets('the box empties when something else resets the search', (
+    tester,
+  ) async {
+    // The bug: clicking Library or a playlist calls setPlaylist, which
+    // clears the model's search along with the other filters -- but the box
+    // is uncontrolled, so it kept the old text. You were left staring at a
+    // search term that was filtering nothing, with the whole library listed
+    // under it.
+    final library = fixtureLibrary();
+    await pumpShell(tester, library);
+
+    await tester.enterText(find.byType(TextField).first, 'sheepy');
+    await tester.pumpAndSettle();
+    expect(library.search, 'sheepy');
+
+    // Whatever the user clicks next -- a playlist, or Library itself.
+    library.setPlaylist(null);
+    await tester.pumpAndSettle();
+
+    expect(library.search, '');
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text,
+      '',
+      reason: 'the box has to say what is actually being searched for',
+    );
+  });
 }

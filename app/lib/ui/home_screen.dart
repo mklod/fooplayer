@@ -745,9 +745,35 @@ class _SearchFieldState extends State<_SearchField> {
   final TextEditingController _controller = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    widget.library.addListener(_followModel);
+  }
+
+  @override
   void dispose() {
+    widget.library.removeListener(_followModel);
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Keeps the box showing what is actually being searched for.
+  ///
+  /// Several things reset the model's search without going through this
+  /// field -- picking a playlist or clicking Library both call
+  /// [LibraryModel.setPlaylist], which clears search along with the folder,
+  /// artist and album filters. The box kept its old text through all of
+  /// that, so you were left looking at a search term that was filtering
+  /// nothing, with the full library listed underneath it.
+  void _followModel() {
+    if (!mounted) return;
+    if (widget.library.search == _controller.text) return;
+    _controller.value = TextEditingValue(
+      text: widget.library.search,
+      selection: TextSelection.collapsed(
+        offset: widget.library.search.length,
+      ),
+    );
   }
 
   void _clear() {
