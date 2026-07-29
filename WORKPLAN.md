@@ -29,6 +29,10 @@
 
 ## The immediate queue — cleared 2026-07-29
 
+0. ~~Responsive tablet layout~~ — done. A tablet gets the desktop panel
+   layout in both orientations, keyed to the shortest side (device size)
+   rather than width, so rotating never changes which app it is. Plus the
+   three things that layout assumed about having a mouse.
 1. ~~Compilation artwork keying~~ — done. 2,394 keys became 119; enrichment
    then found nothing for those volumes, which is a real answer.
 2. ~~Metadata repair ("fix tags")~~ — done, and further than planned: manual
@@ -38,28 +42,22 @@
 
 ## Next
 
-1. **Responsive layout for large screens.** A Galaxy Tab S9+ in landscape is
-   2800px wide and gets the phone UI — a single column with one track per row
-   and an ocean of white to its right. A widescreen tablet is as capable as
-   the desktop and should get the desktop-shaped layout (sidebar, columns,
-   multi-pane); a phone in portrait keeps the compact one. One breakpoint on
-   width/orientation, two layouts behind it. Requested 2026-07-29.
-2. **Plan 3 — phone library sync.** The last big one. One-button LAN pull of
+1. **Plan 3 — phone library sync.** The last big one. One-button LAN pull of
    new files + manifests from the NAS. Content IDs make the diff trivial; the
    hard parts are Android storage scope and transfer resilience. There is now
    a hand-rolled eight-file precedent: the tablet was seeded with tracks whose
    content IDs and download dates were carried across from the NAS manifest,
    which is exactly what this has to do at scale.
-3. **Queue semantics — needs a decision.** "Add to queue" is close to
+2. **Queue semantics — needs a decision.** "Add to queue" is close to
    meaningless today because double-clicking a track sets the queue to the
    ENTIRE visible library, so appending lands at position 5,471. Options: drop
    the second action; make double-click queue less than everything; or make
    "add to queue" mean "after the things I have explicitly queued". See the
    session notes.
-4. **A vector app icon.** The source art is 96x96 with the note occupying
+3. **A vector app icon.** The source art is 96x96 with the note occupying
    72x76 pixels, so every asset is upscaled from that and the Android 12
    splash cannot be made genuinely crisp without a redraw.
-5. **The second collection** outside the roots — `albums [no scrape]`,
+4. **The second collection** outside the roots — `albums [no scrape]`,
    `iTunes`, `xmas`, `_to dl`. Still untouched, which is what made the 2007-11
    Rehab date recovery possible. Mike's call whether any of it joins.
 

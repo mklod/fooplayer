@@ -4,10 +4,61 @@
 
 ## TODO
 > [!tip] Queued for next build
-> - **Responsive mobile layout.** A widescreen tablet in landscape is as good as
->   a desktop and should get a desktop-like UI — the multi-pane layout, not the
->   phone one. A phone in portrait keeps a separate compact view. One breakpoint
->   decision on width/orientation, two layouts behind it.
+> - _(empty)_
+
+## Build 2026-07-29--1640
+
+### Changes
+
+- **A tablet now gets the desktop layout.** The Galaxy Tab S9+ was running the
+  phone UI on a 2800px screen — one track per row and an ocean of white beside
+  it. It gets the real thing now: sidebar with playlists and actions, the
+  Folder/Artist/Album filter panels, the sortable seven-column track list, the
+  full now-playing bar, the footer. A phone keeps the compact shell.
+- **The breakpoint is the device, not the window width.** Measured on the
+  device: 1318×824 logical pixels (1752×2800 physical at density 340). Any
+  width-based threshold lands between those two numbers, so the tablet would
+  have shown panels in landscape and the phone UI in portrait — the app
+  changing identity every time you turned it over. Keyed to the shortest side
+  instead (≥700), which is orientation-independent: tablet gets panels both
+  ways, phone gets compact both ways. 700 sits in a wide gap — biggest phones
+  are ~480, a 10-inch tablet is 800+.
+- **Three things the panel layout assumed about having a mouse:**
+  - *A right-click.* The row context menu now also opens on a long press
+    (`onLongPressStart`, so it opens at the row — the position can't come from
+    the earlier pointer-down, because selecting the row rebuilds it). Added
+    unconditionally: it costs a mouse user nothing.
+  - *A held Ctrl* for multi-select in the filter panels. Long-press toggles a
+    value now, so picking three artists at once — half the point of those
+    panels — is reachable on touch.
+  - *Being on Windows.* "View in folder" shells out to `explorer.exe`, so it
+    is hidden where there isn't one rather than sitting in the menu doing
+    nothing.
+- **Window insets.** The panel layout painted from pixel zero, which is right
+  for a window with a title bar and wrong on a tablet: the Android status bar
+  covered the sidebar and search field, and the gesture pill covered the track
+  count. `SafeArea` plus dark status-bar icons; a no-op on desktop, where all
+  those insets are zero.
+- **A dead breadcrumb step** in the desktop Folder panel: with a single root it
+  showed `↑ All / Music` where "All" was a step to nowhere. Now just `Music`,
+  with no up-arrow at the top.
+- Seeding a root from the desktop Settings dialog asks for storage access
+  first, the same as the phone page — that dialog runs on the tablet now.
+
+> [!warning] Testing Checklist
+> - [ ] Tablet landscape: sidebar + filter panels + column list, nothing under
+>       the status bar or the gesture pill
+>   - Notes:
+> - [ ] Tablet portrait: same layout, columns truncate rather than overflow
+>   - Notes:
+> - [ ] Long-press a track row → menu opens at the row, no "View in folder"
+>   - Notes:
+> - [ ] Double-tap a row → it plays
+>   - Notes:
+> - [ ] Long-press two artists → "2 selected", list shows both
+>   - Notes:
+> - [ ] Desktop: right-click, Ctrl+click and "View in folder" all unchanged
+>   - Notes:
 
 ## Build 2026-07-29--1429
 
