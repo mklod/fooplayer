@@ -554,6 +554,7 @@ class _SidebarState extends State<_Sidebar> {
           rootsFailed: library.rootsFailed,
           onAddRoot: libraryRootsPrefs.addRoot,
           onRemoveRoot: libraryRootsPrefs.removeRoot,
+          onSetUpRoot: (root) => library.seedRoot(Directory(root)),
         ),
       ),
     );

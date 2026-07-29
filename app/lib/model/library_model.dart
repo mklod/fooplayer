@@ -682,6 +682,30 @@ class LibraryModel extends ChangeNotifier {
           continue;
         }
 
+        // A folder dropped into an already-set-up root brings its own
+        // manifest -- that is what makes a manifest portable. Copying
+        // `monthly/` onto a phone, or restoring one from a backup, gives
+        // every file today's mtime, so that manifest is the only surviving
+        // record of when those tracks were downloaded. Collect it before
+        // minting anything.
+        //
+        // Only when this root actually turned up something the library has
+        // never seen: otherwise every five-minute tick would walk the whole
+        // share again for nothing. Still off the UI thread, still killable.
+        var known = <String, core.TrackEntry>{};
+        if (scanned.any((t) => !knownIds.contains(t.contentId))) {
+          try {
+            known =
+                await runIsolateWithTimeout<Map<String, core.TrackEntry>, String>(
+                  _knownEntriesIsolateEntry,
+                  root.path,
+                  timeout: rootTimeout,
+                );
+          } catch (_) {
+            known = <String, core.TrackEntry>{}; // best effort, never fatal
+          }
+        }
+
         // NOW take the lock, for the part that actually writes: load the
         // manifest, diff it, and save only if something changed. A rescan
         // that finds nothing -- the overwhelmingly common case -- no longer
@@ -698,6 +722,11 @@ class LibraryModel extends ChangeNotifier {
           final diff = core.diffAgainstManifest(manifest, scanned);
           if (!diff.isEmpty) {
             core.applyDiff(manifest, diff, scanned, DateTime.now);
+            core.adoptKnownDates(
+              manifest,
+              known,
+              onlyIds: diff.newTracks.map((t) => t.contentId),
+            );
             await core.saveManifest(manifest, root);
             for (final t in diff.newTracks) {
               final entry = manifest.tracks[t.contentId];
@@ -1422,6 +1451,81 @@ class LibraryModel extends ChangeNotifier {
     if (wrote) await cache.save(cacheFile);
   }
 
+  /// Creates a `.library.json` for a folder that has none, by scanning it.
+  ///
+  /// On the desktop this was `foolib seed`, a CLI. On a phone there is no
+  /// CLI, so "no library manifest -- seed with foolib" was a dead end: you
+  /// could add your music folder and the app would simply show nothing.
+  ///
+  /// Scans in the same kill-capable isolate a rescan uses, so a huge or slow
+  /// folder cannot wedge the UI, then writes the manifest and reloads.
+  /// Returns how many tracks it found, or null if it could not scan.
+  ///
+  /// Download dates are ADOPTED from any manifest already inside the folder
+  /// (see [core.knownEntriesWithin]) rather than minted. Setting up a parent
+  /// folder above roots that were seeded separately — or a whole collection
+  /// copied to a phone, where every file carries the copy's timestamp — must
+  /// not reset the library to today. Only tracks no manifest has ever seen
+  /// get today's date.
+  Future<int?> seedRoot(
+    Directory root, {
+    Duration timeout = const Duration(minutes: 10),
+  }) async {
+    if (_busy) return null;
+    _busy = true;
+    status = 'setting up ${p.basename(root.path)}…';
+    notifyListeners();
+    try {
+      final List<core.ScannedTrack> scanned;
+      try {
+        scanned = await runIsolateWithTimeout<List<core.ScannedTrack>, String>(
+          _scanRootIsolateEntry,
+          root.path,
+          timeout: timeout,
+        );
+      } catch (e) {
+        status = 'could not read ${p.basename(root.path)}: $e';
+        notifyListeners();
+        return null;
+      }
+
+      // Dates the folder already knows about, before we mint any. A
+      // collection copied onto a phone has today's timestamp on every file;
+      // the manifests that came with it are the only surviving record of
+      // when each track was actually downloaded. Best-effort: failing to
+      // read them is not a reason to refuse to set the folder up.
+      var known = <String, core.TrackEntry>{};
+      try {
+        known = await runIsolateWithTimeout<Map<String, core.TrackEntry>, String>(
+          _knownEntriesIsolateEntry,
+          root.path,
+          timeout: timeout,
+        );
+      } catch (_) {
+        known = <String, core.TrackEntry>{};
+      }
+
+      if (!await _beginManifestPhase(const Duration(seconds: 10))) return null;
+      try {
+        final manifest = core.Manifest.empty();
+        final diff = core.diffAgainstManifest(manifest, scanned);
+        core.applyDiff(manifest, diff, scanned, DateTime.now);
+        core.adoptKnownDates(manifest, known);
+        await core.saveManifest(manifest, root);
+      } catch (e) {
+        status = 'could not write a manifest in ${p.basename(root.path)}: $e';
+        notifyListeners();
+        return null;
+      } finally {
+        _endManifestPhase();
+      }
+      return scanned.length;
+    } finally {
+      _busy = false;
+      notifyListeners();
+    }
+  }
+
   /// Puts specific tracks back exactly as they were.
   ///
   /// The tag editor applies an edit to the library the instant you press
@@ -1835,6 +1939,22 @@ void _scanRootIsolateEntry((String, SendPort) args) async {
   List<core.ScannedTrack> result;
   try {
     result = await core.scanLibrary(Directory(rootPath));
+  } catch (e, s) {
+    Isolate.exit(resultPort, [e, s]);
+  }
+  Isolate.exit(resultPort, [result]);
+}
+
+/// Reads every manifest inside a folder, for [LibraryModel.seedRoot].
+///
+/// Its own isolate for the same reason the scan has one: this walks the
+/// whole tree, and over SMB a directory enumeration can stall for as long
+/// as the share feels like taking.
+void _knownEntriesIsolateEntry((String, SendPort) args) {
+  final (rootPath, resultPort) = args;
+  Map<String, core.TrackEntry> result;
+  try {
+    result = core.knownEntriesWithin(Directory(rootPath));
   } catch (e, s) {
     Isolate.exit(resultPort, [e, s]);
   }
