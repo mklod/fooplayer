@@ -132,9 +132,11 @@ void main() {
       ];
       lib.status = 'ready';
 
-      // Navigate exactly as the user does: drill into the albums root, then
-      // into the album's folder. No Albums-pane selection ever happens.
-      lib.drillIntoFolder(albumsRoot);
+      // Navigate exactly as the user does: the pane already sits inside the
+      // sole library root (see LibraryModel.folderTopPath -- the root list
+      // was one row you had to tap before you could see anything), so the
+      // album's folder is one tap. No Albums-pane selection ever happens.
+      expect(lib.folderPath, [albumsRoot]);
       lib.drillIntoFolder(dir);
       expect(lib.albumFilters, isEmpty); // sanity: folder pane only
 

@@ -91,7 +91,23 @@ class LibraryModel extends ChangeNotifier {
   /// track can see it. Doing it in the setter rather than at the eight places
   /// that build a list is what stops one of them being forgotten and leaving
   /// half the library keying its artwork differently from the other half.
-  set allTracks(List<Track> value) => _allTracks = markCompilations(value);
+  /// It also keeps [folderTopPath] current, since that answer likewise needs
+  /// the whole list ("is there more than one root in it").
+  set allTracks(List<Track> value) {
+    _allTracks = markCompilations(value);
+    final roots = <String>{for (final t in _allTracks) t.rootPath};
+    _folderTopPath = roots.length == 1 ? [roots.single] : const [];
+    // Open the Folder pane where the top now is. Also catches a root being
+    // removed underneath a drilled-in path, which would otherwise leave the
+    // pane sitting in a folder the library no longer has.
+    if (folderPath.isEmpty ||
+        (folderPath.isNotEmpty && !roots.contains(folderPath.first))) {
+      folderPath = List<String>.of(_folderTopPath);
+      folderSiblings = {};
+    }
+  }
+
+  List<String> _folderTopPath = const [];
 
   List<ManifestPlaylist> playlists = [];
 
@@ -911,6 +927,27 @@ class LibraryModel extends ChangeNotifier {
     return paths;
   }
 
+  /// Where "the top" is for the Folder pane.
+  ///
+  /// Normally empty: the top level is the list of library roots, and with
+  /// several of them that list is a real choice. With exactly ONE root it
+  /// is not — it is a single row you have to tap before you can see
+  /// anything, and the folder you actually wanted is one level further
+  /// down. So a lone root IS the top level, and the pane opens inside it
+  /// showing its subfolders straight away.
+  ///
+  /// Costs nothing in filtering terms: restricting to the only root is the
+  /// same set as no restriction at all.
+  ///
+  /// Derived from the whole library rather than the search-filtered view, so
+  /// typing in the search box cannot make a "back" affordance appear by
+  /// briefly hiding a root's tracks. Recomputed by the [allTracks] setter.
+  List<String> get folderTopPath => _folderTopPath;
+
+  /// Whether the Folder pane is as far up as it goes (see [folderTopPath]),
+  /// i.e. there is no level to go back to.
+  bool get folderAtTop => folderPath.length <= folderTopPath.length;
+
   /// What the Folder pane currently lists: the library roots
   /// ([folderNames]) while at the top level, otherwise the immediate
   /// subdirectory names one level below [folderPath], derived from the
@@ -1009,6 +1046,12 @@ class LibraryModel extends ChangeNotifier {
   /// keep the column hidden, matching the long-standing library-mode
   /// behavior pinned by track_list_track_number_column_test.dart.
   bool get folderSelectionIsSingleAlbum {
+    // Sitting at the pane's top is not a selection. With a single library
+    // root the pane opens already inside it ([folderTopPath]), and that
+    // implicit position must not make a one-album library render as though
+    // its album folder had been picked -- exactly the "happen to share one
+    // album" case this getter is documented to exclude.
+    if (folderAtTop && folderSiblings.isEmpty) return false;
     final scopes = folderScopes;
     if (scopes.length != 1) return false;
     return isSingleAlbum(
@@ -1112,6 +1155,10 @@ class LibraryModel extends ChangeNotifier {
   /// nothing would change (path already at most [depth] deep, no siblings).
   void popFolderTo(int depth) {
     if (depth < 0) depth = 0; // defensive: treat any underflow as "roots"
+    // Never above the effective top: with a single root there is no
+    // root-list level to pop back to (see [folderTopPath]).
+    final floor = folderTopPath.length;
+    if (depth < floor) depth = floor;
     if (depth >= folderPath.length && folderSiblings.isEmpty) return;
     if (depth < folderPath.length) {
       folderPath = folderPath.sublist(0, depth);
@@ -1129,11 +1176,15 @@ class LibraryModel extends ChangeNotifier {
   /// [folderSiblings] already empty) -- see [setFolderSiblings]'s doc for
   /// why a no-op selection change must not still wipe artist/album filters.
   void clearFolderSelection() {
-    if (folderPath.isEmpty && folderSiblings.isEmpty) return;
-    folderPath = [];
+    final top = folderTopPath;
+    if (_sameFolderPath(folderPath, top) && folderSiblings.isEmpty) return;
+    folderPath = List<String>.of(top);
     folderSiblings = {};
     _onFolderSelectionChanged();
   }
+
+  static bool _sameFolderPath(List<String> a, List<String> b) =>
+      a.length == b.length && !a.indexed.any((e) => b[e.$1] != e.$2);
 
   /// Shared tail of every folder-selection mutation ([drillIntoFolder]/
   /// [setFolderSiblings]/[clearFolderSelection]): clears the downstream

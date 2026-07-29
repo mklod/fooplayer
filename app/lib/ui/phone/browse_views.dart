@@ -48,9 +48,14 @@ class FoldersView extends StatelessWidget {
     return AnimatedBuilder(
       animation: library,
       builder: (context, _) {
-        final atTop = library.folderPath.isEmpty;
+        // "At the top" is not always "listing roots": with a single library
+        // root the pane opens inside it (see [LibraryModel.folderTopPath]),
+        // so there is no level above and no back arrow -- but there ARE
+        // tracks and subfolders to list.
+        final atTop = library.folderAtTop;
+        final listingRoots = library.folderPath.isEmpty;
         final entries = library.folderEntries;
-        final tracks = atTop
+        final tracks = listingRoots
             ? const <Track>[]
             : sortTracks(
                 applyFilters(
@@ -62,9 +67,13 @@ class FoldersView extends StatelessWidget {
                 library.sortAscending,
               );
         final crumbs = library.folderBreadcrumbs;
-        final breadcrumbText = atTop
+        // "All ›" is only worth showing when there is an All to go back to.
+        final breadcrumbText = listingRoots
             ? 'All folders'
-            : (['All', ...crumbs]).join(' › ');
+            : ([
+                if (library.folderTopPath.isEmpty) 'All',
+                ...crumbs,
+              ]).join(' › ');
         return Column(
           children: [
             Container(
