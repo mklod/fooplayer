@@ -56,14 +56,17 @@ scanning hundreds of bytes forward.
 | Root | Files | Carry a cover | Bare |
 |---|---|---|---|
 | albums | 685 | 684 | 1 |
-| monthly | 1,904 | 1,726 | 178 |
+| monthly | 1,904 | 1,746 | 158 |
 | loose tracks — 2020 and later | 474 | 430 | 44 |
 | loose tracks — old | 92 | 49 | 43 |
 | alternative times | 2,398 | 375 | 2,023 |
+| **total** | **5,553** | **3,284** | **2,269** |
 
 The bare files are overwhelmingly the `alternative times` VA bootleg
 compilations, where no provider has a cover and no loose image sits in the
-folder — nothing was skipped in error.
+folder — nothing was skipped in error. The final pass wrote 1,423 covers with
+zero failures and zero disturbed dates, and its report no longer lists
+`notMpeg` at all.
 
 **And 66 download dates were quietly wrong.** An independent check of every
 file against its manifest — not trusting the embed pass's own self-report —
