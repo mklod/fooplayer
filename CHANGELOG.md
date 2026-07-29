@@ -27,6 +27,14 @@
   fresh date for all 467 tracks. Seeding now **adopts** dates from any manifest
   already inside the folder, keyed by content ID, earliest wins. Durations come
   across too.
+- **Folders opened on a list of one.** With a single library root the pane
+  showed one row, "Music", that you had to tap before you could see anything.
+  A list of one is not a choice, it is a tap tax on every visit. A lone root
+  is now the top level: the pane opens inside it, subfolders and loose tracks
+  visible straight away, no back arrow and no "All ›" prefix. With several
+  roots (the desktop's five) the root list is a real choice and nothing
+  changes. Sitting at that implicit top deliberately does not count as a
+  folder *selection*, so a one-album library still renders as a library.
 - **The same bug on the rescan path**, which is the one that matters going
   forward: dropping `monthly/` into an already-set-up root would have dated
   those tracks today. Now they keep what their manifest says. The walk only
@@ -36,7 +44,13 @@
 > [!warning] Testing Checklist
 > - [ ] Tablet: Library shows all 474 tracks, newest first
 >   - Notes:
-> - [ ] Tablet: Folders → Music → `loose tracks - 2020 and later` drills in
+> - [ ] Tablet: Folders opens straight inside Music — no "Music" row to tap
+>       first — and `loose tracks - 2020 and later` is right there
+>   - Notes:
+> - [ ] Tablet: drilling in then back returns to Music, and the back arrow
+>       disappears there
+>   - Notes:
+> - [ ] Desktop: Folder pane still lists all five roots at the top
 >   - Notes:
 > - [ ] Tablet: dates are the real ones (oldest track is Jan 2019, not today)
 >   - Notes:
