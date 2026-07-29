@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 
 import '../artwork/tag_embed.dart';
 import '../artwork/tag_embed_io.dart';
+import '../metadata/tag_providers.dart';
 import '../model/library_model.dart';
 import '../model/track.dart';
 import 'edit_tags_dialog.dart';
@@ -32,11 +33,12 @@ Future<void> editTrackTags({
   required List<Track> tracks,
   required LibraryModel library,
   TagWriter writer = writeTags,
+  TagSearch? search,
 }) async {
   if (tracks.isEmpty) return;
   final edits = await showDialog<TagEdits>(
     context: context,
-    builder: (_) => EditTagsDialog(tracks: tracks),
+    builder: (_) => EditTagsDialog(tracks: tracks, search: search),
   );
   if (edits == null || edits.isEmpty) return;
 

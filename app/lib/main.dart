@@ -11,6 +11,7 @@ import 'artwork/artwork_store.dart';
 import 'artwork/artwork_wiring.dart';
 import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
+import 'metadata/tag_providers.dart';
 import 'model/activity_model.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
@@ -376,6 +377,10 @@ class FooPlayerApp extends StatelessWidget {
               artworkStores: artworkStores,
               activity: activity,
               artworkBackfill: artworkBackfill,
+              // Shares the artwork lookups' MusicBrainz rate limiter -- one
+              // request a second is a condition of using the service, and two
+              // independent limiters would quietly break it.
+              tagSearch: searchMusicBrainzRecordings,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills

@@ -19,14 +19,22 @@
 import 'package:flutter/material.dart';
 
 import '../artwork/tag_embed.dart';
+import '../metadata/tag_candidate.dart';
+import '../metadata/tag_providers.dart';
 import '../model/track.dart';
 import 'app_theme.dart';
+import 'tag_match_dialog.dart';
 
 /// The result of the dialog: null if cancelled, otherwise what to write.
 class EditTagsDialog extends StatefulWidget {
   final List<Track> tracks;
 
-  const EditTagsDialog({super.key, required this.tracks});
+  /// Metadata lookup seam. Null hides the "Find correct tags" button (widget
+  /// tests that build the dialog without it); production passes the
+  /// MusicBrainz search. Injected so no test opens a socket.
+  final TagSearch? search;
+
+  const EditTagsDialog({super.key, required this.tracks, this.search});
 
   @override
   State<EditTagsDialog> createState() => _EditTagsDialogState();
@@ -98,6 +106,41 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
     );
   }
 
+  /// Looks the track up and drops the chosen proposal into the fields.
+  ///
+  /// Deliberately fills the form rather than writing: the user still reads
+  /// what changed and still presses Save. A lookup that wrote directly would
+  /// be the same "something retagged my files" this project exists to undo.
+  Future<void> _findMatch() async {
+    final t = widget.tracks.first;
+    final chosen = await showDialog<TagCandidate>(
+      context: context,
+      builder: (_) => TagMatchDialog(
+        query: TagQuery(
+          title: t.title,
+          artist: t.artist,
+          album: t.album,
+          durationMs: t.durationMs,
+        ),
+        search: widget.search!,
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _controllers['title']!.text = chosen.title;
+      _controllers['artist']!.text = chosen.artist;
+      if (chosen.album.isNotEmpty) _controllers['album']!.text = chosen.album;
+      if (chosen.trackNumber.isNotEmpty) {
+        _controllers['trackNumber']!.text = chosen.trackNumber;
+      }
+      // A field the proposal filled is no longer "various" -- the user has
+      // chosen one value for the whole selection.
+      _various.removeAll(['title', 'artist']);
+      if (chosen.album.isNotEmpty) _various.remove('album');
+      if (chosen.trackNumber.isNotEmpty) _various.remove('trackNumber');
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final n = widget.tracks.length;
@@ -140,6 +183,16 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
         ),
       ),
       actions: [
+        if (widget.search != null)
+          TextButton(
+            key: const Key('edit-tags-find'),
+            onPressed: _findMatch,
+            child: Text(
+              n == 1 ? 'Find correct tags...' : 'Find correct tags... (first)',
+            ),
+          ),
+        // No Spacer here: AlertDialog lays its actions out in an OverflowBar,
+        // which is not a Flex, so an Expanded child throws.
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
