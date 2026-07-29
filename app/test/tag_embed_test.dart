@@ -55,6 +55,32 @@ Uint8List _png() => Uint8List.fromList([
 /// A text frame body: encoding byte + latin1 text.
 Uint8List _text(String s) => Uint8List.fromList([0x00, ...latin1.encode(s)]);
 
+/// Reads a text frame back out, honouring the encoding byte -- the point of
+/// several of these tests is that the encoding CHANGED to carry the string.
+String? _readText(Id3Tag tag, String id) {
+  final frame = tag.frames.where((f) => f.id == id).firstOrNull;
+  if (frame == null || frame.data.isEmpty) return null;
+  final body = frame.data.sublist(1);
+  switch (frame.data[0]) {
+    case 0x00:
+      return latin1.decode(body);
+    case 0x03:
+      return utf8.decode(body);
+    case 0x01:
+      // BOM, then UTF-16 in the order it declares.
+      final little = body[0] == 0xFF;
+      final units = <int>[];
+      for (var i = 2; i + 1 < body.length; i += 2) {
+        units.add(little
+            ? body[i] | (body[i + 1] << 8)
+            : (body[i] << 8) | body[i + 1]);
+      }
+      return String.fromCharCodes(units);
+    default:
+      return null;
+  }
+}
+
 void _writeSyncsafe(List<int> out, int v) =>
     out.addAll([(v >> 21) & 0x7f, (v >> 14) & 0x7f, (v >> 7) & 0x7f, v & 0x7f]);
 
@@ -243,6 +269,130 @@ void main() {
         contentIdForBytes('i.mp3', before),
       );
       expect(parseId3(twice).frames.where((f) => f.id == 'APIC'), hasLength(1));
+    });
+  });
+
+  group('editing text tags', () {
+    // Same invariant as the cover art: correcting a title must not change
+    // what the file IS, or the manifest loses the track's download date.
+    test('a corrected title keeps the content ID and the cover', () {
+      final before = _fileWithTag(
+        major: 3,
+        frames: [
+          ('TIT2', _text('Wrong Title')),
+          ('TPE1', _text('An Artist')),
+          ('APIC', buildApicBody(_jpeg(), 'image/jpeg')),
+        ],
+        audio: _audio(),
+      );
+
+      final after = buildRetaggedMp3(
+        before,
+        const TagEdits(title: 'Right Title'),
+      );
+
+      expect(
+        contentIdForBytes('x.mp3', after),
+        contentIdForBytes('x.mp3', before),
+      );
+      expect(audioBytesUnchanged(before, after), isTrue);
+
+      final tag = parseId3(after);
+      expect(_readText(tag, 'TIT2'), 'Right Title');
+      expect(_readText(tag, 'TPE1'), 'An Artist', reason: 'untouched');
+      expect(
+        tag.frames.where((f) => f.id == 'APIC'),
+        hasLength(1),
+        reason: 'a text edit must not cost the file its cover',
+      );
+    });
+
+    test('a null field is left alone; an empty string clears it', () {
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Keep')), ('TALB', _text('Drop'))],
+        audio: _audio(),
+      );
+
+      final after = buildRetaggedMp3(before, const TagEdits(album: ''));
+      final tag = parseId3(after);
+
+      expect(_readText(tag, 'TIT2'), 'Keep');
+      expect(tag.frames.where((f) => f.id == 'TALB'), isEmpty);
+    });
+
+    test('a duplicated frame collapses to one', () {
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TPE1', _text('First')), ('TPE1', _text('Second'))],
+        audio: _audio(),
+      );
+
+      final after = buildRetaggedMp3(before, const TagEdits(artist: 'Only'));
+      final tag = parseId3(after);
+
+      expect(tag.frames.where((f) => f.id == 'TPE1'), hasLength(1));
+      expect(_readText(tag, 'TPE1'), 'Only');
+    });
+
+    test('a file with no tag at all gains one', () {
+      final before = Uint8List.fromList(_audio());
+      final after = buildRetaggedMp3(
+        before,
+        const TagEdits(title: 'Named At Last', artist: 'Someone'),
+      );
+
+      expect(
+        contentIdForBytes('x.mp3', after),
+        contentIdForBytes('x.mp3', before),
+      );
+      expect(_readText(parseId3(after), 'TIT2'), 'Named At Last');
+    });
+
+    test('non-ASCII survives, which Latin-1 alone would not', () {
+      for (final (major, name) in [(3, 'v2.3 -> UTF-16'), (4, 'v2.4 -> UTF-8')]) {
+        final before = _fileWithTag(
+          major: major,
+          frames: [('TIT2', _text('x'))],
+          audio: _audio(),
+        );
+        final after = buildRetaggedMp3(
+          before,
+          const TagEdits(artist: 'Björk & Sigur Rós'),
+        );
+        expect(
+          _readText(parseId3(after), 'TPE1'),
+          'Björk & Sigur Rós',
+          reason: name,
+        );
+      }
+    });
+
+    test('an empty edit is a no-op, not a rewrite', () {
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Same'))],
+        audio: _audio(),
+      );
+      expect(buildRetaggedMp3(before, const TagEdits()), before);
+    });
+
+    test('the refusals still apply -- an MP4 is not retagged either', () {
+      final mp4ish = Uint8List.fromList([
+        0x00, 0x00, 0x00, 0x1c,
+        ...latin1.encode('ftypisom'),
+        ...List<int>.filled(2048, 0x41),
+      ]);
+      expect(
+        () => buildRetaggedMp3(mp4ish, const TagEdits(title: 'Nope')),
+        throwsA(
+          isA<EmbedException>().having(
+            (e) => e.refusal,
+            'refusal',
+            EmbedRefusal.notMpeg,
+          ),
+        ),
+      );
     });
   });
 

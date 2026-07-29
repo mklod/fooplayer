@@ -60,10 +60,62 @@ class EmbedReport {
 /// Refuses (leaving the file untouched) when the audio isn't MPEG, the tag
 /// shape is unsupported, the image isn't JPEG/PNG, or -- the check that
 /// matters most -- the rebuild would have altered the bytes the content ID
-/// hashes. Also refuses up front if the current timestamps can't be read,
-/// since they could then not be restored.
-Future<EmbedReport> embedCover(File file, Uint8List image) async {
+/// hashes.
+Future<EmbedReport> embedCover(File file, Uint8List image) {
+  final isFlac = p.extension(file.path).toLowerCase() == '.flac';
+  return _rewrite(
+    file,
+    isFlac: isFlac,
+    build: (before) =>
+        isFlac ? buildTaggedFlac(before, image) : buildTaggedMp3(before, image),
+    outcome: EmbedOutcome.embedded,
+  );
+}
+
+/// Applies [edits] to [file]'s text tags, leaving its cover and every other
+/// frame alone.
+///
+/// The same rewrite as [embedCover] and therefore the same two guarantees:
+/// the audio range is copied verbatim so the content ID cannot move, and the
+/// file's dates are restored and read back. On this library those dates ARE
+/// the download dates, so a retag that moved one would destroy the record
+/// this whole project exists to keep.
+///
+/// FLAC is refused for now: its metadata is Vorbis comments, a different
+/// format from ID3, and guessing at it unverified is how you corrupt the only
+/// lossless files in the library.
+Future<EmbedReport> writeTags(File file, TagEdits edits) {
+  if (p.extension(file.path).toLowerCase() == '.flac') {
+    return Future.value(
+      EmbedReport(
+        path: file.path,
+        outcome: EmbedOutcome.refused,
+        reason: 'FLAC tag editing is not implemented yet',
+      ),
+    );
+  }
+  return _rewrite(
+    file,
+    isFlac: false,
+    build: (before) => buildRetaggedMp3(before, edits),
+    outcome: EmbedOutcome.embedded,
+  );
+}
+
+/// Read, rebuild, prove, write, restore.
+///
+/// One implementation for every kind of tag write, because the valuable part
+/// is not the rebuild -- it is the proof that the hashed range didn't move
+/// and the timestamps came back, and that reasoning must not exist twice.
+Future<EmbedReport> _rewrite(
+  File file, {
+  required Uint8List Function(Uint8List before) build,
+  required bool isFlac,
+  required EmbedOutcome outcome,
+}) async {
   final path = file.path;
+  // Read the timestamps first: if they can't be read they can't be put back,
+  // and finding that out after the write is too late.
   final times = getFileTimes(path);
   if (times == null && Platform.isWindows) {
     return EmbedReport(
@@ -84,21 +136,26 @@ Future<EmbedReport> embedCover(File file, Uint8List image) async {
     );
   }
 
-  // Dispatch on format: MP3 gets an ID3v2 APIC frame, FLAC a PICTURE
-  // metadata block. Both leave their hashed audio range untouched, which is
-  // why FLAC needs no conversion to carry a cover.
-  final isFlac = p.extension(path).toLowerCase() == '.flac';
   final Uint8List after;
   try {
-    after = isFlac
-        ? buildTaggedFlac(before, image)
-        : buildTaggedMp3(before, image);
+    after = build(before);
   } on EmbedException catch (e) {
     return EmbedReport(
       path: path,
       outcome: EmbedOutcome.refused,
       reason: '${e.refusal.name}: ${e.message}',
       bytesBefore: before.length,
+    );
+  }
+
+  // Nothing to do -- don't spend a write, and don't risk the dates for it.
+  if (after.length == before.length && _identical(before, after)) {
+    return EmbedReport(
+      path: path,
+      outcome: outcome,
+      timesPreserved: true,
+      bytesBefore: before.length,
+      bytesAfter: after.length,
     );
   }
 
@@ -146,10 +203,17 @@ Future<EmbedReport> embedCover(File file, Uint8List image) async {
 
   return EmbedReport(
     path: path,
-    outcome: EmbedOutcome.embedded,
+    outcome: outcome,
     timesPreserved: restored,
     bytesBefore: before.length,
     bytesAfter: after.length,
     reason: restored ? '' : 'TIMESTAMPS NOT RESTORED',
   );
+}
+
+bool _identical(Uint8List a, Uint8List b) {
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }

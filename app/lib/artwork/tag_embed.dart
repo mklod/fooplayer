@@ -1,14 +1,15 @@
-// Embedding cover art into the audio file's own tags (so every other player
-// -- foobar2000, Kodi, Explorer thumbnails, a phone's stock app -- sees the
-// artwork fooplayer found, without scattering folder.jpg files around).
+// Rewriting an audio file's own tags -- the cover art fooplayer found, and
+// the text fields it can correct -- so every other player (foobar2000, Kodi,
+// Explorer thumbnails, a phone's stock app) sees them, without scattering
+// folder.jpg files around or leaving a library only fooplayer understands.
 //
 // THE ONE INVARIANT THIS FILE EXISTS TO PROTECT: a track's content ID must
 // not change. The ID is a SHA-256 over the file's AUDIO byte range only --
 // `mp3AudioRange` skips a leading ID3v2 tag and any trailing ID3v1/APEv2
 // block -- so rewriting the tag leaves the hashed bytes untouched *provided*
 // every byte from the old audio start to EOF is copied through verbatim.
-// That is exactly what [buildTaggedMp3] does, and [embedResultIsSafe] proves
-// it per file rather than trusting the reasoning.
+// That is exactly what [buildTaggedMp3] and [buildRetaggedMp3] do, and
+// [embedResultIsSafe] proves it per file rather than trusting the reasoning.
 //
 // Deliberately NOT handled here (the caller refuses these files instead of
 // this code guessing):
@@ -454,6 +455,80 @@ Uint8List buildApicBody(Uint8List image, String mime) {
 /// which is a pure frame-ID rename; a file with no tag gets a fresh v2.3),
 /// so existing frames are copied byte-for-byte and no text ever gets
 /// re-encoded behind the user's back.
+/// The text fields a retag may change.
+///
+/// A null field is left exactly as the file has it; an empty string CLEARS
+/// that frame. The distinction matters for editing several tracks at once,
+/// where "leave each one's own title alone" and "blank the title on all of
+/// them" are different instructions.
+class TagEdits {
+  final String? title; // TIT2
+  final String? artist; // TPE1
+  final String? album; // TALB
+  final String? albumArtist; // TPE2
+  final String? genre; // TCON
+  final String? trackNumber; // TRCK
+
+  const TagEdits({
+    this.title,
+    this.artist,
+    this.album,
+    this.albumArtist,
+    this.genre,
+    this.trackNumber,
+  });
+
+  /// Frame id -> new value, for the fields this edit actually sets.
+  Map<String, String> get frames => {
+    'TIT2': ?title,
+    'TPE1': ?artist,
+    'TALB': ?album,
+    'TPE2': ?albumArtist,
+    'TCON': ?genre,
+    'TRCK': ?trackNumber,
+  };
+
+  bool get isEmpty => frames.isEmpty;
+}
+
+/// A text frame body: an encoding byte followed by the string.
+///
+/// ASCII goes out as Latin-1, which every player since 1996 reads. Anything
+/// else needs a wider encoding, and the choice differs by version: v2.3 has
+/// no UTF-8, so it gets UTF-16 with a byte-order mark; v2.4 gets UTF-8. A
+/// file tagged "Björk" in Latin-1 is the kind of thing that renders as
+/// mojibake in half the players that open it.
+Uint8List buildTextFrameBody(String text, int major) {
+  final ascii = text.codeUnits.every((c) => c < 0x80);
+  if (ascii) {
+    return Uint8List.fromList([0x00, ...latin1.encode(text)]);
+  }
+  if (major == 4) {
+    return Uint8List.fromList([0x03, ...utf8.encode(text)]);
+  }
+  final out = <int>[0x01, 0xFF, 0xFE]; // UTF-16 LE with BOM
+  for (final unit in text.codeUnits) {
+    out.addAll([unit & 0xff, (unit >> 8) & 0xff]);
+  }
+  return Uint8List.fromList(out);
+}
+
+/// Rewrites [original]'s text tags per [edits], leaving every other frame --
+/// the cover art above all -- exactly as it was.
+///
+/// Same guarantees as [buildTaggedMp3], because it is the same rebuild: audio
+/// bytes are copied verbatim from the old tag's end, so the content ID cannot
+/// move, and the caller proves it per file with [audioBytesUnchanged].
+///
+/// A file with no ID3v2 tag gains one. Any trailing ID3v1 block is carried
+/// through untouched and NOT rewritten -- it is 30 bytes per field and every
+/// player this library is aimed at prefers v2 when both are present, so
+/// truncating a corrected title into it would be a downgrade, not a fix.
+Uint8List buildRetaggedMp3(Uint8List original, TagEdits edits) {
+  if (edits.isEmpty) return Uint8List.fromList(original);
+  return _rebuildMp3(original, edits: edits);
+}
+
 Uint8List buildTaggedMp3(Uint8List original, Uint8List image) {
   final mime = imageMimeOf(image);
   if (mime == null) {
@@ -462,6 +537,20 @@ Uint8List buildTaggedMp3(Uint8List original, Uint8List image) {
       'image is neither JPEG nor PNG',
     );
   }
+  return _rebuildMp3(original, image: image, mime: mime);
+}
+
+/// The shared rebuild behind both entry points.
+///
+/// One implementation deliberately: the identity guarantee lives in the way
+/// this copies audio, and two copies of that reasoning would eventually
+/// disagree.
+Uint8List _rebuildMp3(
+  Uint8List original, {
+  Uint8List? image,
+  String? mime,
+  TagEdits? edits,
+}) {
   final tag = parseId3(original);
   final audioStart = tag.size;
   if (!hasMpegAudioAfter(original, audioStart, hadLeadingTag: tag.size > 0)) {
@@ -474,6 +563,7 @@ Uint8List buildTaggedMp3(Uint8List original, Uint8List image) {
   // v2.2 upgrades to v2.3; everything else keeps its version.
   final outMajor = tag.major == 2 ? 3 : (tag.major == 0 ? 3 : tag.major);
 
+  final replaced = edits?.frames ?? const <String, String>{};
   final kept = <Id3Frame>[];
   for (final f in tag.frames) {
     var id = f.id;
@@ -482,18 +572,37 @@ Uint8List buildTaggedMp3(Uint8List original, Uint8List image) {
       if (mapped == null) continue; // unknown v2.2 frame -- dropped
       id = mapped;
     }
-    if (id == 'APIC' || id == 'PIC') continue; // replaced below
+    if (image != null && (id == 'APIC' || id == 'PIC')) continue; // replaced
+    // Dropped here and re-added below in a fixed order, so a file carrying
+    // the same frame twice (which happens) ends up with one, not two.
+    if (replaced.containsKey(id)) continue;
     if (f.data.isEmpty) continue;
     kept.add(Id3Frame(id, f.data));
   }
   // A file whose only metadata is an ID3v1 trailer would be left looking
   // untitled in any player that prefers ID3v2 once we add one, so carry the
   // v1 fields forward first (the v1 block itself is preserved regardless).
-  if (kept.isEmpty) {
+  if (kept.isEmpty && replaced.isEmpty) {
     final v1 = id3v1TrailerOf(original);
     if (v1 != null) kept.addAll(framesFromId3v1(v1));
+  } else if (replaced.isNotEmpty && tag.size == 0) {
+    // Same case, but mid-edit: keep whatever v1 held for the fields this
+    // edit is NOT touching, rather than dropping them on the floor.
+    final v1 = id3v1TrailerOf(original);
+    if (v1 != null) {
+      for (final f in framesFromId3v1(v1)) {
+        if (!replaced.containsKey(f.id)) kept.add(f);
+      }
+    }
   }
-  kept.add(Id3Frame('APIC', buildApicBody(image, mime)));
+  for (final entry in replaced.entries) {
+    // An empty value means "clear this field", so no frame is written.
+    if (entry.value.isEmpty) continue;
+    kept.add(Id3Frame(entry.key, buildTextFrameBody(entry.value, outMajor)));
+  }
+  if (image != null) {
+    kept.add(Id3Frame('APIC', buildApicBody(image, mime!)));
+  }
 
   final body = <int>[];
   for (final f in kept) {
