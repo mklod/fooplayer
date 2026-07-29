@@ -116,21 +116,17 @@ void main() {
         FoldersView(library: lib, store: store, onPlayTrack: (_, _) {}),
       );
 
-      // Top level: the library root by basename, no back affordance, no
-      // track rows yet.
-      expect(find.text('Lib'), findsOneWidget);
-      expect(find.byKey(const Key('folders-back')), findsNothing);
-      expect(find.text('All folders'), findsOneWidget);
-      expect(find.text('First Song'), findsNothing);
-
-      // Drill into the root: its subfolders appear, plus its tracks.
-      await tester.tap(find.text('Lib'));
-      await tester.pumpAndSettle();
+      // With a single library root the pane OPENS INSIDE it: its subfolders
+      // and its tracks, straight away. There is no root-list level to sit on
+      // -- that was one row you had to tap before you could see anything --
+      // so no back affordance and no 'All ›' prefix either.
       expect(lib.folderPath, [_root]);
+      expect(find.byKey(const Key('folders-back')), findsNothing);
+      expect(find.text('All folders'), findsNothing);
       expect(find.text('jazz'), findsOneWidget);
       expect(find.text('rock'), findsOneWidget);
       expect(find.text('Jazz Tune'), findsOneWidget);
-      expect(find.text('All › Lib'), findsOneWidget);
+      expect(find.text('Lib'), findsOneWidget);
 
       // Drill into rock: only its subfolder + tracks remain.
       await tester.tap(find.text('rock'));
@@ -140,20 +136,20 @@ void main() {
       expect(find.text('jazz'), findsNothing);
       expect(find.text('Jazz Tune'), findsNothing);
       expect(find.text('First Song'), findsOneWidget);
-      expect(find.text('All › Lib › rock'), findsOneWidget);
+      expect(find.text('Lib › rock'), findsOneWidget);
 
-      // Back pops exactly one level, not to the top.
+      // Back pops exactly one level -- and that lands at the top, because
+      // the root IS the top.
       await tester.tap(find.byKey(const Key('folders-back')));
       await tester.pumpAndSettle();
       expect(lib.folderPath, [_root]);
       expect(find.text('rock'), findsOneWidget);
-      expect(find.text('All › Lib'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('folders-back')));
-      await tester.pumpAndSettle();
-      expect(lib.folderPath, isEmpty);
-      expect(find.byKey(const Key('folders-back')), findsNothing);
-      expect(find.text('All folders'), findsOneWidget);
+      expect(find.text('Lib'), findsOneWidget);
+      expect(
+        find.byKey(const Key('folders-back')),
+        findsNothing,
+        reason: 'nothing above the sole root to go back to',
+      );
     });
 
     testWidgets('tapping a track row plays it', (tester) async {
@@ -215,8 +211,7 @@ void main() {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
       // Simulate FoldersView drill-down into rock/ (only Muse lives there).
-      lib.drillIntoFolder(_root);
-      lib.drillIntoFolder('rock');
+      lib.drillIntoFolder('rock'); // already inside the sole root
       // Sanity: the desktop-scoped getter WOULD hide Feed Me here.
       expect(lib.artists, ['Muse']);
 
@@ -258,8 +253,7 @@ void main() {
       final lib = fixtureLibrary();
       final store = SpyPlaylistStore(lib);
       // Drill into jazz/ (only Album Y lives there).
-      lib.drillIntoFolder(_root);
-      lib.drillIntoFolder('jazz');
+      lib.drillIntoFolder('jazz'); // already inside the sole root
       // Sanity: the desktop-scoped getter WOULD hide Album X here.
       expect(lib.albums, ['Album Y']);
 
