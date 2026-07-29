@@ -202,4 +202,32 @@ void main() {
     expect(report.embedded, lessThan(10));
     expect(report.reasons.containsKey('cancelled'), isTrue);
   });
+
+  test('names the tracks it wrote, and only those', () async {
+    // The caller corrects the cached "carries embedded art" flag from this
+    // list. Re-reading tags library-wide to discover the same thing costs
+    // minutes over SMB, and leaving it uncorrected makes a finished pass
+    // look like it did nothing.
+    final pass = ArtworkEmbedPass(
+      stores: stores,
+      readAlbumImage: (_, key) async => key.contains('bare') ? null : _jpeg(),
+      embed: (file, image) async => file.path.endsWith('3.mp3')
+          ? EmbedReport(
+              path: file.path,
+              outcome: EmbedOutcome.failed,
+              reason: 'write failed',
+            )
+          : _ok(file.path),
+    );
+
+    final report = await pass.run([
+      _track(id: 'written', relPath: '1.mp3'),
+      _track(id: 'no-art', relPath: '2.mp3', album: 'bare'),
+      _track(id: 'failed', relPath: '3.mp3'),
+      _track(id: 'not-audio', relPath: '4.m4a'),
+    ]);
+
+    expect(report.embeddedIds, ['written']);
+    expect(report.embedded, 1);
+  });
 }

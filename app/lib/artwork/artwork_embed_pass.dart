@@ -53,6 +53,11 @@ class EmbedPassReport {
   /// Paths whose dates were disturbed, so the caller can name them.
   final List<String> disturbedPaths;
 
+  /// Content IDs of the tracks actually written, so the caller can correct
+  /// the cached "carries embedded art" flag without re-reading every file
+  /// in the library to discover what this pass already knows.
+  final List<String> embeddedIds;
+
   const EmbedPassReport({
     this.embedded = 0,
     this.skipped = 0,
@@ -60,6 +65,7 @@ class EmbedPassReport {
     this.datesDisturbed = 0,
     this.reasons = const {},
     this.disturbedPaths = const [],
+    this.embeddedIds = const [],
   });
 
   int get considered => embedded + skipped + failed;
@@ -121,6 +127,7 @@ class ArtworkEmbedPass {
     var embedded = 0, skipped = 0, failed = 0, datesDisturbed = 0;
     final reasons = <String, int>{};
     final disturbed = <String>[];
+    final embeddedIds = <String>[];
     final imageCache = <String, List<int>?>{};
 
     void note(String reason) => reasons[reason] = (reasons[reason] ?? 0) + 1;
@@ -176,6 +183,7 @@ class ArtworkEmbedPass {
       switch (report.outcome) {
         case EmbedOutcome.embedded:
           embedded++;
+          embeddedIds.add(track.contentId);
           // The engine restores and re-reads all three timestamps; this is
           // the pass refusing to treat a date-losing write as a success.
           if (!report.timesPreserved) {
@@ -198,6 +206,7 @@ class ArtworkEmbedPass {
       datesDisturbed: datesDisturbed,
       reasons: reasons,
       disturbedPaths: disturbed,
+      embeddedIds: embeddedIds,
     );
   }
 
