@@ -81,23 +81,16 @@ Future<EmbedReport> embedCover(File file, Uint8List image) {
 /// the download dates, so a retag that moved one would destroy the record
 /// this whole project exists to keep.
 ///
-/// FLAC is refused for now: its metadata is Vorbis comments, a different
-/// format from ID3, and guessing at it unverified is how you corrupt the only
-/// lossless files in the library.
+/// MP3 gets ID3v2 text frames, FLAC gets Vorbis comments -- different formats
+/// for the same six fields, behind one call.
 Future<EmbedReport> writeTags(File file, TagEdits edits) {
-  if (p.extension(file.path).toLowerCase() == '.flac') {
-    return Future.value(
-      EmbedReport(
-        path: file.path,
-        outcome: EmbedOutcome.refused,
-        reason: 'FLAC tag editing is not implemented yet',
-      ),
-    );
-  }
+  final isFlac = p.extension(file.path).toLowerCase() == '.flac';
   return _rewrite(
     file,
-    isFlac: false,
-    build: (before) => buildRetaggedMp3(before, edits),
+    isFlac: isFlac,
+    build: (before) => isFlac
+        ? buildRetaggedFlac(before, edits)
+        : buildRetaggedMp3(before, edits),
     outcome: EmbedOutcome.embedded,
   );
 }
