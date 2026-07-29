@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_core/fooplayer_core.dart';
 
 void main() {
@@ -213,5 +214,42 @@ void main() {
     expect(model.busy, isFalse);
     expect(model.status, 'added 1 new tracks');
     expect(model.allTracks, hasLength(2)); // not duplicated by the no-op call
+  });
+
+  test('a playlist write gets through while a rescan is scanning', () async {
+    // The regression this pins: the manifest lock used to be held across the
+    // whole per-root scan -- a walk-and-hash of every file, minutes over SMB
+    // on the real library. PlaylistStore waits five seconds before giving
+    // up, so for most of every rescan "New playlist" failed with "the
+    // library is busy". Only the manifest read-modify-write needs the lock.
+    final root = await Directory('${tmp.path}/lib').create();
+    for (var i = 0; i < 40; i++) {
+      await File('${root.path}/song$i.mp3')
+          .writeAsBytes(List<int>.filled(4096, i));
+    }
+    await saveManifest(Manifest.empty(), root);
+
+    final cacheFile = File('${tmp.path}/meta_cache.json');
+    final model = LibraryModel();
+    await model
+        .load(libraryRoots: [root], cacheFile: cacheFile)
+        .timeout(const Duration(seconds: 60));
+
+    final store = PlaylistStore(library: model);
+    final rescan = model.rescan();
+
+    // Straight away, with the scan still in flight. Before the fix the lock
+    // was already taken here and this threw after its five-second wait.
+    await store.createPlaylist('made during a scan');
+    await rescan.timeout(const Duration(seconds: 60));
+
+    expect(
+      model.playlists.map((p) => p.name),
+      contains('made during a scan'),
+    );
+    // ...and the rescan's own work still landed.
+    expect(loadManifest(root).playlists.map((p) => p.name),
+        contains('made during a scan'));
+    expect(model.allTracks, hasLength(40));
   });
 }
