@@ -2,6 +2,159 @@
 
 *What shipped, when. Newest first. Status: [STATUS.md](STATUS.md) · Plan: [WORKPLAN.md](WORKPLAN.md).*
 
+## 2026-07-29 — tags become editable, the phone becomes a music player, and the queue becomes real
+
+The long session after the artwork work. Roughly half of it was features and
+half was live use finding things that were quietly wrong.
+
+### Tag editing, end to end
+
+Right-click → **Edit tags…** on one track or a hundred. Written into the
+files themselves, so foobar2000, Kodi and a phone all see the correction —
+and until now the only way to do this was Mp3tag, which is what destroyed
+every download date in this library and started the project.
+
+Multi-select follows the rule every tag editor uses: a field the selection
+disagrees on shows `(various)` and stays untouched unless you type in it, so
+"give these twenty the right album" doesn't also give them all one title.
+Blanking a field clears it, which is how `2012-11` comes out of an album
+frame.
+
+**FLAC too**, via Vorbis comments — a different format from ID3, with
+little-endian lengths inside big-endian block headers. Two of the three FLACs
+here carry no tags at all and were the files that most needed it.
+
+**And a matcher**: *Find correct tags…* asks MusicBrainz and offers what it
+finds, ranked, with a confidence word. It proposes into the form and never
+writes — the artwork pass may auto-apply a confident cover because a wrong
+cover is embarrassing, but a wrong title rewrites the file. Duration carries a
+fifth of the score, being the only field a database can check that a human
+cannot eyeball. Verified live on *El Manana*: MusicBrainz returns *El mañana*
+— with the tilde the file is missing — across seven releases, all matching its
+3:50.
+
+Every write keeps the two guarantees the embed pass established: audio copied
+verbatim so the content ID cannot move, and the file's dates restored and
+read back. Proven against real library bytes on copies, then read back through
+the app's own reader rather than the writer's idea of what it wrote.
+
+### The phone stops being a toy
+
+**Background audio (Plan 2c).** A foreground service with a media session:
+lock screen, notification, headset buttons. Audio focus is handled separately
+because libmpv plays to an audio track without asking Android for focus at
+all, so a phone call would have played over the top. A call pauses and hands
+playback back; another app taking over for good pauses and does *not* come
+back; a navigation prompt ducks; headphones out pauses and never resumes by
+itself.
+
+Measured on the emulator: `PLAYING`, correct metadata through the umlauts in
+*RÜFÜS du Sol*, media keys driving it, still playing after HOME.
+
+**Tapping a song goes full screen into it**, which is what tapping a song
+means on a phone. The full-screen player already existed and was reachable
+only by noticing the strip at the bottom.
+
+**Back unwinds exactly one level.** The drawer switched views by setting state
+rather than pushing a route, so Back found nothing to pop and closed the whole
+app — from Albums, from Settings, from anywhere but the feed. At the root it
+now backgrounds instead of finishing the activity: same pid, instant resume,
+playback uninterrupted, rather than a cold start that re-reads the library.
+
+**Installed on the Galaxy Tab S9+** and seeded with eight tracks whose content
+IDs and download dates were carried across from the NAS manifest — a
+hand-rolled, eight-file preview of what Plan 3 will do properly.
+
+### The queue becomes a scratch playlist
+
+`QueueController` could only be replaced wholesale — there was no way to
+insert anything, so "add to queue" was a missing capability rather than a
+missing menu item. It now has play-next / append / remove / reorder / clear,
+a **Queue** view on both platforms, and *Play next* / *Add to queue* in the
+phone sheet and the desktop menu.
+
+Two orders are tracked — the play order and the order to return to when
+shuffle goes off — and anything added lands in both. Adding only to the play
+order is the obvious version and it is wrong: toggling shuffle rebuilds from
+the source list and the track you just queued vanishes.
+
+Removing the playing track is refused outright: the audio carries on
+regardless, so the list would name one track while another was audible.
+
+### Things live use found
+
+**Playlists could not be created during a scan.** The manifest lock was held
+across the whole per-root scan — a walk-and-hash of every file, minutes over
+SMB — while a playlist write waits five seconds. Only the manifest
+read-modify-write needed protecting, and that is local JSON in milliseconds.
+The scan isolate no longer touches the manifest, and a rescan that finds
+nothing no longer rewrites it at all. Reproduced on the old build first: with
+"Scanning monthly…" showing, a delete never reached the manifest.
+
+**"Scanning…" showed more or less permanently.** The model's `quiet` flag
+worked and a test proved it — but `main.dart`'s timer never passed it. The
+comment explaining that a timer "must not narrate a scan nobody asked for" was
+sitting on the launch rescan, which was already quiet. Nothing covered the
+wiring, which is where the mistake was.
+
+**Tag edits took ten seconds to appear**; a batch of ten took over a minute.
+Timing each phase showed the work is not slow — rebuild tens of ms, meta cache
+53 ms, compilation pass 13–45 ms, a full read-rebuild-write over SMB
+0.2–1.2 s. All of it ran on the UI path, in series, behind whatever the
+background scan was doing. The library is now updated the instant you press
+Save, before a byte is written, with the writes backgrounded four at a time; a
+file that refuses reverts that track alone.
+
+**The search box lied.** It only ever pushed text into the model, never read
+back — and clicking Library or a playlist resets the model's search along with
+the other filters. Result: "sheepy" sitting in the box with all 5,470 tracks
+listed under it.
+
+**Artwork did not survive retagging.** Covers are filed under a key built from
+the artist and album *tags*, so retagging twelve Mr Suicide Sheep mixes to
+share one album collapsed every key onto the same string: three separately
+chosen covers became one shared cover and two orphans. A hand-picked cover is
+now also pinned to the track's content ID, which no tag edit can move — both
+keys, so a pinned track keeps its own cover while album-mates without a pick
+still inherit. `tools/repair_orphaned_art.py` recovered the covers chosen
+before that existed.
+
+**Compilations were one album per track.** `alternative times` — 119 folders,
+2,398 tracks — produced 2,394 separate artwork entries, each asking providers
+for a release nobody made ("Anberlin — Alternative Times Vol 110"). They key
+on folder + title now, with no artist. Enrichment then found nothing for them,
+which is a real answer: those bootleg comps have no cover anywhere.
+
+### Interface
+
+Now playing sits **above** the footer and the footer is always the last thing
+in the window; the hairline between them is gone. The strip can be
+**dismissed** — and while it is, the footer carries the transport as text:
+
+    Like It Or Not — Bob Moses    1:04 / 6:20            5,470 tracks
+
+Clicking anywhere along it opens the player again. Dismissing also brings back
+the sidebar's selected-track cover, which is the entire point of dismissing:
+click through the library and look at artwork without playing anything.
+
+Dialog corners are a theme now rather than one hand-tuned picker and a dozen
+Material defaults.
+
+### Android icon, and a limit worth recording
+
+The launcher circle cannot be removed. Since Android 8 every adaptive icon is
+masked to the launcher's shape and filled with the background layer —
+transparent gives a **black** circle, and dropping the adaptive icon entirely
+gives a white one anyway. Measured all three on a Pixel 7. Two real defects
+did turn up: the legacy bitmaps had no alpha channel at all, and the adaptive
+foreground ignored the 72-of-108dp safe zone. A `monochrome` layer was added
+for themed icons, where the note had been rendering as an empty circle.
+
+The splash is Android 12's system one, scaling the launcher icon up. It has
+its own asset at every density now, but the ceiling is the source art:
+`music.png` is 96×96 and the note within it is 72×76 pixels. Truly crisp needs
+a vector redraw.
+
 ## 2026-07-28 — evening: artwork embedded across the library, and the app stops lying about it
 
 The covers are in the files now, not just in a sidecar only fooplayer can
