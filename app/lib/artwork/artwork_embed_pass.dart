@@ -149,13 +149,7 @@ class ArtworkEmbedPass {
         continue;
       }
 
-      final albumKey = artworkAlbumKey(
-        artist: track.artist,
-        album: track.album,
-        title: track.title,
-        rootPath: track.rootPath,
-        relPath: track.relPath,
-      );
+      final albumKey = albumKeyForTrack(track);
       final cacheKey = '${track.rootPath}\x00$albumKey';
       final image = imageCache.containsKey(cacheKey)
           ? imageCache[cacheKey]

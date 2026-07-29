@@ -259,15 +259,7 @@ class HomeScreen extends StatelessWidget {
                                 t.hasEmbeddedArt ||
                                 (artworkStores
                                         ?.forRoot(t.rootPath)
-                                        .entryFor(
-                                          artworkAlbumKey(
-                                            artist: t.artist,
-                                            album: t.album,
-                                            title: t.title,
-                                            rootPath: t.rootPath,
-                                            relPath: t.relPath,
-                                          ),
-                                        ) !=
+                                        .entryFor(albumKeyForTrack(t)) !=
                                     null),
                             artworkResolver: artworkResolver,
                           ),

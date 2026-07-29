@@ -105,13 +105,18 @@ class ArtworkRequest {
     // that agreement is what lets the picker's "current selection" lookup
     // find what the resolver actually stored.
     String? relPath,
+    this.isCompilation = false,
   }) : albumKey = artworkAlbumKey(
          artist: artist,
          album: album,
          title: title,
          rootPath: rootPath,
          relPath: relPath ?? file.path,
+         isCompilation: isCompilation,
        );
+
+  /// Whether this belongs to a various-artists release -- see [Track].
+  final bool isCompilation;
 
   factory ArtworkRequest.forTrack(Track t) => ArtworkRequest(
     rootPath: t.rootPath,
@@ -120,10 +125,16 @@ class ArtworkRequest {
     album: t.album,
     title: t.title,
     relPath: t.relPath,
+    isCompilation: t.isCompilation,
   );
 
-  ArtworkQuery get query =>
-      ArtworkQuery(artist: artist, album: album, albumKey: albumKey);
+  /// A compilation searches on its album title alone: naming one of its
+  /// twenty-odd artists alongside it describes a release nobody made.
+  ArtworkQuery get query => ArtworkQuery(
+    artist: isCompilation ? '' : artist,
+    album: album,
+    albumKey: albumKey,
+  );
 }
 
 /// Resolves (and caches) the bytes each album's art should display.

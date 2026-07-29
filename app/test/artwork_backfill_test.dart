@@ -757,5 +757,64 @@ void main() {
 
       expect(searches, 0);
     });
+
+    test('a timer tick yields to a pass that is already running', () async {
+      // run() supersedes: it bumps the generation and the in-flight workers
+      // stop at their next check. With the rescan timer firing every five
+      // minutes and lookups throttled to about one a second, that capped
+      // every enrichment at one timer window -- measured on the real library,
+      // 33 of 101 albums before the tick cut it off and it started over.
+      final r = makeResolver();
+      // Hold the first lookup open so the pass is genuinely mid-flight when
+      // the tick arrives -- an instant fake would finish before it got there
+      // and prove nothing.
+      final held = Completer<void>();
+      var searches = 0;
+      final backfill = ArtworkBackfill(
+        resolver: r.resolver,
+        gap: Duration.zero,
+        search: (q) async {
+          searches++;
+          await held.future;
+          return const [];
+        },
+        autoPick: (_, _) => null,
+        downloader: (_) async => null,
+      );
+      // The fixture's own helper, so these live under the test's temp root --
+      // hand-rolled tracks pointing at a real drive letter made this touch
+      // the actual filesystem and behave differently under load.
+      final tracks = [for (final a in ['One', 'Two', 'Three']) trackFor(a)];
+
+      // Start a pass and leave it in flight, blocked on the first lookup.
+      final inFlight = backfill.run(artworkBackfillRequests(tracks));
+      await Future<void>.delayed(Duration.zero);
+      expect(backfill.running, isTrue, reason: 'fixture: pass must be live');
+      final searchesBeforeTick = searches;
+
+      var tickRescanned = false;
+      await rescanThenBackfill(
+        rescan: () async => tickRescanned = true,
+        backfill: backfill,
+        tracks: () => tracks,
+        yieldToRunningPass: true,
+      );
+
+      expect(tickRescanned, isTrue, reason: 'the rescan itself still happens');
+      expect(
+        searches,
+        searchesBeforeTick,
+        reason: 'the tick started nothing; the running pass keeps its place',
+      );
+      expect(backfill.running, isTrue, reason: 'and was not superseded');
+
+      held.complete();
+      await inFlight;
+      expect(
+        searches,
+        3,
+        reason: 'the original pass went on to finish all three albums',
+      );
+    });
   });
 }

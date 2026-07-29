@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
+import '../artwork/compilation.dart';
 import '../metadata/isolate_io.dart';
 import '../metadata/meta_cache.dart';
 import '../metadata/id3_text.dart';
@@ -79,7 +80,18 @@ const _durationSaveDebounce = Duration(seconds: 2);
 enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
 
 class LibraryModel extends ChangeNotifier {
-  List<Track> allTracks = [];
+  List<Track> _allTracks = [];
+
+  List<Track> get allTracks => _allTracks;
+
+  /// Assigning the track list stamps each track with whether it belongs to a
+  /// compilation, because that answer needs the whole list to compute -- it
+  /// is "do many different artists share this album title", and no single
+  /// track can see it. Doing it in the setter rather than at the eight places
+  /// that build a list is what stops one of them being forgotten and leaving
+  /// half the library keying its artwork differently from the other half.
+  set allTracks(List<Track> value) => _allTracks = markCompilations(value);
+
   List<ManifestPlaylist> playlists = [];
 
   /// Configured roots that have no `.library.json` yet, as of the last

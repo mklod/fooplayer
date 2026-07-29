@@ -27,6 +27,18 @@ class Track {
   /// "embedded" column. Filled from the tag cache, never probed per row.
   final bool hasEmbeddedArt;
 
+  /// Whether this track belongs to a compilation -- many different artists
+  /// filed under one album title.
+  ///
+  /// Not a tag: measured across this library 2026-07-28, 312 of 400 sampled
+  /// compilation tracks carry no album-artist frame and NOT ONE carries the
+  /// compilation flag, so the file cannot answer the question. It is inferred
+  /// from the group instead (see `artwork/compilation.dart`) and stamped here
+  /// so every consumer of a track agrees -- the picker, the resolver, the
+  /// harvest and the embed pass must all file a cover under the same name or
+  /// one of them looks up something another never wrote.
+  final bool isCompilation;
+
   const Track({
     required this.contentId,
     required this.relPath,
@@ -39,6 +51,7 @@ class Track {
     this.durationMs,
     this.trackNumber,
     this.hasEmbeddedArt = false,
+    this.isCompilation = false,
   });
 
   Track copyWith({
@@ -49,6 +62,7 @@ class Track {
     int? durationMs,
     int? trackNumber,
     bool? hasEmbeddedArt,
+    bool? isCompilation,
   }) => Track(
     contentId: contentId,
     relPath: relPath,
@@ -61,5 +75,6 @@ class Track {
     durationMs: durationMs ?? this.durationMs,
     trackNumber: trackNumber ?? this.trackNumber,
     hasEmbeddedArt: hasEmbeddedArt ?? this.hasEmbeddedArt,
+    isCompilation: isCompilation ?? this.isCompilation,
   );
 }
