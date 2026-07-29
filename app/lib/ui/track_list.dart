@@ -10,6 +10,7 @@ import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
 import '../model/playlist_store.dart';
 import '../model/track.dart';
+import '../metadata/tag_providers.dart';
 import 'edit_tags_action.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
@@ -154,6 +155,11 @@ class TrackListView extends StatefulWidget {
   /// track's own embedded art only.
   final bool Function(Track track)? hasArtwork;
 
+  /// Backs the edit dialog's "Find correct tags..." button. Null hides it --
+  /// a button that opens an empty picker is worse than no button. Injected
+  /// so no test opens a socket.
+  final TagSearch? tagSearch;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -164,6 +170,7 @@ class TrackListView extends StatefulWidget {
     this.artwork,
     this.artworkResolver,
     this.hasArtwork,
+    this.tagSearch,
   });
 
   @override
@@ -280,6 +287,7 @@ class _TrackListViewState extends State<TrackListView> {
                         library: library,
                         playlistStore: store,
                         artwork: widget.artwork,
+                        tagSearch: widget.tagSearch,
                         artworkResolver: widget.artworkResolver,
                         showTrackNumber: showTrackNumber,
                         playlistMode: isPlaylist,
@@ -666,6 +674,7 @@ class _TrackRow extends StatelessWidget {
   // Null when artwork services haven't been wired -- the "Album artwork..."
   // menu item is then omitted (see [TrackListView.artwork]).
   final ArtworkServices? artwork;
+  final TagSearch? tagSearch;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -702,6 +711,7 @@ class _TrackRow extends StatelessWidget {
     this.playlistMode = false,
     this.hasArtwork = false,
     this.artworkResolver,
+    this.tagSearch,
   });
 
   @override
@@ -731,6 +741,7 @@ class _TrackRow extends StatelessWidget {
             playlistStore: playlistStore,
             artwork: artwork,
             artworkResolver: artworkResolver,
+            tagSearch: tagSearch,
           ),
           // Every Material overlay off. The splash and pressed highlight took
           // hundreds of ms to play out, which made selection feel sluggish;
@@ -1003,6 +1014,7 @@ Future<void> _showTrackContextMenu({
   required PlaylistStore playlistStore,
   ArtworkServices? artwork,
   ArtworkResolver? artworkResolver,
+  TagSearch? tagSearch,
 }) async {
   // Captured BEFORE the popup menu opens (and reused by every action below,
   // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
@@ -1073,6 +1085,7 @@ Future<void> _showTrackContextMenu({
         messenger: messenger,
         tracks: tracks,
         library: library,
+        search: tagSearch,
       );
     case _TrackMenuAction.viewInFolder:
       launchExplorer(track);

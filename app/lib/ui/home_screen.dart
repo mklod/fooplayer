@@ -10,6 +10,7 @@ import '../artwork/local_art_harvest.dart';
 import '../artwork/artwork_picker.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
+import '../metadata/tag_providers.dart';
 import '../model/activity_model.dart';
 import 'activity_bar.dart';
 import '../model/library_model.dart';
@@ -65,6 +66,11 @@ class HomeScreen extends StatelessWidget {
   /// building this screen without the artwork feature wired rely on.
   final ArtworkBackfill? artworkBackfill;
 
+  /// Backs the edit dialog's "Find correct tags..." button -- MusicBrainz in
+  /// production, null in widget tests (which must never open a socket, and
+  /// which the null also spares the button entirely).
+  final TagSearch? tagSearch;
+
   /// Everything running in the background, shown in the persistent bar above
   /// the now-playing bar. Optional so widget tests need not thread one
   /// through; they get a throwaway that nothing renders.
@@ -82,6 +88,7 @@ class HomeScreen extends StatelessWidget {
     this.artworkStores,
     this.artworkBackfill,
     this.activity,
+    this.tagSearch,
   });
 
   @override
@@ -251,6 +258,7 @@ class HomeScreen extends StatelessWidget {
                             player: player,
                             playlistStore: store,
                             artwork: artworkServices,
+                            tagSearch: tagSearch,
                             // "Art" ticks when the app has a cover at all:
                             // the file's own, or one recorded in the sidecar
                             // (which, after a harvest, includes covers
