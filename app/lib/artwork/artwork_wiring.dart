@@ -410,6 +410,9 @@ class ArtworkWiring {
       query: choice.query.isEmpty ? req.query.terms : choice.query,
       origin: origin,
       extension: artworkExtensionFor(origin),
+      // A pick made in the picker is a statement about THIS track, so it is
+      // pinned to its content id as well as the album key.
+      alsoPinToTrack: true,
     );
     if (entry == null) throw const ArtworkApplyFailure();
   }
@@ -422,7 +425,10 @@ class ArtworkWiring {
   /// Synchronous by contract; safe because the picker's search awaited
   /// `ensureLoaded()` before the grid was built.
   String? _currentSelectionId(Track track, String albumKey) {
-    final entry = stores.forRoot(track.rootPath).entryFor(albumKey);
+    final store = stores.forRoot(track.rootPath);
+    // The track's own pick is what the grid should mark, when it has one.
+    final entry =
+        store.entryFor(trackArtKey(track.contentId)) ?? store.entryFor(albumKey);
     final origin = entry?.origin ?? '';
     return origin.isEmpty ? null : origin;
   }

@@ -295,6 +295,19 @@ String artworkAlbumKey({
   return '$a|${normalizeArtworkText(title)}';
 }
 
+/// Where artwork chosen explicitly FOR ONE TRACK is filed.
+///
+/// Keyed on the content ID, which is a hash of the audio and cannot be
+/// changed by editing tags. The album key can: it is built from the artist
+/// and album strings, so retagging a track moves it to a different key and
+/// orphans whatever art was filed under the old one.
+///
+/// That is not hypothetical. Twelve Mr Suicide Sheep mixes were retagged to
+/// share one album, every one of their keys collapsed onto
+/// `mr suicide sheep|sheepy mixes`, and three separately-chosen covers
+/// became one shared cover plus two orphans.
+String trackArtKey(String contentId) => '$contentId';
+
 /// The one place a [Track] is turned into an artwork key.
 ///
 /// Every consumer -- the resolver, the picker, the local harvest, the embed

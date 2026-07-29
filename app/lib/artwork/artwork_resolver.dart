@@ -26,7 +26,7 @@ import 'album_key.dart';
 import 'artwork_store.dart';
 
 export 'album_key.dart'
-    show ArtworkQuery, normalizeArtworkText, artworkAlbumKey;
+    show ArtworkQuery, normalizeArtworkText, artworkAlbumKey, trackArtKey;
 
 /// Reads embedded cover art out of an audio file. Defaults to
 /// [readArtSafe] -- the isolate-bounded, timeout-guarded reader; a
@@ -106,6 +106,7 @@ class ArtworkRequest {
     // find what the resolver actually stored.
     String? relPath,
     this.isCompilation = false,
+    this.contentId,
   }) : albumKey = artworkAlbumKey(
          artist: artist,
          album: album,
@@ -118,6 +119,10 @@ class ArtworkRequest {
   /// Whether this belongs to a various-artists release -- see [Track].
   final bool isCompilation;
 
+  /// The track's immutable identity, used to look up artwork chosen for this
+  /// track specifically. Null for callers that have no track in hand.
+  final String? contentId;
+
   factory ArtworkRequest.forTrack(Track t) => ArtworkRequest(
     rootPath: t.rootPath,
     file: File(p.join(t.rootPath, t.relPath)),
@@ -126,6 +131,7 @@ class ArtworkRequest {
     title: t.title,
     relPath: t.relPath,
     isCompilation: t.isCompilation,
+    contentId: t.contentId,
   );
 
   /// A compilation searches on its album title alone: naming one of its
@@ -206,8 +212,21 @@ class ArtworkResolver extends ChangeNotifier {
   /// different library roots can neither share nor clobber the other's
   /// cached image. NUL-separated because NUL appears in neither a path nor
   /// a normalized album key, which makes [invalidate]'s `endsWith` exact.
-  String _cacheKey(ArtworkRequest req) =>
-      '${req.rootPath}\u0000${req.albumKey}';
+  String _cacheKey(ArtworkRequest req) {
+    // A track with its OWN pinned cover must not share the album's cache
+    // slot, or the first sibling resolved hands its image to all of them
+    // -- exactly the bug the pin exists to fix, reappearing one layer up.
+    // Only pinned tracks pay an extra cache entry; everything else still
+    // resolves once per album.
+    final id = req.contentId;
+    if (id != null && id.isNotEmpty) {
+      final store = stores.forRoot(req.rootPath);
+      if (store.entryFor(trackArtKey(id)) != null) {
+        return '${req.rootPath}\u0000${trackArtKey(id)}';
+      }
+    }
+    return '${req.rootPath}\u0000${req.albumKey}';
+  }
 
   /// Resolves [req]'s art. Never throws; returns null when the chain finds
   /// nothing (the caller shows its placeholder).
@@ -315,6 +334,18 @@ class ArtworkResolver extends ChangeNotifier {
     ArtworkStore store,
     ArtworkRequest req,
   ) async {
+    // A cover chosen for THIS track wins over the album's. Checked first and
+    // keyed on the content ID, so it survives retagging -- the album key is
+    // built from the artist and album strings and moves when they do.
+    final trackKey = req.contentId;
+    if (trackKey != null && trackKey.isNotEmpty) {
+      try {
+        final own = await store.readImage(trackArtKey(trackKey));
+        if (own != null && own.isNotEmpty) return _bytes(own);
+      } catch (_) {
+        // fall through to the album's
+      }
+    }
     try {
       final data = await store.readImage(req.albumKey);
       if (data != null && data.isNotEmpty) return _bytes(data);
@@ -405,6 +436,7 @@ class ArtworkResolver extends ChangeNotifier {
     String query = '',
     String origin = '',
     String extension = '.jpg',
+    bool alsoPinToTrack = false,
   }) async {
     final store = stores.forRoot(req.rootPath);
     final entry = await store.putImage(
@@ -415,6 +447,31 @@ class ArtworkResolver extends ChangeNotifier {
       origin: origin,
       extension: extension,
     );
+
+    // A cover picked BY HAND is additionally pinned to the track's content
+    // id, which no tag edit can move. Both, not one or the other:
+    //
+    //   - the album key alone means siblings overwrite each other, and
+    //     retagging orphans the lot. Twelve mixes retagged to share one
+    //     album collapsed three separately-chosen covers into one.
+    //   - the track key alone would regress real albums, where picking a
+    //     cover on one track is expected to dress the whole record.
+    //
+    // Writing both gives each: the pinned track keeps exactly what was
+    // chosen for it, and album-mates without a pick of their own still
+    // inherit from the album key.
+    final id = req.contentId;
+    if (alsoPinToTrack && id != null && id.isNotEmpty && entry != null) {
+      await store.putImage(
+        trackArtKey(id),
+        bytes,
+        source: source,
+        query: query,
+        origin: origin,
+        extension: extension,
+      );
+      invalidate(trackArtKey(id));
+    }
     invalidate(req.albumKey);
     return entry;
   }
@@ -426,7 +483,16 @@ class ArtworkResolver extends ChangeNotifier {
   /// the next launch. Only picking a new image or an explicit "Search again"
   /// lifts it (both clear the marker).
   Future<void> removeImage(ArtworkRequest req) async {
-    await stores.forRoot(req.rootPath).remove(req.albumKey, suppress: true);
+    final store = stores.forRoot(req.rootPath);
+    await store.remove(req.albumKey, suppress: true);
+    // The track's own pin goes too, or "Remove artwork" would clear the
+    // album's cover and leave the pinned one still showing -- the resolver
+    // checks the pin first.
+    final id = req.contentId;
+    if (id != null && id.isNotEmpty) {
+      await store.remove(trackArtKey(id), suppress: true);
+      invalidate(trackArtKey(id));
+    }
     invalidate(req.albumKey);
   }
 

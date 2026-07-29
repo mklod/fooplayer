@@ -482,7 +482,12 @@ void main() {
       expect(art['query'], 'Pink Floyd The Dark Side of the Moon');
       expect(art['origin'], 'https://x/cover.jpg');
       // Image landed in <root>/.artwork/, never in the album directory.
-      expect(Directory(p.join(root.path, '.artwork')).listSync().length, 1);
+      // Two files, not one: a hand-picked cover is stored under the album
+      // key AND pinned to the track's content id, and each key owns its own
+      // copy so removing one can never pull the file out from under the
+      // other. A few hundred KB per manual pick, for a lifecycle with no
+      // shared-ownership bugs in it.
+      expect(Directory(p.join(root.path, '.artwork')).listSync().length, 2);
       expect(
         Directory(p.join(root.path, 'Pink Floyd')).existsSync(),
         isFalse,
