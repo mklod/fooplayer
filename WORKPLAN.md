@@ -17,18 +17,48 @@
 - Emulator rebuilt at 16 GB and seeded with the real 444-file library.
 - Live-use polish: metro glyph hairlines, blue shuffle, breadcrumb ↑ up-one-level, phone volume removal, uniform column typography.
 
-## The immediate queue (2026-07-28)
+## The immediate queue — ✅ cleared 2026-07-28 (evening)
 
-1. **Run the artwork enrichment** — the real bottleneck. Of 3,616 distinct
-   albums, only **40** have art in the sidecar; **1,526 have never been looked
-   up at all** (3,052 tracks) and 2,050 were looked up with nothing found.
-   Needs the app left open: 3 lookups at a time, 400ms apart, MusicBrainz
-   capped at 1/sec. The new **Art** column shows the gaps at a glance.
-2. **Then "Embed art in files"** — built, tested, one click. Pointless before
-   step 1, since it can only write covers that exist.
-3. **Then strip the 472 stray images** (34 MB) — see the queued section below.
-   Strictly after step 2: the resolver still falls back to sibling
-   `folder.jpg`/`cover.jpg`.
+1. ~~Run the artwork enrichment~~ — done.
+2. ~~"Embed art in files"~~ — done, 1,423 covers written, zero failures, zero
+   disturbed dates. Coverage 3,284 / 5,553 measured off the files.
+3. ~~Strip the stray images~~ — done, 414 moved (28.9 MB), 57 kept because the
+   audio beside them still has no cover of its own.
+4. ~~Convert the MP4-named-.mp3~~ — done, `MrSuicideSheep - Best of 2025.mp3`
+   is real MPEG now, date downloaded intact.
+
+## The next bottleneck — compilation artwork keying
+
+**This is where the remaining artwork gap lives, and it is one bug.**
+`artworkAlbumKey` is `normalizedArtist|normalizedAlbum` off the TRACK artist,
+with no notion of an album artist or a compilation. So a 23-track VA volume
+becomes 23 separate "albums":
+
+```
+anberlin|alternative times vol 110
+cavo|alternative times vol 110
+chevelle|alternative times vol 110   ... x23
+```
+
+Measured across the `alternative times` root: **119 folders, 2,398 tracks,
+2,394 distinct artwork keys** — very nearly one per track. Each fires its own
+lookup, asking providers for `"Anberlin Alternative Times Vol 110"`, a release
+that has never existed. That is the entire explanation for 375/2,398 coverage
+there: not obscurity, just the wrong question asked 2,394 times.
+
+It also caused the near-miss during the image strip. The harvest adopts one
+image per key from the first matching track, so a folder holding a
+`folder.jpg` and 23 keys only ever filed it under one of them; the other 22
+tracks were still displaying it through the file-beside-it fallback. Accepting
+"the sidecar has a copy" as proof of redundancy would have deleted 38 images
+that 22-of-23 tracks depended on.
+
+**Fix**: detect a compilation — one album title spanning many artists in a
+folder, or a `TCMP` flag / `TPE2` album-artist tag — and key those tracks by
+the album alone. 2,394 lookups collapse to 119, the query becomes
+`"Alternative Times Vol 110"`, and one folder image embeds into all 23 tracks.
+Contained change, but it alters how EVERY album is keyed, so it needs Mike's
+go-ahead and a re-run of enrich → harvest → embed afterwards.
 
 ## Next milestones
 
@@ -86,9 +116,10 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 
 ## Decision gates (Mike only)
 
-- ~~**File-dates fix**~~ — **done 2026-07-28**, all roots (option 1 + per-album placement; see the writeup's Outcome section and [docs/albums-date-recovery.md](docs/albums-date-recovery.md)).
-- **Full-library artwork embedding** (~3,659 art-less MP3s) — engine built and proven, deliberately unrun. Review list: [docs/artwork-embed-review.md](docs/artwork-embed-review.md).
-- **Metadata repair** — see the queued section above; blocked behind both of the gates above.
+- ~~**File-dates fix**~~ — **done 2026-07-28**, all roots (option 1 + per-album placement; see the writeup's Outcome section and [docs/albums-date-recovery.md](docs/albums-date-recovery.md)). Independently re-verified: 5,553/5,553 files match their manifest date.
+- ~~**Full-library artwork embedding**~~ — **run 2026-07-28**, 1,423 covers written, zero failures, zero disturbed dates.
+- **Compilation artwork keying** — see the section above. Changes how every album is keyed; wants a yes before it is touched.
+- **Metadata repair** — both blocking gates are now clear, so this is startable. See the queued section below.
 
 ## Backlog (deferred minors, triaged non-blocking)
 
