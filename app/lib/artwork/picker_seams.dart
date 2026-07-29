@@ -27,7 +27,7 @@ import '../model/track.dart';
 import 'album_key.dart';
 
 export 'album_key.dart'
-    show ArtworkQuery, artworkAlbumKey, normalizeArtworkText;
+    show ArtworkQuery, artworkAlbumKey, albumKeyForTrack, normalizeArtworkText;
 
 /// Sidecar `source` ids, per the plan's `.artwork.json` schema
 /// (`"itunes|deezer|caa|local|url|embedded"`). Deliberately plain strings
@@ -245,20 +245,20 @@ String normalizeArtworkKeyPart(String s) => normalizeArtworkText(s);
 /// [ArtworkServices.currentSelectionId] looks the picker's "current
 /// selection" up under, so a mismatch here would make it look up the wrong
 /// key and never find what the resolver actually stored.
-String albumKeyForTrack(Track track) => artworkAlbumKey(
-  artist: track.artist,
-  album: track.album,
-  title: track.title,
-  rootPath: track.rootPath,
-  relPath: track.relPath,
-);
-
+/// (Now lives in `album_key.dart` beside the key it builds, so the harvest
+/// and the embed pass -- which must not depend on `file_selector` -- can use
+/// the same one instead of spelling it out again.)
 /// The query a track's picker opens with: artist + album, falling back to
 /// the title when the track has no album tag (same fallback shape as
 /// [albumKeyForTrack]).
+///
+/// A compilation track contributes no artist, so the search asks for
+/// "Alternative Times Vol 110" rather than "Anberlin Alternative Times Vol
+/// 110" -- the first is a record that exists.
 ArtworkQuery artworkQueryForTrack(Track track) => ArtworkQuery(
-  artist: track.artist,
+  artist: track.isCompilation ? '' : track.artist,
   album: track.album.isEmpty ? track.title : track.album,
+  albumKey: albumKeyForTrack(track),
 );
 
 /// Production file picker: `file_selector`'s native image dialog. Never

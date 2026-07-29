@@ -10,7 +10,10 @@
 // looks at -- exactly the drift the plan forbids.
 //
 // Deliberately dependency-free (no Flutter, no dart:io) so the pure scoring
-// code, the storage code and the widget layer can all share it.
+// code, the storage code and the widget layer can all share it. `Track` is
+// the one import, and it is a plain data class with no imports of its own.
+
+import '../model/track.dart';
 
 /// Latin-1/Latin-Extended folding table. Deliberately explicit rather than
 /// Unicode-NFD-based: Dart's core libraries ship no normalization form, and a
@@ -221,8 +224,29 @@ String normalizeArtworkText(String? input) {
   return s.replaceAll(_nonAlnum, ' ').replaceAll(_whitespace, ' ').trim();
 }
 
+/// The folder a track sits in, relative to its root -- lowercased, with
+/// separators unified so a Windows path and a manifest path agree.
+///
+/// A compilation is keyed by its folder rather than by its title alone,
+/// because titles collide: two different "Greatest Hits" in one root would
+/// otherwise pool their covers. A folder is the release.
+String compilationFolder(String relPath) {
+  final unified = relPath.replaceAll('\\', '/');
+  final cut = unified.lastIndexOf('/');
+  return (cut < 0 ? '' : unified.substring(0, cut)).toLowerCase();
+}
+
 /// The artwork album key: `normalizedArtist|normalizedAlbum`, so every track
 /// of an album shares one artwork entry.
+///
+/// **Compilations drop the artist.** When [isCompilation] is set (inferred by
+/// `compilation.dart` -- the files themselves carry neither an album-artist
+/// nor a compilation flag), the key becomes the release's folder plus its
+/// album title, with no artist in it at all. Otherwise every track of a
+/// various-artists volume forms its own one-track album and asks a provider
+/// for a record that was never made: "Anberlin - Alternative Times Vol 110".
+/// Measured on this library, that turned 119 folders into 2,394 separate
+/// artwork entries.
 ///
 /// Per the plan, a track with an **empty album** falls back to
 /// `normalizedArtist|normalizedTitle` -- a single-track key, so loose files
@@ -248,9 +272,17 @@ String artworkAlbumKey({
   String title = '',
   String rootPath = '',
   String relPath = '',
+  bool isCompilation = false,
 }) {
   final a = normalizeArtworkText(artist);
   final al = normalizeArtworkText(album);
+  if (isCompilation && al.isNotEmpty) {
+    // '\x02' can never appear in a normalized string (normalizeArtworkText
+    // strips every non-letter/digit/space), so a compilation key is always
+    // distinguishable from an `artist|album` one and can never collide with
+    // it -- the same trick the fully-untagged fallback uses with '\x01'.
+    return '\x02${compilationFolder(relPath)}|$al';
+  }
   if (al.isNotEmpty) return '$a|$al';
   if (a.isNotEmpty) return '$a|${normalizeArtworkText(title)}';
   if (rootPath.isNotEmpty || relPath.isNotEmpty) {
@@ -262,6 +294,23 @@ String artworkAlbumKey({
   }
   return '$a|${normalizeArtworkText(title)}';
 }
+
+/// The one place a [Track] is turned into an artwork key.
+///
+/// Every consumer -- the resolver, the picker, the local harvest, the embed
+/// pass, the library view's Art column -- must produce the SAME name for the
+/// same track, or one of them files a cover under a name another never looks
+/// up. They each used to spell this out by hand, which is how [isCompilation]
+/// could have been added to some and missed in others; there is now nothing
+/// to keep in step.
+String albumKeyForTrack(Track track) => artworkAlbumKey(
+  artist: track.artist,
+  album: track.album,
+  title: track.title,
+  rootPath: track.rootPath,
+  relPath: track.relPath,
+  isCompilation: track.isCompilation,
+);
 
 /// What one album's artwork lookup is asked for.
 ///
