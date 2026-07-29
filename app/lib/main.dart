@@ -247,6 +247,10 @@ void main() async {
         rescan: library.rescan,
         backfill: artworkBackfill,
         tracks: () => library.allTracks,
+        // A tick must not cut short a pass that is already working -- see
+        // rescanThenBackfill's note. Whatever this tick would have queued is
+        // in the running pass's list already, or will be at the next tick.
+        yieldToRunningPass: true,
       ),
     ),
   );

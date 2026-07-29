@@ -304,8 +304,22 @@ Future<void> rescanThenBackfill({
   required Future<void> Function() rescan,
   required ArtworkBackfill backfill,
   required List<Track> Function() tracks,
+  bool yieldToRunningPass = false,
 }) async {
   await rescan();
+  // A pass already working through the library must not be restarted by a
+  // timer tick. [ArtworkBackfill.run] supersedes: it bumps the generation and
+  // the in-flight workers exit at their next check. On this library the rescan
+  // timer fires every 5 minutes and lookups are throttled to roughly one a
+  // second, so an enrichment could never get further than one timer window --
+  // measured 2026-07-28, a manual pass over 101 compilation volumes managed 33
+  // before the tick cut it off, then began again from the top. It converged
+  // only because the negative cache made the redone albums cheap.
+  //
+  // Set by the periodic caller, not the manual one: pressing "Enrich artwork"
+  // deliberately supersedes whatever is running, because it is a request to
+  // start now.
+  if (yieldToRunningPass && backfill.running) return;
   await backfill.run(artworkBackfillRequests(tracks()));
 }
 
