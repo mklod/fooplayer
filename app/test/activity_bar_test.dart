@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/activity_model.dart';
 import 'package:fooplayer_app/model/track.dart';
+import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/ui/activity_bar.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -153,6 +154,118 @@ void main() {
         reason: 'no jobs left -- but the footer itself stays',
       );
       expect(find.byKey(const Key('footer-track-count')), findsOneWidget);
+    });
+  });
+
+  group('the footer carries the transport while the strip is collapsed', () {
+    // Collapsing the now-playing strip used to be a one-way door: nothing
+    // showed what was playing and nothing brought the controls back short of
+    // restarting the app.
+    PlayerService playing({
+      String title = 'Like It Or Not',
+      String artist = 'Bob Moses',
+      Duration pos = const Duration(seconds: 64),
+      Duration? total = const Duration(minutes: 6, seconds: 20),
+    }) {
+      final p = PlayerService();
+      p.queueController.setQueue([
+        Track(
+          contentId: 'a',
+          relPath: 'a.mp3',
+          dateAdded: DateTime.utc(2024),
+          title: title,
+          artist: artist,
+        ),
+      ], 0);
+      p.position = pos;
+      p.duration = total;
+      return p;
+    }
+
+    Future<void> pump(
+      WidgetTester tester, {
+      required bool hidden,
+      PlayerService? player,
+      ActivityModel? activity,
+      VoidCallback? onExpand,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Scaffold(
+          body: ActivityBar(
+            activity: activity ?? ActivityModel(),
+            library: LibraryModel(),
+            player: player,
+            nowPlayingHidden: hidden,
+            onExpand: onExpand,
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('shows title, artist and a text clock -- no progress bar', (
+      tester,
+    ) async {
+      await pump(tester, hidden: true, player: playing());
+
+      expect(find.text('Like It Or Not — Bob Moses'), findsOneWidget);
+      expect(find.text('1:04 / 6:20'), findsOneWidget);
+      expect(
+        find.byType(LinearProgressIndicator),
+        findsNothing,
+        reason: 'a bar here is just a smaller copy of what was collapsed',
+      );
+    });
+
+    testWidgets('says nothing while the strip is up', (tester) async {
+      await pump(tester, hidden: false, player: playing());
+      expect(find.byKey(const Key('footer-now-playing')), findsNothing);
+      expect(find.byKey(const Key('footer-track-count')), findsOneWidget);
+    });
+
+    testWidgets('clicking the bar brings the player back', (tester) async {
+      var expanded = 0;
+      await pump(
+        tester,
+        hidden: true,
+        player: playing(),
+        onExpand: () => expanded++,
+      );
+
+      await tester.tap(find.byKey(const Key('footer-expand')));
+      await tester.pumpAndSettle();
+
+      expect(expanded, 1);
+    });
+
+    testWidgets('background work still takes the line while it runs', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        hidden: true,
+        player: playing(),
+        activity: ActivityModel()..start('lib', 'Reading tags'),
+      );
+
+      expect(find.text('Reading tags'), findsOneWidget);
+      expect(
+        find.byKey(const Key('footer-now-playing')),
+        findsNothing,
+        reason: 'transient work is worth interrupting the track line for',
+      );
+    });
+
+    testWidgets('an unknown duration shows the elapsed time alone', (
+      tester,
+    ) async {
+      await pump(tester, hidden: true, player: playing(total: null));
+      expect(find.text('1:04'), findsOneWidget);
+    });
+
+    testWidgets('nothing loaded means nothing to say', (tester) async {
+      await pump(tester, hidden: true, player: PlayerService());
+      expect(find.byKey(const Key('footer-now-playing')), findsNothing);
     });
   });
 }
