@@ -452,6 +452,9 @@ class FooPlayerApp extends StatelessWidget {
           return PhoneShell(
             library: library,
             player: player,
+            // The full-screen player this shell opens on a song tap needs the
+            // same artwork chain the mini-player uses.
+            artworkResolver: artworkResolver,
             onTrackLongPress: (sheetContext, track) => showTrackContextSheet(
               sheetContext,
               track: track,

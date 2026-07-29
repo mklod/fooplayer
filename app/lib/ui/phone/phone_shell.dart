@@ -1,7 +1,13 @@
 // Last modified: 2026-07-24--1855
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../artwork/artwork_resolver.dart';
 import '../../model/library_model.dart';
+import '../../model/track.dart';
 import '../../player/player_service.dart';
+import 'app_background.dart';
+import 'now_playing_page.dart';
 import 'phone_feed.dart';
 import 'phone_search_page.dart';
 
@@ -71,6 +77,14 @@ class PhoneShell extends StatefulWidget {
   /// Per-view body overrides -- see the class doc.
   final Map<PhoneView, WidgetBuilder> viewBuilders;
 
+  /// Artwork chain, forwarded to the full-screen player this shell opens.
+  final ArtworkResolver? artworkResolver;
+
+  /// Whether tapping a song opens the full-screen player on top of playing
+  /// it. On by default; widget tests that only want to observe the play
+  /// callback turn it off rather than dealing with a pushed route.
+  final bool openNowPlayingOnPlay;
+
   const PhoneShell({
     super.key,
     required this.library,
@@ -79,6 +93,8 @@ class PhoneShell extends StatefulWidget {
     required this.onTrackLongPress,
     this.miniPlayerBuilder,
     this.viewBuilders = const {},
+    this.artworkResolver,
+    this.openNowPlayingOnPlay = true,
   });
 
   @override
@@ -88,7 +104,67 @@ class PhoneShell extends StatefulWidget {
 class _PhoneShellState extends State<PhoneShell> {
   PhoneView _view = PhoneView.library;
 
-  PlayTrackCallback get _onPlay => widget.onPlayTrack ?? widget.player.playFrom;
+  /// Drawer views the user came through, oldest first, NOT including the
+  /// current one.
+  ///
+  /// Switching drawer views changes state rather than pushing a route, so
+  /// without this the system Back button found nothing to pop and closed the
+  /// app -- from Albums, from Settings, from anywhere but the feed. Back has
+  /// to unwind this the same way it unwinds a route stack.
+  final List<PhoneView> _viewHistory = [];
+
+  /// So Back can tell whether the drawer is open. The drawer is not a
+  /// Navigator route, and this shell's PopScope sits above the Scaffold, so
+  /// without this check Back would skip past an open drawer and change the
+  /// view underneath it -- two levels for one press.
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  PlayTrackCallback get _rawPlay =>
+      widget.onPlayTrack ?? widget.player.playFrom;
+
+  /// Tapping a song plays it AND opens the full-screen player.
+  ///
+  /// It used to only start playback and leave you looking at the list, with
+  /// the now-playing screen reachable solely by then noticing the strip at
+  /// the bottom and tapping that. Going into the song is what tapping a song
+  /// means on a phone; the mini-player is for getting back to it later.
+  void _playAndOpen(List<Track> tracks, int index) {
+    _rawPlay(tracks, index);
+    if (widget.openNowPlayingOnPlay) {
+      Navigator.of(context).push(
+        NowPlayingPage.route(
+          player: widget.player,
+          artworkResolver: widget.artworkResolver,
+        ),
+      );
+    }
+  }
+
+  PlayTrackCallback get _onPlay => _playAndOpen;
+
+  void _selectView(PhoneView view) {
+    if (view == _view) return;
+    setState(() {
+      _viewHistory.add(_view);
+      _view = view;
+    });
+  }
+
+  /// Back: exactly one level, and never out of the app.
+  Future<void> _handleBack() async {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && scaffold.isDrawerOpen) {
+      scaffold.closeDrawer();
+      return;
+    }
+    if (_viewHistory.isNotEmpty) {
+      setState(() => _view = _viewHistory.removeLast());
+      return;
+    }
+    // At the root. Step aside rather than tearing the app down -- see
+    // [moveAppToBackground] for why that distinction matters here.
+    await moveAppToBackground();
+  }
 
   Widget _body(BuildContext context) {
     final override = widget.viewBuilders[_view];
@@ -116,7 +192,7 @@ class _PhoneShellState extends State<PhoneShell> {
       // treatment as the desktop sidebar's active playlist row.
       selected: view == _view,
       onTap: () {
-        setState(() => _view = view);
+        _selectView(view);
         Navigator.of(context).pop(); // close the drawer
       },
     );
@@ -136,7 +212,16 @@ class _PhoneShellState extends State<PhoneShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      // Never pop automatically: at the root that would finish the activity,
+      // and on a non-library view there is no route to pop anyway -- the
+      // view is state, so Back has to be handled here or it closes the app.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_handleBack());
+      },
+      child: Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: Text(_view.label),
         actions: [
@@ -169,6 +254,7 @@ class _PhoneShellState extends State<PhoneShell> {
       body: _body(context),
       bottomNavigationBar:
           widget.miniPlayerBuilder?.call(context) ?? const SizedBox.shrink(),
+      ),
     );
   }
 }
