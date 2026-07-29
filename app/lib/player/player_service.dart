@@ -167,6 +167,51 @@ class PlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- The queue as a scratch playlist ------------------------------------
+  //
+  // Adding never interrupts what is playing: that is the whole difference
+  // between "play next" and "play". If nothing is playing at all, the first
+  // added track starts, because queueing into silence and getting silence is
+  // not what anyone means.
+
+  Future<void> playNext(List<Track> tracks) async {
+    final wasIdle = queueController.current == null;
+    queueController.insertNext(tracks);
+    notifyListeners();
+    if (wasIdle) await _openCurrent();
+  }
+
+  Future<void> addToQueue(List<Track> tracks) async {
+    final wasIdle = queueController.current == null;
+    queueController.append(tracks);
+    notifyListeners();
+    if (wasIdle) await _openCurrent();
+  }
+
+  /// Jumps to a position in the queue and plays it.
+  Future<void> playQueueIndex(int i) async {
+    if (i < 0 || i >= queueController.queue.length) return;
+    queueController.setIndex(i);
+    await _openCurrent();
+  }
+
+  bool removeFromQueue(int i) {
+    final removed = queueController.removeAt(i);
+    if (removed) notifyListeners();
+    return removed;
+  }
+
+  bool moveInQueue(int from, int to) {
+    final moved = queueController.move(from, to);
+    if (moved) notifyListeners();
+    return moved;
+  }
+
+  void clearUpcoming() {
+    queueController.clearUpcoming();
+    notifyListeners();
+  }
+
   @override
   Future<void> dispose() async {
     await _player?.dispose();

@@ -7,6 +7,7 @@ import '../../model/library_model.dart';
 import '../../model/track.dart';
 import '../../player/player_service.dart';
 import 'app_background.dart';
+import '../queue_view.dart';
 import 'now_playing_page.dart';
 import 'phone_feed.dart';
 import 'phone_search_page.dart';
@@ -15,12 +16,13 @@ import 'phone_search_page.dart';
 /// feed (home, built in); production (main.dart) supplies every other
 /// view's body via [PhoneShell.viewBuilders] -- the P3 browse views plus
 /// the Settings page (`phone_settings_view.dart`).
-enum PhoneView { library, folders, artists, albums, playlists, settings }
+enum PhoneView { library, queue, folders, artists, albums, playlists, settings }
 
 extension PhoneViewInfo on PhoneView {
   /// Drawer entry text AND the AppBar title while the view is active.
   String get label => switch (this) {
     PhoneView.library => 'Library',
+    PhoneView.queue => 'Queue',
     PhoneView.folders => 'Folders',
     PhoneView.artists => 'Artists',
     PhoneView.albums => 'Albums',
@@ -30,6 +32,7 @@ extension PhoneViewInfo on PhoneView {
 
   IconData get icon => switch (this) {
     PhoneView.library => Icons.library_music_outlined,
+    PhoneView.queue => Icons.playlist_play,
     PhoneView.folders => Icons.folder_outlined,
     PhoneView.artists => Icons.person_outline,
     PhoneView.albums => Icons.album_outlined,
@@ -169,6 +172,9 @@ class _PhoneShellState extends State<PhoneShell> {
   Widget _body(BuildContext context) {
     final override = widget.viewBuilders[_view];
     if (override != null) return override(context);
+    if (_view == PhoneView.queue) {
+      return QueueView(player: widget.player);
+    }
     if (_view == PhoneView.library) {
       return PhoneFeedView(
         library: widget.library,
@@ -239,6 +245,7 @@ class _PhoneShellState extends State<PhoneShell> {
             children: [
               for (final v in const [
                 PhoneView.library,
+                PhoneView.queue,
                 PhoneView.folders,
                 PhoneView.artists,
                 PhoneView.albums,

@@ -461,6 +461,8 @@ class FooPlayerApp extends StatelessWidget {
               library: library,
               store: store,
               artwork: artworkServices,
+              // Enables "Play next" / "Add to queue" in the sheet.
+              player: player,
             ),
             miniPlayerBuilder: (_) =>
                 MiniPlayer(player: player, artworkResolver: artworkResolver),

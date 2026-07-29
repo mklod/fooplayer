@@ -13,6 +13,7 @@ import '../../artwork/picker_seams.dart';
 import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
+import '../../player/player_service.dart';
 import '../app_theme.dart';
 import '../playlist_dialogs.dart';
 import 'track_list_page.dart' show formatTrackDuration, trackSubtitle;
@@ -114,6 +115,7 @@ Future<void> showTrackContextSheet(
   required LibraryModel library,
   required PlaylistStore store,
   ArtworkServices? artwork,
+  PlayerService? player,
 }) async {
   // Captured before the first sheet opens -- see showPlaylistError's doc
   // (desktop's ui/track_list.dart uses the same discipline).
@@ -137,6 +139,23 @@ Future<void> showTrackContextSheet(
                 : Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
           const Divider(height: 1),
+          // Queue first: it is the action you reach for mid-listen, and it
+          // costs nothing to change your mind about.
+          if (player != null) ...[
+            ListTile(
+              key: const Key('sheet-play-next'),
+              leading: const Icon(Icons.playlist_play),
+              title: const Text('Play next'),
+              onTap: () => Navigator.of(ctx).pop('play-next'),
+            ),
+            ListTile(
+              key: const Key('sheet-add-to-queue'),
+              leading: const Icon(Icons.queue),
+              title: const Text('Add to queue'),
+              onTap: () => Navigator.of(ctx).pop('add-to-queue'),
+            ),
+            const Divider(height: 1),
+          ],
           ListTile(
             key: const Key('sheet-add-to-playlist'),
             leading: const Icon(Icons.playlist_add),
@@ -162,6 +181,25 @@ Future<void> showTrackContextSheet(
       ),
     ),
   );
+  if (action == 'play-next' || action == 'add-to-queue') {
+    if (player == null) return; // unreachable; items not shown
+    if (action == 'play-next') {
+      await player.playNext([track]);
+    } else {
+      await player.addToQueue([track]);
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          action == 'play-next'
+              ? 'Playing next: ${track.title}'
+              : 'Queued: ${track.title}',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    return;
+  }
   if (!context.mounted) return;
   if (action == 'view-details') {
     await showTrackDetailsDialog(context, track: track);

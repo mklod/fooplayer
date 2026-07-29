@@ -288,6 +288,7 @@ class _TrackListViewState extends State<TrackListView> {
                         playlistStore: store,
                         artwork: widget.artwork,
                         tagSearch: widget.tagSearch,
+                        queuePlayer: widget.player,
                         artworkResolver: widget.artworkResolver,
                         showTrackNumber: showTrackNumber,
                         playlistMode: isPlaylist,
@@ -675,6 +676,7 @@ class _TrackRow extends StatelessWidget {
   // menu item is then omitted (see [TrackListView.artwork]).
   final ArtworkServices? artwork;
   final TagSearch? tagSearch;
+  final PlayerService? queuePlayer;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -712,6 +714,7 @@ class _TrackRow extends StatelessWidget {
     this.hasArtwork = false,
     this.artworkResolver,
     this.tagSearch,
+    this.queuePlayer,
   });
 
   @override
@@ -742,6 +745,7 @@ class _TrackRow extends StatelessWidget {
             artwork: artwork,
             artworkResolver: artworkResolver,
             tagSearch: tagSearch,
+            player: queuePlayer,
           ),
           // Every Material overlay off. The splash and pressed highlight took
           // hundreds of ms to play out, which made selection feel sluggish;
@@ -974,6 +978,8 @@ enum _TrackMenuAction {
   removeFromPlaylist,
   albumArtwork,
   editTags,
+  playNext,
+  addToQueue,
 }
 
 /// Shows the row's right-click context menu at [globalPosition] (from
@@ -1015,6 +1021,7 @@ Future<void> _showTrackContextMenu({
   ArtworkServices? artwork,
   ArtworkResolver? artworkResolver,
   TagSearch? tagSearch,
+  PlayerService? player,
 }) async {
   // Captured BEFORE the popup menu opens (and reused by every action below,
   // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
@@ -1059,6 +1066,14 @@ Future<void> _showTrackContextMenu({
           ),
         ),
       PopupMenuItem(
+        value: _TrackMenuAction.playNext,
+        child: Text(multi ? 'Play next ($n tracks)' : 'Play next'),
+      ),
+      PopupMenuItem(
+        value: _TrackMenuAction.addToQueue,
+        child: Text(multi ? 'Add to queue ($n tracks)' : 'Add to queue'),
+      ),
+      PopupMenuItem(
         value: _TrackMenuAction.editTags,
         child: Text(multi ? 'Edit tags... ($n tracks)' : 'Edit tags...'),
       ),
@@ -1079,6 +1094,24 @@ Future<void> _showTrackContextMenu({
   );
   if (!context.mounted) return;
   switch (selection) {
+    case _TrackMenuAction.playNext:
+      await player?.playNext(tracks);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            multi ? 'Playing next: $n tracks' : 'Playing next: ${track.title}',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    case _TrackMenuAction.addToQueue:
+      await player?.addToQueue(tracks);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(multi ? 'Queued $n tracks' : 'Queued: ${track.title}'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
     case _TrackMenuAction.editTags:
       await editTrackTags(
         context: context,

@@ -1,0 +1,153 @@
+// The queue, as a scratch playlist you can see and rearrange.
+//
+// Before this the queue was invisible and write-once: tapping a song replaced
+// it wholesale, and there was no way to look at what was lined up, let alone
+// change it. "Play next" is meaningless if you can't see what next is.
+//
+// One widget for both platforms. The phone puts it behind a drawer entry, the
+// desktop behind a sidebar entry; neither needs its own copy of "drag to
+// reorder, swipe or tap to remove, tap to jump".
+//
+// Last modified: 2026-07-29--0110
+
+import 'package:flutter/material.dart';
+
+import '../model/track.dart';
+import '../player/player_service.dart';
+import 'app_theme.dart';
+
+class QueueView extends StatelessWidget {
+  final PlayerService player;
+
+  /// Rendered above the list on the desktop, where there is room for a
+  /// heading and a Clear action. The phone gets those from its AppBar.
+  final bool showHeader;
+
+  const QueueView({super.key, required this.player, this.showHeader = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: player,
+      builder: (context, _) {
+        final queue = player.queueController.queue;
+        final current = player.queueController.index;
+
+        if (queue.isEmpty) {
+          return const Center(
+            key: Key('queue-empty'),
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: Text(
+                'Nothing queued.\n\n'
+                'Play a song, or long-press one and choose “Play next” or '
+                '“Add to queue”.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: AppColors.inkSecondary),
+              ),
+            ),
+          );
+        }
+
+        return Column(
+          children: [
+            if (showHeader) _header(context, queue.length, current),
+            Expanded(
+              child: ReorderableListView.builder(
+                key: const Key('queue-list'),
+                itemCount: queue.length,
+                buildDefaultDragHandles: false,
+                // onReorderItem, not onReorder: the older callback reports
+                // the destination as an index in the list BEFORE the item is
+                // removed, so every downward drag lands one slot short unless
+                // the caller corrects for it. This one has already adjusted.
+                onReorderItem: player.moveInQueue,
+                itemBuilder: (context, i) =>
+                    _row(context, queue[i], i, i == current),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _header(BuildContext context, int length, int current) {
+    final remaining = length - current - 1;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+      child: Row(
+        children: [
+          const Text(
+            'Queue',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            remaining == 0 ? 'nothing after this' : '$remaining to come',
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.inkSecondary,
+            ),
+          ),
+          const Spacer(),
+          TextButton(
+            key: const Key('queue-clear'),
+            onPressed: remaining == 0 ? null : player.clearUpcoming,
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, Track track, int i, bool isCurrent) {
+    return ListTile(
+      key: ValueKey('queue-row-${track.contentId}-$i'),
+      dense: true,
+      selected: isCurrent,
+      leading: isCurrent
+          ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
+          : ReorderableDragStartListener(
+              index: i,
+              child: const Icon(
+                Icons.drag_handle,
+                size: 18,
+                color: AppColors.inkSecondary,
+              ),
+            ),
+      title: Text(
+        track.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+          color: isCurrent ? AppColors.accent : AppColors.ink,
+        ),
+      ),
+      subtitle: track.artist.isEmpty
+          ? null
+          : Text(
+              track.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.inkSecondary,
+              ),
+            ),
+      // No remove on the playing row: the audio would carry on regardless,
+      // so the list would name one track while another was audible.
+      trailing: isCurrent
+          ? null
+          : IconButton(
+              key: Key('queue-remove-$i'),
+              icon: const Icon(Icons.close, size: 16),
+              tooltip: 'Remove from queue',
+              onPressed: () => player.removeFromQueue(i),
+            ),
+      onTap: () => player.playQueueIndex(i),
+    );
+  }
+}

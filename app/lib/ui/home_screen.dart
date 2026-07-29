@@ -26,6 +26,7 @@ import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
 import 'playlist_dialogs.dart';
+import 'queue_view.dart';
 import 'settings_dialog.dart';
 import 'track_list.dart';
 
@@ -610,6 +611,21 @@ class _SidebarState extends State<_Sidebar> {
               enabled: !_embedding,
               onTap: _embedding ? null : () => _embedArtwork(context),
             ),
+          ListTile(
+            key: const Key('queue-open'),
+            leading: const Icon(Icons.playlist_play, size: 18),
+            title: const Text('Queue'),
+            onTap: () => showDialog<void>(
+              context: context,
+              builder: (_) => Dialog(
+                child: SizedBox(
+                  width: 520,
+                  height: 560,
+                  child: QueueView(player: widget.player, showHeader: true),
+                ),
+              ),
+            ),
+          ),
           ListTile(
             key: const Key('settings-gear'),
             leading: const Icon(Icons.settings_outlined),
