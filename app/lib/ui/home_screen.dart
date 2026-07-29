@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
-import '../artwork/album_key.dart';
 import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_store.dart';
 import '../artwork/artwork_embed_pass.dart';
@@ -21,6 +20,7 @@ import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'drag_divider.dart';
 import 'embed_report_dialog.dart';
+import 'enrich_report_dialog.dart';
 import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
@@ -371,8 +371,8 @@ class _SidebarState extends State<_Sidebar> {
   Future<void> _enrichArtwork(BuildContext context) async {
     final backfill = artworkBackfill;
     if (backfill == null) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
     final stores = artworkStores;
+    HarvestReport? harvest;
 
     if (stores != null) {
       activity.start(
@@ -380,7 +380,10 @@ class _SidebarState extends State<_Sidebar> {
         'Adopting artwork already in your folders',
       );
       try {
-        final report = await harvestLocalArt(
+        // Held for the single report at the end rather than announced here:
+        // two SnackBars, one at the start of a job and one many minutes
+        // later, is how the middle of a pass came to look like the end of it.
+        harvest = await harvestLocalArt(
           library.allTracks,
           stores,
           onProgress: (done, total) => activity.progress(
@@ -388,12 +391,6 @@ class _SidebarState extends State<_Sidebar> {
             'Adopting artwork already in your folders',
             done,
             total,
-          ),
-        );
-        messenger?.showSnackBar(
-          SnackBar(
-            content: Text('Local artwork: ${report.summary}'),
-            duration: const Duration(seconds: 6),
           ),
         );
       } finally {
@@ -420,13 +417,13 @@ class _SidebarState extends State<_Sidebar> {
       ticker.cancel();
       activity.finish(ActivityIds.artworkLookup);
     }
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text(
-          'Artwork lookup finished: ${backfill.appliedCount} found across '
-          '${backfill.consideredCount} albums checked',
-        ),
-        duration: const Duration(seconds: 8),
+    if (!mounted) return;
+    await showDialog<void>(
+      context: this.context,
+      builder: (context) => EnrichReportDialog(
+        harvest: harvest,
+        found: backfill.appliedCount,
+        albumsChecked: backfill.consideredCount,
       ),
     );
   }

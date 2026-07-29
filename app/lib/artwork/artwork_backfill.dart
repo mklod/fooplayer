@@ -19,8 +19,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:flutter/foundation.dart';
-
 import '../model/track.dart';
 import 'artwork_resolver.dart';
 import 'artwork_store.dart';
@@ -119,10 +117,14 @@ class ArtworkBackfill {
 
   bool get running => _running;
 
-  @visibleForTesting
+  /// How many albums this pass has examined, and how many covers it applied.
+  ///
+  /// Not test-only any more: the activity footer polls these while the pass
+  /// runs, and the end-of-pass report states them. Marking them
+  /// @visibleForTesting while production read them anyway produced four
+  /// standing analyzer warnings that everyone learned to scroll past.
   int get consideredCount => _considered;
 
-  @visibleForTesting
   int get appliedCount => _applied;
 
   /// Cancels the in-flight (or queued) pass. Safe at any time, never waits
