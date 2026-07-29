@@ -2,4 +2,9 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background" />
     <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <!-- Themed icons (Android 13+, and One UI's own icon theming) draw THIS
+         layer, tinted, and ignore the other two. Without it the launcher has
+         no silhouette to tint and renders an empty circle: measured on a
+         Galaxy Tab S9+ with themed icons on, the note vanished completely. -->
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>

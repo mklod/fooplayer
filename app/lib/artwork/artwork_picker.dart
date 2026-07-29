@@ -646,10 +646,9 @@ Future<ArtworkPickerOutcome?> showArtworkPickerDialog(
     context: context,
     builder: (ctx) => Dialog(
       key: const Key('artwork-picker-dialog'),
-      backgroundColor: AppColors.windowBg,
-      // Tighter corners than Material's default 28 -- at that radius the
-      // dialog reads as a phone sheet rather than a desktop panel.
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      // Corners and background come from the app theme's dialogTheme now,
+      // so this picker and every other dialog match by construction rather
+      // than by two people happening to pick the same number.
       child: SizedBox(
         width: 800,
         height: 600,

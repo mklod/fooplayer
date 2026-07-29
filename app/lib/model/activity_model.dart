@@ -114,4 +114,5 @@ abstract final class ActivityIds {
   static const artworkHarvest = 'artwork-harvest';
   static const artworkLookup = 'artwork-lookup';
   static const artworkEmbed = 'artwork-embed';
+  static const tagWrite = 'tag-write';
 }

@@ -621,11 +621,20 @@ class NowPlayingBar extends StatelessWidget {
   /// cover inert rather than opening a picker with nothing behind it.
   final ArtworkServices? artwork;
 
+  /// Closes the strip. Null hides the affordance, which is what the widget
+  /// tests that build the bar on its own rely on.
+  ///
+  /// Exists so the window can be given back to the library: with something
+  /// paused, this strip is 150-odd pixels of transport controls you are not
+  /// using, and browsing artwork meant restarting the app to be rid of it.
+  final VoidCallback? onDismiss;
+
   const NowPlayingBar({
     super.key,
     required this.player,
     this.artworkResolver,
     this.artwork,
+    this.onDismiss,
   });
 
   @override
@@ -637,15 +646,18 @@ class NowPlayingBar extends StatelessWidget {
         if (t == null) return const SizedBox.shrink();
         final total = player.duration ?? Duration.zero;
         final pos = player.position > total ? total : player.position;
-        return Container(
+        return Stack(
+          children: [
+            Container(
           // Height is driven by the cover, but never less than the
           // seek-bar + transport stack needs (~104) -- otherwise a short
           // window makes the right-hand column overflow vertically.
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          decoration: const BoxDecoration(
-            color: AppColors.barBg,
-            border: Border(top: BorderSide(color: AppColors.hairline)),
-          ),
+          // No top hairline: the footer below already separates this from
+          // the library, and a second rule between the two bars made the
+          // bottom of the window look like it had been assembled out of
+          // spare parts.
+          decoration: const BoxDecoration(color: AppColors.barBg),
           // The seek/volume sliders get their visible-against-barBg
           // inactive track and accent-colored active track/thumb from the
           // app theme's global SliderThemeData -- no local override here,
@@ -712,6 +724,23 @@ class NowPlayingBar extends StatelessWidget {
               );
             },
           ),
+            ),
+            // Overlaid rather than placed in the row: every one of the three
+            // width branches above would otherwise have to make room for it.
+            if (onDismiss != null)
+              Positioned(
+                top: 2,
+                right: 6,
+                child: IconButton(
+                  key: const Key('now-playing-dismiss'),
+                  icon: const Icon(Icons.close, size: 16),
+                  tooltip: 'Hide now playing',
+                  visualDensity: VisualDensity.compact,
+                  color: AppColors.inkSecondary,
+                  onPressed: onDismiss,
+                ),
+              ),
+          ],
         );
       },
     );

@@ -1422,6 +1422,51 @@ class LibraryModel extends ChangeNotifier {
     if (wrote) await cache.save(cacheFile);
   }
 
+  /// Puts specific tracks back exactly as they were.
+  ///
+  /// The tag editor applies an edit to the library the instant you press
+  /// Save, before the files have been written, so the change is visible
+  /// immediately instead of after a round trip to the share. That optimism
+  /// has to be undoable: a file the engine refuses must go back to showing
+  /// what it really contains.
+  Future<void> restoreTracks(Iterable<Track> originals) async {
+    final byId = {for (final t in originals) t.contentId: t};
+    if (byId.isEmpty) return;
+
+    final tracks = List<Track>.of(allTracks);
+    var changed = false;
+    for (var i = 0; i < tracks.length; i++) {
+      final original = byId[tracks[i].contentId];
+      if (original == null) continue;
+      tracks[i] = original;
+      changed = true;
+    }
+    if (!changed) return;
+    allTracks = tracks;
+    notifyListeners();
+
+    final cacheFile = _cacheFile;
+    if (cacheFile == null) return;
+    final cache = MetaCache.load(cacheFile);
+    var wrote = false;
+    for (final t in byId.values) {
+      final old = cache.entries[t.contentId];
+      if (old == null) continue;
+      cache.entries[t.contentId] = TrackTags(
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        genre: t.genre,
+        durationMs: old.durationMs,
+        trackNumber: t.trackNumber,
+        durationProbed: old.durationProbed,
+        hasEmbeddedArt: old.hasEmbeddedArt,
+      );
+      wrote = true;
+    }
+    if (wrote) await cache.save(cacheFile);
+  }
+
   /// Persists every duration [updateDuration] has recorded since the last
   /// flush. Runs automatically [_durationSaveDebounce] after the most
   /// recent update; public so tests (and a future shutdown hook) can force

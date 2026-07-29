@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../artwork/artwork_picker.dart';
 import '../artwork/artwork_resolver.dart';
 import '../artwork/picker_seams.dart';
+import '../model/activity_model.dart';
 import '../model/library_model.dart';
 import '../model/playlist_store.dart';
 import '../model/track.dart';
@@ -160,6 +161,10 @@ class TrackListView extends StatefulWidget {
   /// so no test opens a socket.
   final TagSearch? tagSearch;
 
+  /// Background-work reporter, so a tag save shows in the footer while it
+  /// happens rather than leaving the user wondering.
+  final ActivityModel? activity;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -171,6 +176,7 @@ class TrackListView extends StatefulWidget {
     this.artworkResolver,
     this.hasArtwork,
     this.tagSearch,
+    this.activity,
   });
 
   @override
@@ -289,6 +295,7 @@ class _TrackListViewState extends State<TrackListView> {
                         artwork: widget.artwork,
                         tagSearch: widget.tagSearch,
                         queuePlayer: widget.player,
+                        activity: widget.activity,
                         artworkResolver: widget.artworkResolver,
                         showTrackNumber: showTrackNumber,
                         playlistMode: isPlaylist,
@@ -677,6 +684,7 @@ class _TrackRow extends StatelessWidget {
   final ArtworkServices? artwork;
   final TagSearch? tagSearch;
   final PlayerService? queuePlayer;
+  final ActivityModel? activity;
   final bool showTrackNumber;
   // Precomputed by [TrackListView] (needs the row's position for playlist
   // mode, which this widget doesn't otherwise know) -- null whenever
@@ -715,6 +723,7 @@ class _TrackRow extends StatelessWidget {
     this.artworkResolver,
     this.tagSearch,
     this.queuePlayer,
+    this.activity,
   });
 
   @override
@@ -746,6 +755,7 @@ class _TrackRow extends StatelessWidget {
             artworkResolver: artworkResolver,
             tagSearch: tagSearch,
             player: queuePlayer,
+            activity: activity,
           ),
           // Every Material overlay off. The splash and pressed highlight took
           // hundreds of ms to play out, which made selection feel sluggish;
@@ -1022,6 +1032,7 @@ Future<void> _showTrackContextMenu({
   ArtworkResolver? artworkResolver,
   TagSearch? tagSearch,
   PlayerService? player,
+  ActivityModel? activity,
 }) async {
   // Captured BEFORE the popup menu opens (and reused by every action below,
   // including the one-more-popup-menu-deep _showAddToPlaylistMenu) so a
@@ -1119,6 +1130,7 @@ Future<void> _showTrackContextMenu({
         tracks: tracks,
         library: library,
         search: tagSearch,
+        activity: activity,
       );
     case _TrackMenuAction.viewInFolder:
       launchExplorer(track);

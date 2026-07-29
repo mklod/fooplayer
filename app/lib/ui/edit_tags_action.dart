@@ -1,11 +1,28 @@
-// Running a tag edit: ask, write, tell the truth about what happened.
+// Running a tag edit: show it immediately, write it in the background.
 //
-// Kept out of the dialog and out of the context menu so the writing seam is
-// injectable -- no test may put a real file at risk, and the whole point of
-// this feature is that it does not damage the files it touches.
+// The first version did the obvious thing -- write every file, then update
+// the library -- and it was unusable. Pressing Save on one track sat there
+// for about ten seconds before anything moved; a batch of ten took over a
+// minute of staring at unchanged rows.
 //
-// Last modified: 2026-07-28--2130
+// Timing the parts showed the work itself is not slow: the tag rebuild is
+// tens of milliseconds, the meta cache 53ms to load, the compilation pass
+// 13-45ms, and a full read-rebuild-write over SMB 0.2-1.2s depending on file
+// size. What made it feel broken is that all of it ran on the UI path, in
+// series, behind whatever the background scan happened to be doing to the
+// share at that moment.
+//
+// So: the library is updated the instant you press Save, before a single
+// byte is written, and the writes go to the background with progress in the
+// activity footer. If a file then refuses the edit, that track -- and only
+// that track -- goes back to showing what it really contains.
+//
+// Kept out of the dialog and the context menu so the writing seam is
+// injectable; no test may put a real file at risk.
+//
+// Last modified: 2026-07-29--0230
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,6 +31,7 @@ import 'package:path/path.dart' as p;
 import '../artwork/tag_embed.dart';
 import '../artwork/tag_embed_io.dart';
 import '../metadata/tag_providers.dart';
+import '../model/activity_model.dart';
 import '../model/library_model.dart';
 import '../model/track.dart';
 import 'edit_tags_dialog.dart';
@@ -21,12 +39,15 @@ import 'edit_tags_dialog.dart';
 /// How a tag write is performed. Production is [writeTags]; tests inject.
 typedef TagWriter = Future<EmbedReport> Function(File file, TagEdits edits);
 
+/// Files written at once. The share is the bottleneck and it is far happier
+/// with a few requests in flight than with one; the same reasoning (and the
+/// same number) as the tag-reading batches.
+const int kTagWriteLanes = 4;
+
 /// Opens the edit dialog for [tracks] and applies whatever comes back.
 ///
-/// Reports per outcome rather than claiming success: a file the engine
-/// refuses (FLAC, or something that isn't really an mp3) is named, and a file
-/// whose dates did NOT come back is called out on its own, because on this
-/// library those dates are the download dates.
+/// Returns once the dialog is closed and the library reflects the edit --
+/// NOT once the files are written. The writing continues in the background.
 Future<void> editTrackTags({
   required BuildContext context,
   required ScaffoldMessengerState messenger,
@@ -34,6 +55,7 @@ Future<void> editTrackTags({
   required LibraryModel library,
   TagWriter writer = writeTags,
   TagSearch? search,
+  ActivityModel? activity,
 }) async {
   if (tracks.isEmpty) return;
   final edits = await showDialog<TagEdits>(
@@ -42,53 +64,92 @@ Future<void> editTrackTags({
   );
   if (edits == null || edits.isEmpty) return;
 
-  final written = <String>[];
-  final refused = <String>[];
-  final failed = <String>[];
-  final datesDisturbed = <String>[];
+  // Snapshot BEFORE the optimistic update, so a refused file can be put back.
+  final before = {for (final t in tracks) t.contentId: t};
 
-  for (final t in tracks) {
+  // The whole point: the list changes now, not after the share answers.
+  await library.applyTagEdits(before.keys, edits);
+
+  unawaited(
+    _writeInBackground(
+      tracks: tracks,
+      before: before,
+      edits: edits,
+      library: library,
+      writer: writer,
+      messenger: messenger,
+      activity: activity,
+    ),
+  );
+}
+
+Future<void> _writeInBackground({
+  required List<Track> tracks,
+  required Map<String, Track> before,
+  required TagEdits edits,
+  required LibraryModel library,
+  required TagWriter writer,
+  required ScaffoldMessengerState messenger,
+  ActivityModel? activity,
+}) async {
+  final label = tracks.length == 1
+      ? 'Saving tags'
+      : 'Saving tags to ${tracks.length} files';
+  activity?.progress(ActivityIds.tagWrite, label, 0, tracks.length);
+
+  final reverted = <Track>[];
+  final trouble = <String>[];
+  final datesDisturbed = <String>[];
+  var done = 0;
+  var written = 0;
+
+  Future<void> writeOne(Track t) async {
     final file = File(p.join(t.rootPath, t.relPath));
-    EmbedReport report;
     try {
-      report = await writer(file, edits);
+      final report = await writer(file, edits);
+      switch (report.outcome) {
+        case EmbedOutcome.embedded:
+          written++;
+          if (!report.timesPreserved) datesDisturbed.add(file.path);
+        case EmbedOutcome.refused:
+          reverted.add(before[t.contentId]!);
+          trouble.add('${p.basename(t.relPath)}: ${report.reason}');
+        case EmbedOutcome.failed:
+          reverted.add(before[t.contentId]!);
+          trouble.add('${p.basename(t.relPath)}: ${report.reason}');
+      }
     } catch (e) {
-      failed.add('${p.basename(t.relPath)}: $e');
-      continue;
+      reverted.add(before[t.contentId]!);
+      trouble.add('${p.basename(t.relPath)}: $e');
     }
-    switch (report.outcome) {
-      case EmbedOutcome.embedded:
-        written.add(t.contentId);
-        if (!report.timesPreserved) datesDisturbed.add(file.path);
-      case EmbedOutcome.refused:
-        refused.add('${p.basename(t.relPath)}: ${report.reason}');
-      case EmbedOutcome.failed:
-        failed.add('${p.basename(t.relPath)}: ${report.reason}');
-    }
+    done++;
+    activity?.progress(ActivityIds.tagWrite, label, done, tracks.length);
   }
 
-  // Only the files that actually took the edit get their cached tags
-  // updated -- a refused file must keep showing what it really contains.
-  await library.applyTagEdits(written, edits);
+  try {
+    for (var i = 0; i < tracks.length; i += kTagWriteLanes) {
+      final end = (i + kTagWriteLanes).clamp(0, tracks.length);
+      await Future.wait([for (var j = i; j < end; j++) writeOne(tracks[j])]);
+    }
+  } finally {
+    activity?.finish(ActivityIds.tagWrite);
+  }
 
-  final parts = <String>[
-    if (written.isNotEmpty) '${written.length} updated',
-    if (refused.isNotEmpty) '${refused.length} skipped',
-    if (failed.isNotEmpty) '${failed.length} failed',
-  ];
-  final trouble = [...refused, ...failed];
+  // Only what actually failed goes back; everything else keeps the edit it
+  // has been showing all along.
+  if (reverted.isNotEmpty) await library.restoreTracks(reverted);
+
+  if (trouble.isEmpty && datesDisturbed.isEmpty) return; // silence is success
   messenger.showSnackBar(
     SnackBar(
       content: Text(
         datesDisturbed.isNotEmpty
-            ? 'Tags: ${parts.join(', ')} — '
+            ? 'Tags: $written saved — '
                   '${datesDisturbed.length} WITH DATE CHANGES'
-            : 'Tags: ${parts.isEmpty ? "nothing to do" : parts.join(', ')}'
-                  '${trouble.isEmpty ? "" : " — ${trouble.first}"}',
+            : 'Tags: $written saved, ${trouble.length} could not be '
+                  'written — ${trouble.first}',
       ),
-      duration: Duration(
-        seconds: datesDisturbed.isNotEmpty || trouble.isNotEmpty ? 10 : 4,
-      ),
+      duration: const Duration(seconds: 10),
     ),
   );
 }

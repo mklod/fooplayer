@@ -8,6 +8,9 @@ import 'package:flutter/material.dart';
 /// a dark-theme-assuming `Colors.*` shade. Clean Apple/iTunes white-and-grey,
 /// dense, no purple anywhere; the blue accent is used sparingly (selection,
 /// the active slider track, the current-track title, links).
+/// Corner radius shared by every dialog. See the dialogTheme below.
+const double kDialogRadius = 8;
+
 class AppColors {
   AppColors._();
 
@@ -109,6 +112,16 @@ ThemeData buildAppTheme() {
     canvasColor: AppColors.windowBg,
     visualDensity: VisualDensity.compact,
     textTheme: textTheme,
+    // Every dialog in the app gets the same corners. Material's default is
+    // 28, at which a dialog reads as a phone sheet rather than a desktop
+    // panel; the artwork picker had already been pulled back to 8 by hand
+    // and everything else was still round, so they never matched.
+    dialogTheme: DialogThemeData(
+      backgroundColor: AppColors.windowBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(kDialogRadius),
+      ),
+    ),
     dividerColor: AppColors.hairline,
     dividerTheme: const DividerThemeData(
       color: AppColors.hairline,

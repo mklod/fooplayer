@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The splash background. White to match the app's own light theme, so
+         the launch does not flash a different colour before the UI appears. -->
+    <color name="splash_background">#FFFFFFFF</color>
+</resources>

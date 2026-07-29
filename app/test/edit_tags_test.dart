@@ -6,6 +6,7 @@
 // a field you didn't touch must not be written, a file the engine refuses
 // must not be reported as updated, and a write that lost a date must be
 // called out rather than folded into a success count.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -159,14 +160,15 @@ void main() {
   });
 
   group('applying the edit', () {
-    /// Drives editTrackTags with a fake writer and returns the SnackBar text.
-    Future<String> run(
+    /// Drives editTrackTags with a fake writer. Returns the model so the
+    /// caller can inspect what the library shows.
+    Future<LibraryModel> run(
       WidgetTester tester,
       List<Track> tracks,
       TagWriter writer, {
-      LibraryModel? library,
+      bool settle = true,
     }) async {
-      final model = library ?? (LibraryModel()..allTracks = tracks);
+      final model = LibraryModel()..allTracks = tracks;
       await tester.pumpWidget(
         MaterialApp(
           theme: buildAppTheme(),
@@ -193,45 +195,111 @@ void main() {
         'Fixed',
       );
       await tester.tap(find.byKey(const Key('edit-tags-save')));
-      await tester.pumpAndSettle();
-      return tester.widget<Text>(find.byType(SnackBar).evaluate().isEmpty
-              ? find.text('nothing')
-              : find.descendant(
-                  of: find.byType(SnackBar),
-                  matching: find.byType(Text),
-                ))
-          .data!;
+      if (settle) {
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+      }
+      return model;
     }
 
-    testWidgets('reports what was written', (tester) async {
-      final text = await run(
+    String? snackText(WidgetTester tester) {
+      final bar = find.byType(SnackBar);
+      if (bar.evaluate().isEmpty) return null;
+      return tester
+          .widget<Text>(
+            find.descendant(of: bar, matching: find.byType(Text)).first,
+          )
+          .data;
+    }
+
+    testWidgets('the library shows the edit BEFORE the files are written', (
+      tester,
+    ) async {
+      // The complaint this fixes: ten seconds of an unchanged list after
+      // pressing Save. The write is allowed to take as long as it likes; the
+      // row must not wait for it.
+      final held = Completer<EmbedReport>();
+      final model = await run(
+        tester,
+        [_track('a')],
+        (file, edits) => held.future,
+        settle: false,
+      );
+
+      expect(
+        model.allTracks.single.artist,
+        'Fixed',
+        reason: 'visible immediately, with the write still in flight',
+      );
+
+      held.complete(
+        EmbedReport(path: 'x', outcome: EmbedOutcome.embedded, timesPreserved: true),
+      );
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a successful save says nothing at all', (tester) async {
+      await run(
         tester,
         [_track('a'), _track('b')],
         (file, edits) async =>
-            EmbedReport(path: file.path, outcome: EmbedOutcome.embedded),
+            EmbedReport(path: file.path, outcome: EmbedOutcome.embedded, timesPreserved: true),
       );
-      expect(text, contains('2 updated'));
+      expect(
+        snackText(tester),
+        isNull,
+        reason: 'the changed rows are the feedback; a toast on top is noise',
+      );
     });
 
-    testWidgets('a refused file is not counted as updated', (tester) async {
-      final text = await run(
-        tester,
-        [_track('a')],
-        (file, edits) async => EmbedReport(
-          path: file.path,
-          outcome: EmbedOutcome.refused,
-          reason: 'FLAC tag editing is not implemented yet',
-        ),
-      );
-      expect(text, contains('1 skipped'));
-      expect(text, contains('FLAC'));
-      expect(text, isNot(contains('updated')));
-    });
-
-    testWidgets('a lost date is shouted about, not folded into a total', (
+    testWidgets('a refused file is put back, and only that one', (
       tester,
     ) async {
-      final text = await run(
+      final model = await run(
+        tester,
+        [_track('a'), _track('b')],
+        (file, edits) async => file.path.endsWith('a.mp3')
+            ? EmbedReport(path: file.path, outcome: EmbedOutcome.embedded, timesPreserved: true)
+            : EmbedReport(
+                path: file.path,
+                outcome: EmbedOutcome.refused,
+                reason: 'FLAC tag editing is not implemented yet',
+              ),
+      );
+
+      final byId = {for (final t in model.allTracks) t.contentId: t};
+      expect(byId['a']!.artist, 'Fixed');
+      expect(
+        byId['b']!.artist,
+        'An Artist',
+        reason: 'the optimistic change has to be undoable',
+      );
+      expect(snackText(tester), contains('could not be written'));
+      expect(snackText(tester), contains('FLAC'));
+    });
+
+    testWidgets('a thrown writer reverts that track, not the others', (
+      tester,
+    ) async {
+      final model = await run(
+        tester,
+        [_track('a'), _track('b')],
+        (file, edits) async {
+          if (file.path.endsWith('a.mp3')) {
+            throw const FileSystemException('disk gone');
+          }
+          return EmbedReport(path: file.path, outcome: EmbedOutcome.embedded, timesPreserved: true);
+        },
+      );
+
+      final byId = {for (final t in model.allTracks) t.contentId: t};
+      expect(byId['a']!.artist, 'An Artist');
+      expect(byId['b']!.artist, 'Fixed');
+    });
+
+    testWidgets('a lost date is shouted about', (tester) async {
+      await run(
         tester,
         [_track('a')],
         (file, edits) async => EmbedReport(
@@ -240,49 +308,41 @@ void main() {
           timesPreserved: false,
         ),
       );
-      expect(text, contains('WITH DATE CHANGES'));
+      expect(snackText(tester), contains('WITH DATE CHANGES'));
     });
 
-    testWidgets('a thrown writer does not take the others down', (
+    testWidgets('a batch writes several at a time, not one after another', (
       tester,
     ) async {
-      final text = await run(
-        tester,
-        [_track('a'), _track('b')],
-        (file, edits) async {
-          if (file.path.endsWith('a.mp3')) throw const FileSystemException('x');
-          return EmbedReport(path: file.path, outcome: EmbedOutcome.embedded);
-        },
-      );
-      expect(text, contains('1 updated'));
-      expect(text, contains('1 failed'));
-    });
+      // Ten tracks written in series over SMB was the other half of the
+      // hundred seconds. editTrackTags returns as soon as the library is
+      // updated, so by the time it does, several writes are already open.
+      var inFlight = 0;
+      var peak = 0;
+      final gate = Completer<void>();
+      final tracks = [for (var i = 0; i < 8; i++) _track('t$i')];
 
-    testWidgets('only the files that took the edit have their cache updated', (
-      tester,
-    ) async {
-      final tracks = [_track('a'), _track('b')];
-      final model = LibraryModel()..allTracks = tracks;
-      await run(
-        tester,
-        tracks,
-        (file, edits) async => file.path.endsWith('a.mp3')
-            ? EmbedReport(path: file.path, outcome: EmbedOutcome.embedded)
-            : EmbedReport(
-                path: file.path,
-                outcome: EmbedOutcome.refused,
-                reason: 'nope',
-              ),
-        library: model,
-      );
+      await run(tester, tracks, (file, edits) async {
+        inFlight++;
+        peak = peak > inFlight ? peak : inFlight;
+        await gate.future;
+        inFlight--;
+        return EmbedReport(
+          path: file.path,
+          outcome: EmbedOutcome.embedded,
+          timesPreserved: true,
+        );
+      }, settle: false);
 
-      final byId = {for (final t in model.allTracks) t.contentId: t};
-      expect(byId['a']!.artist, 'Fixed');
       expect(
-        byId['b']!.artist,
-        'An Artist',
-        reason: 'the refused file still shows what it really contains',
+        peak,
+        greaterThan(1),
+        reason: 'writes overlap instead of queueing one behind another',
       );
+      expect(peak, lessThanOrEqualTo(kTagWriteLanes));
+
+      gate.complete();
+      await tester.pumpAndSettle();
     });
   });
 }
