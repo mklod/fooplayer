@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_store.dart';
@@ -25,6 +26,7 @@ import 'enrich_report_dialog.dart';
 import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
+import 'phone/storage_access.dart';
 import 'playlist_dialogs.dart';
 import 'queue_view.dart';
 import 'settings_dialog.dart';
@@ -96,201 +98,250 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = playlistStore ?? PlaylistStore(library: library);
     return Scaffold(
-      body: Column(
-        children: [
-          Expanded(
-            child: ListenableBuilder(
-              listenable: layoutPrefs,
-              builder: (context, _) => Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    key: const Key('sidebar-panel'),
-                    width: layoutPrefs.sidebarWidth,
-                    // Material (not a plain Container/ColoredBox) so the
-                    // sidebar ListTiles' selection fill and ink splashes --
-                    // which paint on the nearest Material ancestor -- aren't
-                    // hidden behind an opaque background layer.
-                    child: Material(
-                      color: AppColors.panelBg,
-                      child: _Sidebar(
-                        artworkBackfill: artworkBackfill,
-                        artworkStores: artworkStores,
-                        library: library,
-                        libraryRootsPrefs: libraryRootsPrefs,
-                        playlistStore: store,
-                        player: player,
-                        artworkResolver: artworkResolver,
-                        artworkServices: artworkServices,
-                        activity: activity ?? _idleActivity,
-                        layoutPrefs: layoutPrefs,
-                      ),
-                    ),
-                  ),
-                  VerticalDragDivider(
-                    key: const Key('sidebar-divider'),
-                    onDragDelta: (dx) => layoutPrefs.setSidebarWidth(
-                      layoutPrefs.sidebarWidth + dx,
-                    ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Row(
-                            children: [
-                              Expanded(child: _SearchField(library: library)),
-                              const SizedBox(width: 4),
-                              // Collapse/expand the Folder/Artist/Album row.
-                              // The dragged height is remembered, so
-                              // expanding restores the same size.
-                              IconButton(
-                                key: const Key('filters-collapse'),
-                                tooltip: layoutPrefs.filtersCollapsed
-                                    ? 'Show filters'
-                                    : 'Hide filters',
-                                icon: Icon(
-                                  layoutPrefs.filtersCollapsed
-                                      ? Icons.unfold_more
-                                      : Icons.unfold_less,
-                                  size: 18,
-                                  color: AppColors.inkSecondary,
-                                ),
-                                onPressed: layoutPrefs.toggleFiltersCollapsed,
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (!layoutPrefs.filtersCollapsed)
-                          SizedBox(
-                            key: const Key('filter-panel'),
-                            height: layoutPrefs.filterHeight,
-                            // Same reasoning as the sidebar: Material, not
-                            // Container, so the filter panels' ListTile
-                            // selection/ink still paints correctly.
-                            child: Material(
-                              color: AppColors.panelBg,
-                              child: ListenableBuilder(
-                                listenable: library,
-                                builder: (context, _) => Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Expanded(
-                                      child: FilterPanel(
-                                        key: const Key('folder-filter-panel'),
-                                        title: 'Folder',
-                                        // Drill-down navigator (see
-                                        // LibraryModel.folderEntries): plain
-                                        // click selects AND descends into a
-                                        // folder, Ctrl+click toggles siblings
-                                        // at the current level, the pinned ✕
-                                        // resets to the root list. Entries
-                                        // are full root paths only at the top
-                                        // level (shown by basename); below
-                                        // that they're already bare names.
-                                        values: library.folderEntries,
-                                        selected: library.folderSiblings,
-                                        onSelect: library.setFolderSiblings,
-                                        onDrill: library.drillIntoFolder,
-                                        // Step-wise breadcrumb: a leading
-                                        // 'All' segment (full reset) plus one
-                                        // segment per drill-down step, each
-                                        // ancestor clickable. The 'All'
-                                        // prepend keeps UI segment index ==
-                                        // popFolderTo depth (0 = roots); the
-                                        // trailing sibling/'N selected'
-                                        // segment, when present, is the
-                                        // non-clickable last one, so the
-                                        // deepest clickable index is at most
-                                        // folderPath.length -- which
-                                        // popFolderTo treats as "keep the
-                                        // path, drop the sibling selection".
-                                        headerSegments:
-                                            library.folderBreadcrumbs.isEmpty
-                                            ? null
-                                            : [
-                                                'All',
-                                                ...library.folderBreadcrumbs,
-                                              ],
-                                        onHeaderSegmentTap: library.popFolderTo,
-                                        onClearHeader:
-                                            library.clearFolderSelection,
-                                        displayName: library.folderPath.isEmpty
-                                            ? p.basename
-                                            : null,
-                                      ),
-                                    ),
-                                    const VerticalDivider(width: 1),
-                                    Expanded(
-                                      child: FilterPanel(
-                                        key: const Key('artist-filter-panel'),
-                                        title: 'Artist',
-                                        values: library.artists,
-                                        selected: library.artistFilters,
-                                        onSelect: library.setArtists,
-                                      ),
-                                    ),
-                                    const VerticalDivider(width: 1),
-                                    Expanded(
-                                      child: FilterPanel(
-                                        key: const Key('album-filter-panel'),
-                                        title: 'Album',
-                                        values: library.albums,
-                                        selected: library.albumFilters,
-                                        onSelect: library.setAlbums,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (!layoutPrefs.filtersCollapsed)
-                          HorizontalDragDivider(
-                            key: const Key('filter-divider'),
-                            onDragDelta: (dy) => layoutPrefs.setFilterHeight(
-                              layoutPrefs.filterHeight + dy,
-                            ),
-                          ),
-                        Expanded(
-                          child: TrackListView(
+      // The panel layout was written for a window with a title bar, so it
+      // painted from pixel zero. On a tablet that put the Android status bar
+      // over the sidebar and the search field, and the gesture pill over the
+      // track count. SafeArea is a no-op on desktop, where these insets are
+      // all zero.
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        // Dark status-bar icons: this UI is white, and Android's default for
+        // a full-screen app is white-on-white.
+        value: SystemUiOverlayStyle.dark.copyWith(
+          statusBarColor: Colors.transparent,
+          systemNavigationBarColor: AppColors.panelBg,
+          systemNavigationBarIconBrightness: Brightness.dark,
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: ListenableBuilder(
+                  listenable: layoutPrefs,
+                  builder: (context, _) => Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        key: const Key('sidebar-panel'),
+                        width: layoutPrefs.sidebarWidth,
+                        // Material (not a plain Container/ColoredBox) so the
+                        // sidebar ListTiles' selection fill and ink splashes --
+                        // which paint on the nearest Material ancestor -- aren't
+                        // hidden behind an opaque background layer.
+                        child: Material(
+                          color: AppColors.panelBg,
+                          child: _Sidebar(
+                            artworkBackfill: artworkBackfill,
+                            artworkStores: artworkStores,
                             library: library,
-                            player: player,
+                            libraryRootsPrefs: libraryRootsPrefs,
                             playlistStore: store,
-                            artwork: artworkServices,
-                            tagSearch: tagSearch,
-                            activity: activity,
-                            // "Art" ticks when the app has a cover at all:
-                            // the file's own, or one recorded in the sidecar
-                            // (which, after a harvest, includes covers
-                            // adopted from loose files in the folder).
-                            hasArtwork: (t) =>
-                                t.hasEmbeddedArt ||
-                                (artworkStores
-                                        ?.forRoot(t.rootPath)
-                                        .entryFor(albumKeyForTrack(t)) !=
-                                    null),
+                            player: player,
                             artworkResolver: artworkResolver,
+                            artworkServices: artworkServices,
+                            activity: activity ?? _idleActivity,
+                            layoutPrefs: layoutPrefs,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                      VerticalDragDivider(
+                        key: const Key('sidebar-divider'),
+                        onDragDelta: (dx) => layoutPrefs.setSidebarWidth(
+                          layoutPrefs.sidebarWidth + dx,
+                        ),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: _SearchField(library: library),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  // Collapse/expand the Folder/Artist/Album row.
+                                  // The dragged height is remembered, so
+                                  // expanding restores the same size.
+                                  IconButton(
+                                    key: const Key('filters-collapse'),
+                                    tooltip: layoutPrefs.filtersCollapsed
+                                        ? 'Show filters'
+                                        : 'Hide filters',
+                                    icon: Icon(
+                                      layoutPrefs.filtersCollapsed
+                                          ? Icons.unfold_more
+                                          : Icons.unfold_less,
+                                      size: 18,
+                                      color: AppColors.inkSecondary,
+                                    ),
+                                    onPressed:
+                                        layoutPrefs.toggleFiltersCollapsed,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (!layoutPrefs.filtersCollapsed)
+                              SizedBox(
+                                key: const Key('filter-panel'),
+                                height: layoutPrefs.filterHeight,
+                                // Same reasoning as the sidebar: Material, not
+                                // Container, so the filter panels' ListTile
+                                // selection/ink still paints correctly.
+                                child: Material(
+                                  color: AppColors.panelBg,
+                                  child: ListenableBuilder(
+                                    listenable: library,
+                                    builder: (context, _) => Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Expanded(
+                                          child: FilterPanel(
+                                            key: const Key(
+                                              'folder-filter-panel',
+                                            ),
+                                            title: 'Folder',
+                                            // Drill-down navigator (see
+                                            // LibraryModel.folderEntries): plain
+                                            // click selects AND descends into a
+                                            // folder, Ctrl+click toggles siblings
+                                            // at the current level, the pinned ✕
+                                            // resets to the root list. Entries
+                                            // are full root paths only at the top
+                                            // level (shown by basename); below
+                                            // that they're already bare names.
+                                            values: library.folderEntries,
+                                            selected: library.folderSiblings,
+                                            onSelect: library.setFolderSiblings,
+                                            onDrill: library.drillIntoFolder,
+                                            // Step-wise breadcrumb: a leading
+                                            // 'All' segment (full reset) plus one
+                                            // segment per drill-down step, each
+                                            // ancestor clickable. The 'All'
+                                            // prepend keeps UI segment index ==
+                                            // popFolderTo depth (0 = roots); the
+                                            // trailing sibling/'N selected'
+                                            // segment, when present, is the
+                                            // non-clickable last one, so the
+                                            // deepest clickable index is at most
+                                            // folderPath.length -- which
+                                            // popFolderTo treats as "keep the
+                                            // path, drop the sibling selection".
+                                            // The leading 'All' is the root-list
+                                            // level, so it is only offered when
+                                            // there IS one -- with a single
+                                            // library root that level does not
+                                            // exist (see folderTopPath) and the
+                                            // segment would be a step to nowhere.
+                                            // Dropping it shifts every segment
+                                            // index down by the depth the pane
+                                            // now starts at, which is what the
+                                            // tap offset restores.
+                                            headerSegments:
+                                                library
+                                                    .folderBreadcrumbs
+                                                    .isEmpty
+                                                ? null
+                                                : [
+                                                    if (library
+                                                        .folderTopPath
+                                                        .isEmpty)
+                                                      'All',
+                                                    ...library
+                                                        .folderBreadcrumbs,
+                                                  ],
+                                            onHeaderSegmentTap: (i) =>
+                                                library.popFolderTo(
+                                                  i +
+                                                      library
+                                                          .folderTopPath
+                                                          .length,
+                                                ),
+                                            onClearHeader:
+                                                library.clearFolderSelection,
+                                            displayName:
+                                                library.folderPath.isEmpty
+                                                ? p.basename
+                                                : null,
+                                          ),
+                                        ),
+                                        const VerticalDivider(width: 1),
+                                        Expanded(
+                                          child: FilterPanel(
+                                            key: const Key(
+                                              'artist-filter-panel',
+                                            ),
+                                            title: 'Artist',
+                                            values: library.artists,
+                                            selected: library.artistFilters,
+                                            onSelect: library.setArtists,
+                                          ),
+                                        ),
+                                        const VerticalDivider(width: 1),
+                                        Expanded(
+                                          child: FilterPanel(
+                                            key: const Key(
+                                              'album-filter-panel',
+                                            ),
+                                            title: 'Album',
+                                            values: library.albums,
+                                            selected: library.albumFilters,
+                                            onSelect: library.setAlbums,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (!layoutPrefs.filtersCollapsed)
+                              HorizontalDragDivider(
+                                key: const Key('filter-divider'),
+                                onDragDelta: (dy) =>
+                                    layoutPrefs.setFilterHeight(
+                                      layoutPrefs.filterHeight + dy,
+                                    ),
+                              ),
+                            Expanded(
+                              child: TrackListView(
+                                library: library,
+                                player: player,
+                                playlistStore: store,
+                                artwork: artworkServices,
+                                tagSearch: tagSearch,
+                                activity: activity,
+                                // "Art" ticks when the app has a cover at all:
+                                // the file's own, or one recorded in the sidecar
+                                // (which, after a harvest, includes covers
+                                // adopted from loose files in the folder).
+                                hasArtwork: (t) =>
+                                    t.hasEmbeddedArt ||
+                                    (artworkStores
+                                            ?.forRoot(t.rootPath)
+                                            .entryFor(albumKeyForTrack(t)) !=
+                                        null),
+                                artworkResolver: artworkResolver,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
+              _BottomBars(
+                player: player,
+                library: library,
+                activity: activity ?? _idleActivity,
+                layoutPrefs: layoutPrefs,
+                artworkResolver: artworkResolver,
+                artworkServices: artworkServices,
+              ),
+            ],
           ),
-          _BottomBars(
-            player: player,
-            library: library,
-            activity: activity ?? _idleActivity,
-            layoutPrefs: layoutPrefs,
-            artworkResolver: artworkResolver,
-            artworkServices: artworkServices,
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -554,7 +605,13 @@ class _SidebarState extends State<_Sidebar> {
           rootsFailed: library.rootsFailed,
           onAddRoot: libraryRootsPrefs.addRoot,
           onRemoveRoot: libraryRootsPrefs.removeRoot,
-          onSetUpRoot: (root) => library.seedRoot(Directory(root)),
+          // Same as the phone page's: the panel layout runs on a tablet
+          // now, where seeding cannot read a byte without all-files access
+          // (the manifest is not a media file). No-op off Android.
+          onSetUpRoot: (root) async {
+            if (!await requestFullStorageAccess()) return;
+            await library.seedRoot(Directory(root));
+          },
         ),
       ),
     );
@@ -779,9 +836,7 @@ class _SearchFieldState extends State<_SearchField> {
     if (widget.library.search == _controller.text) return;
     _controller.value = TextEditingValue(
       text: widget.library.search,
-      selection: TextSelection.collapsed(
-        offset: widget.library.search.length,
-      ),
+      selection: TextSelection.collapsed(offset: widget.library.search.length),
     );
   }
 
@@ -909,7 +964,6 @@ class _SelectedArtPreview extends StatelessWidget {
     );
   }
 }
-
 
 /// The now-playing strip and the status footer, in that order.
 ///

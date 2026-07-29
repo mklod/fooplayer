@@ -109,9 +109,7 @@ class FilterPanel extends StatelessWidget {
   /// held during the click regardless of exactly when the key went down.
   void _handleTap(String v) {
     if (HardwareKeyboard.instance.isControlPressed) {
-      final next = Set<String>.of(selected);
-      if (!next.remove(v)) next.add(v);
-      onSelect(next);
+      _toggle(v);
       return;
     }
     if (onDrill != null) {
@@ -123,6 +121,18 @@ class FilterPanel extends StatelessWidget {
     } else {
       onSelect({v});
     }
+  }
+
+  /// Adds [v] to the selection, or takes it out again.
+  ///
+  /// What Ctrl+click means, reachable without a Ctrl key: on a tablet a long
+  /// press does it. Without this, multi-select -- picking three artists at
+  /// once, which is half the point of these panels -- is simply unavailable
+  /// on touch.
+  void _toggle(String v) {
+    final next = Set<String>.of(selected);
+    if (!next.remove(v)) next.add(v);
+    onSelect(next);
   }
 
   @override
@@ -222,6 +232,7 @@ class FilterPanel extends StatelessWidget {
                   ),
                   selected: selected.contains(v),
                   onTap: () => _handleTap(v),
+                  onLongPress: () => _toggle(v),
                 ),
             ],
           ),
