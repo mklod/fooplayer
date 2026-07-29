@@ -1279,6 +1279,60 @@ class LibraryModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records that [contentIds] now carry a cover in their own tags.
+  ///
+  /// The Emb column reads a value captured when the file's tags were last
+  /// read, so a finished embed pass left it showing the pre-pass answer:
+  /// files that had just been written still read as bare, and the pass
+  /// looked like it had done nothing. Re-reading tags across the library to
+  /// correct that costs minutes over SMB; the pass already knows exactly
+  /// which files it wrote, so it says so instead.
+  ///
+  /// Only ever sets the flag true -- this is called by the code that just
+  /// wrote the picture frame and verified the write, never to clear it.
+  Future<void> markEmbeddedArt(Iterable<String> contentIds) async {
+    final ids = contentIds.toSet();
+    if (ids.isEmpty) return;
+
+    final tracks = List<Track>.of(allTracks);
+    var changed = false;
+    for (var i = 0; i < tracks.length; i++) {
+      if (ids.contains(tracks[i].contentId) && !tracks[i].hasEmbeddedArt) {
+        tracks[i] = tracks[i].copyWith(hasEmbeddedArt: true);
+        changed = true;
+      }
+    }
+    if (changed) {
+      allTracks = tracks;
+      notifyListeners();
+    }
+
+    // Persist, so the column survives a restart without a full re-read.
+    // Same discipline as _writeDurationsToCache: re-load and merge into
+    // whatever the cache holds now rather than saving an older snapshot,
+    // and never fabricate an entry for a track enrichment hasn't reached.
+    final cacheFile = _cacheFile;
+    if (cacheFile == null) return;
+    final cache = MetaCache.load(cacheFile);
+    var wrote = false;
+    for (final id in ids) {
+      final old = cache.entries[id];
+      if (old == null || old.hasEmbeddedArt) continue;
+      cache.entries[id] = TrackTags(
+        title: old.title,
+        artist: old.artist,
+        album: old.album,
+        genre: old.genre,
+        durationMs: old.durationMs,
+        trackNumber: old.trackNumber,
+        durationProbed: old.durationProbed,
+        hasEmbeddedArt: true,
+      );
+      wrote = true;
+    }
+    if (wrote) await cache.save(cacheFile);
+  }
+
   /// Persists every duration [updateDuration] has recorded since the last
   /// flush. Runs automatically [_durationSaveDebounce] after the most
   /// recent update; public so tests (and a future shutdown hook) can force
@@ -1334,6 +1388,11 @@ class LibraryModel extends ChangeNotifier {
         durationMs: entry.value,
         trackNumber: old.trackNumber,
         durationProbed: old.durationProbed,
+        // Every field the entry already had has to be carried across:
+        // this rewrite replaces the whole TrackTags, so anything omitted
+        // silently reverts to its default. Leaving this one out darkened
+        // the Emb column for any track that gained a duration by playing.
+        hasEmbeddedArt: old.hasEmbeddedArt,
       );
     }
     await cache.save(cacheFile);

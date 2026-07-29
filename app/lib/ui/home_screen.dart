@@ -20,6 +20,7 @@ import '../model/playlist_store.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'drag_divider.dart';
+import 'embed_report_dialog.dart';
 import 'filter_panel.dart';
 import 'layout_prefs.dart';
 import 'now_playing_bar.dart';
@@ -450,7 +451,6 @@ class _SidebarState extends State<_Sidebar> {
   Future<void> _embedArtwork(BuildContext context) async {
     final stores = artworkStores;
     if (stores == null) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
     final tracks = library.allTracks
         .where(
           (t) => kEmbeddableExtensions.contains(
@@ -507,11 +507,15 @@ class _SidebarState extends State<_Sidebar> {
       if (mounted) setState(() => _embedding = false);
     }
 
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text('Artwork embedding: ${report.summary}'),
-        duration: Duration(seconds: report.datesDisturbed > 0 ? 12 : 6),
-      ),
+    // The Emb column caches what the file looked like when its tags were
+    // last read, so without this a finished pass still shows every file it
+    // just wrote as bare -- which reads as "the pass did nothing".
+    await library.markEmbeddedArt(report.embeddedIds);
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: this.context,
+      builder: (context) => EmbedReportDialog(report: report),
     );
   }
 
