@@ -10,6 +10,7 @@ import '../artwork/picker_seams.dart';
 import '../model/library_model.dart';
 import '../model/playlist_store.dart';
 import '../model/track.dart';
+import 'edit_tags_action.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'now_playing_bar.dart' show AlbumArt;
@@ -961,6 +962,7 @@ enum _TrackMenuAction {
   addToPlaylist,
   removeFromPlaylist,
   albumArtwork,
+  editTags,
 }
 
 /// Shows the row's right-click context menu at [globalPosition] (from
@@ -1020,6 +1022,7 @@ Future<void> _showTrackContextMenu({
   // still act on at least the row the user actually clicked.
   final tracks = selectedTracks.isNotEmpty ? selectedTracks : [track];
   final multi = tracks.length > 1;
+  final n = tracks.length;
 
   final overlayBox =
       Overlay.of(context).context.findRenderObject() as RenderBox;
@@ -1044,6 +1047,10 @@ Future<void> _showTrackContextMenu({
           ),
         ),
       PopupMenuItem(
+        value: _TrackMenuAction.editTags,
+        child: Text(multi ? 'Edit tags... ($n tracks)' : 'Edit tags...'),
+      ),
+      PopupMenuItem(
         value: _TrackMenuAction.viewInFolder,
         child: Text(multi ? 'View in folder (this track)' : 'View in folder'),
       ),
@@ -1060,6 +1067,13 @@ Future<void> _showTrackContextMenu({
   );
   if (!context.mounted) return;
   switch (selection) {
+    case _TrackMenuAction.editTags:
+      await editTrackTags(
+        context: context,
+        messenger: messenger,
+        tracks: tracks,
+        library: library,
+      );
     case _TrackMenuAction.viewInFolder:
       launchExplorer(track);
     case _TrackMenuAction.addToPlaylist:

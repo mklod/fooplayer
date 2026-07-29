@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:path/path.dart' as p;
 import '../artwork/compilation.dart';
+import '../artwork/tag_embed.dart' show TagEdits;
 import '../metadata/isolate_io.dart';
 import '../metadata/meta_cache.dart';
 import '../metadata/id3_text.dart';
@@ -1339,6 +1340,66 @@ class LibraryModel extends ChangeNotifier {
         trackNumber: old.trackNumber,
         durationProbed: old.durationProbed,
         hasEmbeddedArt: true,
+      );
+      wrote = true;
+    }
+    if (wrote) await cache.save(cacheFile);
+  }
+
+  /// Records tag corrections that have already been written to the files.
+  ///
+  /// The library view reads what the tag cache captured when a file was last
+  /// read, so without this a correction stays invisible until a full
+  /// re-read -- minutes over SMB, and exactly the "did that do anything?"
+  /// confusion the artwork columns had. The caller has just written these
+  /// fields and verified the write, so it can simply say so.
+  ///
+  /// Only the fields [edits] actually sets are touched; a null one leaves the
+  /// track's existing value alone, matching what was written to disk.
+  Future<void> applyTagEdits(
+    Iterable<String> contentIds,
+    TagEdits edits,
+  ) async {
+    final ids = contentIds.toSet();
+    if (ids.isEmpty || edits.isEmpty) return;
+
+    // TRCK is free text ("3", "3/12"); the column wants a number.
+    int? parsedTrack;
+    if (edits.trackNumber != null) {
+      final digits = RegExp(r'^\d+').firstMatch(edits.trackNumber!.trim());
+      parsedTrack = digits == null ? null : int.tryParse(digits.group(0)!);
+    }
+
+    final tracks = List<Track>.of(allTracks);
+    for (var i = 0; i < tracks.length; i++) {
+      if (!ids.contains(tracks[i].contentId)) continue;
+      tracks[i] = tracks[i].copyWith(
+        title: edits.title,
+        artist: edits.artist,
+        album: edits.album,
+        genre: edits.genre,
+        trackNumber: parsedTrack,
+      );
+    }
+    allTracks = tracks; // re-marks compilations: an album rename can change it
+    notifyListeners();
+
+    final cacheFile = _cacheFile;
+    if (cacheFile == null) return;
+    final cache = MetaCache.load(cacheFile);
+    var wrote = false;
+    for (final id in ids) {
+      final old = cache.entries[id];
+      if (old == null) continue; // not enriched yet -- don't fabricate one
+      cache.entries[id] = TrackTags(
+        title: edits.title ?? old.title,
+        artist: edits.artist ?? old.artist,
+        album: edits.album ?? old.album,
+        genre: edits.genre ?? old.genre,
+        durationMs: old.durationMs,
+        trackNumber: parsedTrack ?? old.trackNumber,
+        durationProbed: old.durationProbed,
+        hasEmbeddedArt: old.hasEmbeddedArt,
       );
       wrote = true;
     }
