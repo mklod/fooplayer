@@ -8,16 +8,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/activity_model.dart';
+import 'package:fooplayer_app/model/track.dart';
+import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/ui/activity_bar.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 
-Future<void> _pump(WidgetTester tester, ActivityModel activity) =>
-    tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: Scaffold(body: ActivityBar(activity: activity)),
-      ),
-    );
+Future<void> _pump(
+  WidgetTester tester,
+  ActivityModel activity, {
+  LibraryModel? library,
+}) => tester.pumpWidget(
+  MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(
+      body: ActivityBar(activity: activity, library: library ?? LibraryModel()),
+    ),
+  ),
+);
 
 void main() {
   group('ActivityModel', () {
@@ -28,8 +35,11 @@ void main() {
       a.start('x', 'Reading tags');
       expect(a.isBusy, isTrue);
       expect(a.active.single.label, 'Reading tags');
-      expect(a.active.single.hasProgress, isFalse,
-          reason: 'unknown totals get an indeterminate bar, not a fake number');
+      expect(
+        a.active.single.hasProgress,
+        isFalse,
+        reason: 'unknown totals get an indeterminate bar, not a fake number',
+      );
 
       a.progress('x', 'Reading tags', 250, 1000);
       expect(a.active.single.fraction, 0.25);
@@ -70,20 +80,44 @@ void main() {
   });
 
   group('ActivityBar', () {
-    testWidgets('shows nothing at all when idle', (tester) async {
-      await _pump(tester, ActivityModel());
-      expect(find.byKey(const Key('activity-bar')), findsNothing);
+    testWidgets('is permanent, showing the track count even when idle', (
+      tester,
+    ) async {
+      final library = LibraryModel()
+        ..allTracks = [
+          for (var i = 0; i < 1204; i++)
+            Track(
+              contentId: '\$i',
+              relPath: '\$i.mp3',
+              rootPath: r'L:\M',
+              dateAdded: DateTime.utc(2026),
+              title: 'T\$i',
+              artist: 'A',
+              album: 'B',
+            ),
+        ];
+      await _pump(tester, ActivityModel(), library: library);
+
+      // The footer stays put: a strip that came and went under the
+      // now-playing bar would jump the layout on every background job.
+      expect(find.byKey(const Key('activity-bar')), findsOneWidget);
+      expect(find.text('1,204 tracks'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
-    testWidgets('appears with the label, and a determinate bar once counted',
-        (tester) async {
+    testWidgets('appears with the label, and a determinate bar once counted', (
+      tester,
+    ) async {
       final activity = ActivityModel()..start('lib', 'Reading tags');
       await _pump(tester, activity);
 
       expect(find.byKey(const Key('activity-bar')), findsOneWidget);
       expect(find.text('Reading tags'), findsOneWidget);
-      expect(find.byType(LinearProgressIndicator), findsNothing,
-          reason: 'no progress known yet');
+      expect(
+        find.byType(LinearProgressIndicator),
+        findsNothing,
+        reason: 'no progress known yet',
+      );
 
       activity.progress('lib', 'Reading tags', 1204, 5470);
       await tester.pump();
@@ -95,8 +129,9 @@ void main() {
       expect(bar.value, closeTo(1204 / 5470, 0.0001));
     });
 
-    testWidgets('one row per job, and vanishes when the last one finishes',
-        (tester) async {
+    testWidgets('one row per job, and vanishes when the last one finishes', (
+      tester,
+    ) async {
       final activity = ActivityModel()
         ..start('lib', 'Reading tags')
         ..start('art', 'Embedding artwork into files');
@@ -112,7 +147,12 @@ void main() {
 
       activity.finish('art');
       await tester.pump();
-      expect(find.byKey(const Key('activity-bar')), findsNothing);
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason: 'no jobs left -- but the footer itself stays',
+      );
+      expect(find.byKey(const Key('footer-track-count')), findsOneWidget);
     });
   });
 }

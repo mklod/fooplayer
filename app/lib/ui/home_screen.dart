@@ -278,7 +278,7 @@ class HomeScreen extends StatelessWidget {
               ),
             ),
           ),
-          ActivityBar(activity: activity ?? _idleActivity),
+          ActivityBar(activity: activity ?? _idleActivity, library: library),
           NowPlayingBar(
             player: player,
             artworkResolver: artworkResolver,
@@ -620,20 +620,6 @@ class _SidebarState extends State<_Sidebar> {
             player: widget.player,
             resolver: widget.artworkResolver,
             artwork: widget.artworkServices,
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
-            child: Text(
-              // Just the count. What the app is DOING is the activity bar's
-              // job now; this line was flickering through five "scanning..."
-              // messages a tick while saying nothing about artwork work at
-              // all.
-              '${library.visibleTracks.length} tracks',
-              key: const Key('sidebar-status'),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
           ),
         ],
       ),
