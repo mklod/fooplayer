@@ -14,6 +14,7 @@ import '../model/track.dart';
 import '../metadata/tag_providers.dart';
 import 'edit_tags_action.dart';
 import '../player/player_service.dart';
+import 'adaptive.dart';
 import 'app_theme.dart';
 import 'now_playing_bar.dart' show AlbumArt;
 import 'playlist_dialogs.dart';
@@ -742,9 +743,20 @@ class _TrackRow extends StatelessWidget {
         onPointerDown: (event) {
           if (event.buttons == kPrimaryButton) onSelect();
         },
-        child: InkWell(
-          onDoubleTap: onPlay,
-          onSecondaryTapDown: (details) => _showTrackContextMenu(
+        // A finger has no right button, so on a tablet the row menu hangs off
+        // a long press instead. onLongPressStart rather than InkWell's
+        // onLongPress because the menu has to open *at* the row -- and the
+        // position cannot come from the earlier pointer-down: selecting the
+        // row rebuilds it, so anything stashed in this build's closures is
+        // gone by the time the press completes.
+        //
+        // Unconditional: long-press-for-menu costs a mouse user nothing, and
+        // gating it on the platform would leave a touchscreen laptop without
+        // it. Double-tap-to-play still works -- a long press and a double tap
+        // resolve on different signals (time held vs. a second tap).
+        child: GestureDetector(
+          behavior: HitTestBehavior.deferToChild,
+          onLongPressStart: (details) => _showTrackContextMenu(
             context: context,
             globalPosition: details.globalPosition,
             track: track,
@@ -757,32 +769,52 @@ class _TrackRow extends StatelessWidget {
             player: queuePlayer,
             activity: activity,
           ),
-          // Every Material overlay off. The splash and pressed highlight took
-          // hundreds of ms to play out, which made selection feel sluggish;
-          // the hover wash then fought the selection fill on the way in --
-          // press a row and it went grey, then blue, which read as a flash.
-          // The snappy [_kSelectionAnimationDuration] tile colour is the
-          // only row feedback now.
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-          hoverColor: Colors.transparent,
-          focusColor: Colors.transparent,
-          // Individual rows must NOT grab keyboard focus on tap -- the
-          // enclosing [TrackListView] owns one list-wide [FocusNode] so
-          // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
-          // regardless of which row was last clicked; a per-row focus node
-          // would otherwise steal primary focus away from it on every click.
-          canRequestFocus: false,
-          child: AnimatedContainer(
-            duration: _kSelectionAnimationDuration,
-            curve: Curves.easeOut,
-            color: isSelected ? AppColors.selectionFill : Colors.transparent,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              child: Row(
-                children: playlistMode
-                    ? _playlistCells(context)
-                    : _libraryCells(context),
+          child: InkWell(
+            onDoubleTap: onPlay,
+            onSecondaryTapDown: (details) => _showTrackContextMenu(
+              context: context,
+              globalPosition: details.globalPosition,
+              track: track,
+              launchExplorer: launchExplorer,
+              library: library,
+              playlistStore: playlistStore,
+              artwork: artwork,
+              artworkResolver: artworkResolver,
+              tagSearch: tagSearch,
+              player: queuePlayer,
+              activity: activity,
+            ),
+            // Every Material overlay off. The splash and pressed highlight
+            // took hundreds of ms to play out, which made selection feel
+            // sluggish; the hover wash then fought the selection fill on the
+            // way in -- press a row and it went grey, then blue, which read
+            // as a flash. The snappy [_kSelectionAnimationDuration] tile
+            // colour is the only row feedback now.
+            splashFactory: NoSplash.splashFactory,
+            highlightColor: Colors.transparent,
+            hoverColor: Colors.transparent,
+            focusColor: Colors.transparent,
+            // Individual rows must NOT grab keyboard focus on tap -- the
+            // enclosing [TrackListView] owns one list-wide [FocusNode] so
+            // Ctrl+A ([LibraryModel.selectAll]) always has somewhere to land
+            // regardless of which row was last clicked; a per-row focus node
+            // would otherwise steal primary focus away from it on every
+            // click.
+            canRequestFocus: false,
+            child: AnimatedContainer(
+              duration: _kSelectionAnimationDuration,
+              curve: Curves.easeOut,
+              color: isSelected ? AppColors.selectionFill : Colors.transparent,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
+                child: Row(
+                  children: playlistMode
+                      ? _playlistCells(context)
+                      : _libraryCells(context),
+                ),
               ),
             ),
           ),
@@ -1088,10 +1120,14 @@ Future<void> _showTrackContextMenu({
         value: _TrackMenuAction.editTags,
         child: Text(multi ? 'Edit tags... ($n tracks)' : 'Edit tags...'),
       ),
-      PopupMenuItem(
-        value: _TrackMenuAction.viewInFolder,
-        child: Text(multi ? 'View in folder (this track)' : 'View in folder'),
-      ),
+      // Shells out to explorer.exe, so it is offered only where that
+      // exists. The panel layout runs on a tablet now, where this would be
+      // a menu item that silently does nothing.
+      if (hasFileExplorer)
+        PopupMenuItem(
+          value: _TrackMenuAction.viewInFolder,
+          child: Text(multi ? 'View in folder (this track)' : 'View in folder'),
+        ),
       const PopupMenuItem(
         value: _TrackMenuAction.addToPlaylist,
         child: Text('Add to playlist ▸'),
