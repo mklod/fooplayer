@@ -46,6 +46,8 @@ dependencies:
   # Win32 SetFileTime -- Dart has no API for writing file timestamps,
   # and tag embedding must not disturb a track's dates.
   ffi: ^2.1.4
+  audio_service: ^0.18.19
+  audio_session: ^0.2.4
 
 dev_dependencies:
   flutter_test:

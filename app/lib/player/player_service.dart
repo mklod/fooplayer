@@ -129,6 +129,16 @@ class PlayerService extends ChangeNotifier {
     await _player?.playOrPause();
   }
 
+  /// Explicit transport, for callers that know which they mean.
+  ///
+  /// The lock screen and notification send `play` and `pause` as distinct
+  /// commands, and Android may send either when it thinks state has drifted.
+  /// Answering both with a toggle turns a redundant "play" into a pause --
+  /// the button does the opposite of what it says.
+  Future<void> play() async => _player?.play();
+
+  Future<void> pause() async => _player?.pause();
+
   Future<void> next() async {
     if (queueController.advance() != null) {
       await _openCurrent();

@@ -3,7 +3,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
-import 'package:media_kit/media_kit.dart';
+import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:path/path.dart' as p;
 import 'artwork/artwork_backfill.dart';
 import 'artwork/artwork_resolver.dart';
@@ -17,6 +17,8 @@ import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
 import 'model/playlist_store.dart';
 import 'platform_paths.dart';
+import 'model/track.dart';
+import 'player/audio_handler.dart';
 import 'player/player_service.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
@@ -125,6 +127,32 @@ Future<void> periodicRescanTick(
   // running pass's list already, or will be at the next tick.
   yieldToRunningPass: true,
 );
+
+/// A `file://` URI for [track]'s cover, for the lock screen to draw.
+///
+/// Android wants a URI, not bytes, so whatever the resolver produces --
+/// embedded art, a sidecar choice, a folder image -- is cached to one file
+/// per track and handed over by path. Returns null when there is no cover,
+/// which shows Android's own placeholder rather than a stale one.
+Future<Uri?> _lockScreenArt(
+  Track track,
+  ArtworkResolver resolver,
+  Directory dataDir,
+) async {
+  try {
+    final cacheDir = Directory(p.join(dataDir.path, 'lockscreen'));
+    final file = File(p.join(cacheDir.path, '${track.contentId}.img'));
+    if (file.existsSync() && file.lengthSync() > 0) return file.uri;
+    final bytes = await resolver.resolve(ArtworkRequest.forTrack(track));
+    if (bytes == null || bytes.isEmpty) return null;
+    if (!cacheDir.existsSync()) cacheDir.createSync(recursive: true);
+    await file.writeAsBytes(bytes, flush: true);
+    return file.uri;
+  } catch (_) {
+    // A cover is a nicety; never let one stop playback from starting.
+    return null;
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -311,6 +339,18 @@ void main() async {
       activity.start(ActivityIds.library, 'Loading library');
     }
   });
+
+  // ---- Background audio (Plan 2c) ----------------------------------------
+  // Android only. Registers a media session so playback keeps going with the
+  // screen off and the lock screen / notification / headset buttons drive it.
+  // Returns null on Windows, where audio_service has no implementation and
+  // the app already has a window to control playback from.
+  unawaited(
+    maybeStartAudioService(
+      player: player,
+      artUriFor: (track) => _lockScreenArt(track, artworkResolver, dataDir),
+    ),
+  );
 
   runApp(
     FooPlayerApp(
