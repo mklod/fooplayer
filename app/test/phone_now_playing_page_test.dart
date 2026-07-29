@@ -123,7 +123,8 @@ void main() {
     expect(tester.widget<Image>(metroIcon(kIconNext)).width, 32);
 
     expect(find.byKey(const Key('np-seek')), findsOneWidget);
-    expect(find.byKey(const Key('np-volume')), findsOneWidget);
+    // No volume control on phone -- Android's hardware keys own volume.
+    expect(find.byKey(const Key('np-volume')), findsNothing);
 
     expect(find.text('Song A'), findsOneWidget);
     expect(find.text('Artist A'), findsOneWidget);
@@ -223,16 +224,13 @@ void main() {
     expect(metroIcon(kIconShuffleOn), findsOneWidget);
   });
 
-  testWidgets('volume slider drives PlayerService.setVolume', (tester) async {
-    final player = await pumpPage(tester);
-    expect(player.volume, 1.0);
+  testWidgets('no volume slider on phone (hardware keys own volume)',
+      (tester) async {
+    await pumpPage(tester);
 
-    await tester.drag(
-      find.byKey(const Key('np-volume')),
-      const Offset(-120, 0),
-    );
-    await tester.pumpAndSettle();
-
-    expect(player.volume, lessThan(1.0));
+    expect(find.byKey(const Key('np-volume')), findsNothing);
+    expect(find.byIcon(Icons.volume_up), findsNothing);
+    // The seek slider is the only slider on the page.
+    expect(find.byType(Slider), findsOneWidget);
   });
 }
