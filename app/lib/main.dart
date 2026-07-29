@@ -101,6 +101,31 @@ class _LifecycleFlusher with WidgetsBindingObserver {
   }
 }
 
+/// One tick of the background rescan+artwork timer.
+///
+/// Extracted from the Timer so it can be tested. The bug that made this worth
+/// doing: the model's `quiet` flag worked, and a model-level test proved it,
+/// but main.dart's timer never passed it -- so the every-five-minutes scan
+/// narrated its way through all five roots, and on this library that takes
+/// long enough that "Scanning ..." was showing more or less permanently.
+/// Nothing covered the wiring, which is where the mistake was.
+///
+/// Quiet because nobody asked for this scan. A user-initiated one (the
+/// Refresh button) still announces itself, and a quiet pass that actually
+/// FINDS something still reports "added N new tracks".
+Future<void> periodicRescanTick(
+  LibraryModel library,
+  ArtworkBackfill backfill,
+) => rescanThenBackfill(
+  rescan: () => library.rescan(quiet: true),
+  backfill: backfill,
+  tracks: () => library.allTracks,
+  // A tick must not cut short a pass that is already working -- see
+  // rescanThenBackfill's note. Whatever this tick would have queued is in the
+  // running pass's list already, or will be at the next tick.
+  yieldToRunningPass: true,
+);
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
@@ -244,15 +269,7 @@ void main() async {
   final rescanTimer = Timer.periodic(
     _rescanInterval,
     (_) => unawaited(
-      rescanThenBackfill(
-        rescan: library.rescan,
-        backfill: artworkBackfill,
-        tracks: () => library.allTracks,
-        // A tick must not cut short a pass that is already working -- see
-        // rescanThenBackfill's note. Whatever this tick would have queued is
-        // in the running pass's list already, or will be at the next tick.
-        yieldToRunningPass: true,
-      ),
+      periodicRescanTick(library, artworkBackfill),
     ),
   );
 
