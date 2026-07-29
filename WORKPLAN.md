@@ -46,12 +46,15 @@ lookup, asking providers for `"Anberlin Alternative Times Vol 110"`, a release
 that has never existed. That is the entire explanation for 375/2,398 coverage
 there: not obscurity, just the wrong question asked 2,394 times.
 
-It also caused the near-miss during the image strip. The harvest adopts one
-image per key from the first matching track, so a folder holding a
-`folder.jpg` and 23 keys only ever filed it under one of them; the other 22
-tracks were still displaying it through the file-beside-it fallback. Accepting
-"the sidecar has a copy" as proof of redundancy would have deleted 38 images
-that 22-of-23 tracks depended on.
+It also wastes the sidecar. Because each of those 23 names resolves through a
+track in the same folder, the harvest adopts the SAME `folder.jpg` 23 times
+under 23 different names — 370 of the 373 entries in that root's sidecar are
+the same handful of images, recorded over and over. (An earlier note here
+claimed the opposite, that only one name got the image and the other 22 tracks
+depended on the loose file. That was wrong: all 23 get it. The image strip's
+strict rule — every track in the folder must carry its own embedded cover —
+remains correct and is what ran, but it was more conservative than that
+reasoning implied, not a near-miss.)
 
 **Fix**: detect a compilation — one album title spanning many artists in a
 folder, or a `TCMP` flag / `TPE2` album-artist tag — and key those tracks by
