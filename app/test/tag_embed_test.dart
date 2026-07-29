@@ -246,6 +246,123 @@ void main() {
     });
   });
 
+  group('junk between the tag and the first frame', () {
+    // 28 files in Mike's library (the Passafire album, the Streets EP, three
+    // Gym Class Heroes singles, a few others) put 42-1,035 bytes of neither
+    // audio nor zero padding after their tag's declared end. Players resync
+    // past it; the embedder used to stop at the first non-zero byte and
+    // refuse the file, which is 20 of the "not MPEG" skips in the pass.
+    test('a real tag followed by junk then audio embeds, identity intact', () {
+      final junk = Uint8List.fromList([
+        for (var i = 0; i < 626; i++) (i % 251) + 1, // never zero
+      ]);
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Divide'))],
+        audio: Uint8List.fromList([...junk, ..._audio()]),
+      );
+
+      final after = buildTaggedMp3(before, _jpeg());
+      expect(
+        contentIdForBytes('x.mp3', after),
+        contentIdForBytes('x.mp3', before),
+        reason: 'the junk is inside the hashed range and must survive',
+      );
+      expect(audioBytesUnchanged(before, after), isTrue);
+      expect(parseId3(after).frames.where((f) => f.id == 'APIC'), hasLength(1));
+    });
+
+    test('junk carrying a bare sync but no decodable header is refused', () {
+      // 0xFF 0xE0 matches the eleven sync bits, but its version/layer/bitrate
+      // fields are all reserved -- no decoder would accept it. Scanning
+      // forward on that alone would eventually "find" audio in any container.
+      final junk = Uint8List.fromList([
+        for (var i = 0; i < 40; i++) 0x41,
+        0xFF, 0xE0, 0x00, 0x00,
+        for (var i = 0; i < 40; i++) 0x41,
+      ]);
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Not audio'))],
+        audio: junk,
+      );
+
+      expect(
+        () => buildTaggedMp3(before, _jpeg()),
+        throwsA(
+          isA<EmbedException>().having(
+            (e) => e.refusal,
+            'refusal',
+            EmbedRefusal.notMpeg,
+          ),
+        ),
+      );
+    });
+
+    test('a file with NO leading tag gets no junk tolerance at all', () {
+      // The gate that keeps the sheep pathology refused: without a tag of its
+      // own, "a frame header turns up a few hundred bytes in" is a
+      // coincidence, and prepending a tag would corrupt whatever this is.
+      final before = Uint8List.fromList([
+        ...latin1.encode('....ftypisom'),
+        for (var i = 0; i < 200; i++) 0x41,
+        ..._audio(),
+      ]);
+
+      expect(
+        () => buildTaggedMp3(before, _jpeg()),
+        throwsA(
+          isA<EmbedException>().having(
+            (e) => e.refusal,
+            'refusal',
+            EmbedRefusal.notMpeg,
+          ),
+        ),
+      );
+    });
+
+    test('junk longer than the window is refused', () {
+      final before = _fileWithTag(
+        major: 3,
+        frames: [('TIT2', _text('Miles of junk'))],
+        audio: Uint8List.fromList([
+          for (var i = 0; i < kJunkGapWindow + 64; i++) (i % 251) + 1,
+          ..._audio(),
+        ]),
+      );
+
+      expect(
+        () => buildTaggedMp3(before, _jpeg()),
+        throwsA(isA<EmbedException>()),
+      );
+    });
+
+    test('looksLikeMpegFrameHeader rejects every reserved field', () {
+      Uint8List h(int b1, int b2) => Uint8List.fromList([0xFF, b1, b2, 0x00]);
+      expect(looksLikeMpegFrameHeader(h(0xFB, 0x90), 0), isTrue);
+      expect(
+        looksLikeMpegFrameHeader(h(0xEB, 0x90), 0),
+        isFalse,
+        reason: 'reserved MPEG version',
+      );
+      expect(
+        looksLikeMpegFrameHeader(h(0xF9, 0x90), 0),
+        isFalse,
+        reason: 'reserved layer',
+      );
+      expect(
+        looksLikeMpegFrameHeader(h(0xFB, 0xF0), 0),
+        isFalse,
+        reason: 'bad bitrate index',
+      );
+      expect(
+        looksLikeMpegFrameHeader(h(0xFB, 0x9C), 0),
+        isFalse,
+        reason: 'reserved sample rate',
+      );
+    });
+  });
+
   group('refusals -- a file we cannot prove safe is left alone', () {
     test('MP4 wearing an .mp3 name is refused (the sheep pathology)', () {
       // ID3 tag, then 'ftyp' where MPEG frames should be. Prepending a tag
