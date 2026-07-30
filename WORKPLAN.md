@@ -14,6 +14,12 @@
 - Repo migration to `L:\PROJECTS\fooplayer`; old `foobar` dir deleted and verified clear.
 - Android phone-native UI (Plan 2b) shipped and verified on the emulator; launcher icon + app label.
 - Album artwork lookup (Plan 4) shipped on both platforms: auto-enrichment + picker, two adversarial-review passes' findings fixed.
+- **Picker artwork scoped to the selection, not the album tag** (2026-07-29):
+  a hand pick now writes only the track(s) explicitly selected when the
+  picker was opened — never a shared album key nobody asked it to touch.
+  Multi-select (Ctrl/Shift-click, right-click, "Album artwork... (N
+  tracks)") applies to exactly that selection. The automatic best-guess
+  pass is unchanged; it correctly still works album-wide.
 - Emulator rebuilt at 16 GB and seeded with the real 444-file library.
 - Live-use polish: metro glyph hairlines, blue shuffle, breadcrumb ↑ up-one-level, phone volume removal, uniform column typography.
 

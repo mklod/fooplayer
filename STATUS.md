@@ -15,8 +15,8 @@
 | Embedded-cover coverage | ⚠️ 3,284 of 5,553 files (59.1%), measured by reading the files rather than asking the app. By root: albums 684/685, monthly 1,746/1,904, loose-2020 430/474, loose-old 49/92, **alternative times 375/2,398**. The shortfall is almost entirely the VA bootleg compilations, where no provider has a cover and no loose image sits beside the audio — nothing skipped in error. Raising it further means finding art for those, not fixing the pass |
 | Tag reading | ✅ Own ID3 reader (`id3_text.dart`) recovers what the upstream parser drops — frames behind a large picture, ID3v2.2 IDs, stacked tags. Artist reads TPE1 before TPE2 (359 files were showing the album artist). 1 track library-wide has no artist, and it genuinely carries no tag |
 | Durations | ✅ Persisted in the manifest beside `date_added` (5,453 written), so a cache loss no longer costs the Time column. Zero tracks missing a duration; a timed-out read falls back to the header-only estimator |
-| Album artwork | ✅ Auto-enrichment (iTunes / Deezer / Cover Art Archive — keyless; conservative auto-apply at ≥75 score with ≥10 margin) + picker on both platforms (grid, choose file, paste URL, search again, remove). Stored per-root in `.artwork/` + `.artwork.json` sidecar; two adversarial-review passes' findings fixed |
-| Test suite | ✅ 937 app tests + 44 core tests; `flutter analyze` at 2 pre-existing style hints in test files; Windows release and debug APK both build from one tree |
+| Album artwork | ✅ Auto-enrichment (iTunes / Deezer / Cover Art Archive — keyless; conservative auto-apply at ≥75 score with ≥10 margin) + picker on both platforms (grid, choose file, paste URL, search again, remove). Stored per-root in `.artwork/` + `.artwork.json` sidecar; two adversarial-review passes' findings fixed. **A hand pick is scoped to exactly the tracks selected when the picker opens** — never a shared album key, which used to let picking a cover for one track silently change others sharing an unrelated album label. Multi-select right-click ("Album artwork... (N tracks)") applies to the whole selection, individually. The automatic best-guess pass is still correctly album-wide |
+| Test suite | ✅ 945 app tests + 44 core tests; `flutter analyze` at 2 pre-existing style hints in test files; Windows release and debug APK both build from one tree |
 | Android emulator | ✅ Healthy under Microsoft WHPX (15s boots), data partition 16 GB, seeded with the real 444-file "loose tracks - 2020 and later" library. AEHD driver permanently removed after it bluescreened the machine |
 | Repo location | ✅ Migrated: canonical repo is `L:\PROJECTS\fooplayer`; old `L:\PROJECTS\foobar` deleted and verified clear (no processes, services, tasks, or git references) |
 | Background audio (Plan 2c) | ✅ **Done 2026-07-29.** Foreground service + media session: lock screen, notification, headset and Bluetooth transport. Audio focus handled separately because libmpv never requests it — a call pauses and hands back, a permanent takeover pauses for good, navigation ducks, headphones out pauses and never self-resumes. Verified on the Pixel 7 emulator: still PLAYING after HOME, media keys driving it |
@@ -37,6 +37,16 @@
 
 ## Last session (2026-07-29)
 
+- **A hand-picked cover no longer leaks to other tracks.** Reported live:
+  fixing "Forgotten Dreams"'s art also silently changed "Colourful Emotions"
+  and "Peaceful Solitude" — three unrelated tracks sharing a made-up album
+  name, "Sheepy Mixes". The picker used to write both the track's own pin
+  and the shared album key, reasoning that album-mates without a pick of
+  their own should inherit one; the app has no way to tell a real album from
+  a shortcut label, so that reasoning was the bug. A pick now writes only
+  the track(s) explicitly selected, and multi-select (right-click a
+  Ctrl/Shift-click block → "Album artwork... (N tracks)") applies to exactly
+  that selection. The automatic best-guess pass is unchanged.
 - **The tablet's library works off one root.** Two bugs, both found live. The
   app held **no storage permission at all**, so a folder with 474 tracks and a
   manifest in it showed nothing — it could list the folder and not open a

@@ -24,6 +24,49 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-07-29--2354
+
+### Changes
+
+- **Adding art to one track adds art to that one track — nothing else.**
+  Reported live: editing "Forgotten Dreams"'s cover also silently changed
+  "Colourful Emotions" and "Peaceful Solitude", three unrelated YouTube mixes
+  that happen to share a made-up album name, "Sheepy Mixes". Root cause: a
+  hand pick in the picker wrote BOTH the track's own pin and the shared
+  album key, on the reasoning that "album-mates without a pick of their own
+  should still inherit one" — a real album's tracks share a name because
+  they're a real release; twelve YouTube mixes share a name because someone
+  needed a shortcut, and the app cannot tell those apart. So it no longer
+  guesses: **a hand pick now writes ONLY the track (or tracks) that were
+  explicitly selected when the picker was opened, never the album key.**
+  Same fix, same reasoning, for "Remove artwork".
+- **Multi-select now means what it looks like it means.** Ctrl/Shift-click a
+  block of tracks, right-click, "Album artwork... (N tracks)" — the search
+  is anchored on whichever row was clicked, but a pick (or a removal)
+  applies to every track in the selection, individually. The picker header
+  says so explicitly ("Applies to N selected tracks") so it is never a
+  surprise. A single row keeps the old plain label and behaviour.
+- The automatic best-guess pass (the one that quietly fills in reasonable
+  covers across the whole library) is **unaffected** — it still applies at
+  the album level, which is the right thing for a bulk pass with no
+  per-track curation, and it is what "Enrich artwork" already did correctly.
+  Only the interactive picker's guess-by-inheritance was the bug.
+
+> [!warning] Testing Checklist
+> - [ ] Select 3 unrelated tracks (different albums), right-click → "Album
+>       artwork... (3 tracks)"; pick a cover → all 3 show it, nothing else
+>       on the library changes
+>   - Notes:
+> - [ ] Same selection → Remove artwork → all 3 go back to no cover
+>   - Notes:
+> - [ ] Single track: menu says plain "Album artwork...", picking one only
+>       changes that track
+>   - Notes:
+> - [ ] The Sheepy Mixes tracks specifically: fix each one individually now
+>       (see the artwork-lookup thread) rather than trusting the old
+>       album-wide behavior
+>   - Notes:
+
 ## Build 2026-07-29--2230
 
 ### Changes
