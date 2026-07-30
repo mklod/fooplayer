@@ -1119,9 +1119,14 @@ enum _TrackMenuAction {
 /// - "Remove from playlist" appears only in playlist view (an active
 ///   playlist) and removes every selected track from it, in one manifest
 ///   write ([PlaylistStore.removeTracks]);
-/// - "Album artwork..." (Plan 4 A3) opens the shared [ArtworkPicker] for
-///   [track] specifically -- also always single-target, same "(this
-///   track)" labelling -- shown only when [artwork] services were injected.
+/// - "Album artwork..." (Plan 4 A3) opens the shared [ArtworkPicker], search
+///   anchored on [track] but a pick applied to every track in the selection
+///   -- exactly the selection this menu already acts on for the other batch
+///   items, so choosing a cover means what selecting ten rows and choosing
+///   it looks like it should mean. Deliberately NOT inferred from a shared
+///   album tag: the app cannot tell a real album from a label someone used
+///   as a shortcut, so it goes by what was explicitly selected instead.
+///   Shown only when [artwork] services were injected.
 ///
 /// Store refusals ([PlaylistStoreException] -- e.g. the target playlist
 /// lives in another root's manifest) surface via SnackBar, never silently;
@@ -1179,7 +1184,7 @@ Future<void> _showTrackContextMenu({
         PopupMenuItem(
           value: _TrackMenuAction.albumArtwork,
           child: Text(
-            multi ? 'Album artwork... (this track)' : 'Album artwork...',
+            multi ? 'Album artwork... ($n tracks)' : 'Album artwork...',
           ),
         ),
       // "Play next" IS "add to the queue, at the front" -- and that only
@@ -1281,6 +1286,13 @@ Future<void> _showTrackContextMenu({
         track: track,
         services: artwork,
         resolver: artworkResolver,
+        // The rest of the selection, so a pick made searching on [track]
+        // still lands on every row the user actually highlighted -- not on
+        // whatever else happens to share its album tag.
+        otherTracks: [
+          for (final t in tracks)
+            if (t.contentId != track.contentId) t,
+        ],
       );
     case null:
       return;

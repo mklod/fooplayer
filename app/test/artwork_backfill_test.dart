@@ -435,8 +435,15 @@ void main() {
           ArtworkLookupResult.applied,
         );
 
-        // The user rejects the auto-applied guess.
-        await r.resolver.removeImage(req('Discovery'));
+        // The user rejects the auto-applied guess. Album scope: this
+        // fixture's req() carries no contentId (the backfill pass works
+        // entirely in terms of albumKey, never a track identity), and
+        // removeImage now defaults to track scope for the picker's benefit
+        // -- explicit here so the call actually does something.
+        await r.resolver.removeImage(
+          req('Discovery'),
+          scope: ArtworkApplyScope.album,
+        );
         final store = r.stores.forRoot(root.path);
         expect(store.entryFor('artist|discovery'), isNull);
         expect(store.isSuppressed('artist|discovery'), isTrue);
@@ -452,7 +459,10 @@ void main() {
       final r = makeResolver();
       final backfill = confidentBackfill(r.resolver, <String>[]);
       await backfill.lookupOne(req('Discovery'));
-      await r.resolver.removeImage(req('Discovery'));
+      await r.resolver.removeImage(
+        req('Discovery'),
+        scope: ArtworkApplyScope.album,
+      );
 
       // Reopen the sidecar from disk, well past the automatic-miss TTL.
       final reopened = ArtworkStore(
@@ -475,7 +485,10 @@ void main() {
       final log = <String>[];
       final backfill = confidentBackfill(r.resolver, log);
       await backfill.lookupOne(req('Discovery'));
-      await r.resolver.removeImage(req('Discovery'));
+      await r.resolver.removeImage(
+        req('Discovery'),
+        scope: ArtworkApplyScope.album,
+      );
 
       final result = await backfill.lookupOne(
         req('Discovery'),

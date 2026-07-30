@@ -19,6 +19,7 @@ class FakeArtworkStore {
   final List<Track> appliedTracks = [];
   final List<String> appliedKeys = [];
   final List<ArtworkChoice> appliedChoices = [];
+  final List<Track> removedTracks = [];
   final List<String> removedKeys = [];
 
   /// When set, [apply] throws it -- for the "store failure keeps the picker
@@ -36,8 +37,10 @@ class FakeArtworkStore {
     appliedChoices.add(choice);
   }
 
-  Future<void> remove(Track track, String albumKey) async =>
-      removedKeys.add(albumKey);
+  Future<void> remove(Track track, String albumKey) async {
+    removedTracks.add(track);
+    removedKeys.add(albumKey);
+  }
 }
 
 /// Fake [ArtworkSearchFn]: serves canned result batches in order (the last

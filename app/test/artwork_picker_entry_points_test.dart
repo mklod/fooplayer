@@ -11,11 +11,11 @@
 // affordance. Everything below runs on fakes -- no network, no native file
 // dialog, no disk (see test/support/artwork_fakes.dart).
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:fooplayer_app/artwork/artwork_resolver.dart';
 import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/artwork/artwork_picker.dart';
 import 'package:fooplayer_app/artwork/picker_seams.dart';
@@ -42,6 +42,16 @@ LibraryModel fixtureLibrary() {
       title: 'Hysteria',
       artist: 'Muse',
       album: 'Absolution (Deluxe Edition)',
+    ),
+    // Deliberately a different artist AND album from the other two -- this
+    // is the point of the multi-select tests below: a pick reaches this
+    // track because it was SELECTED, never because it happens to share an
+    // album tag with whatever was right-clicked.
+    artworkFixtureTrack(
+      contentId: 't3',
+      title: 'Warm Memories',
+      artist: 'Mr Suicide Sheep',
+      album: 'Sheepy Mixes',
     ),
   ];
   m.status = 'ready';
@@ -263,6 +273,185 @@ void main() {
       expect(find.byKey(const Key('artwork-picker-dialog')), findsNothing);
     });
   });
+
+  group(
+    'desktop: multi-select -- "adding art to one track adds art to that '
+    'one track; select several and it applies to the selection" '
+    '(2026-07-29)',
+    () {
+      // A plain click, pumped past the double-tap disambiguation window so
+      // onTap actually resolves -- same technique
+      // track_list_multiselect_test.dart uses.
+      Future<void> plainClick(WidgetTester tester, Finder finder) async {
+        await tester.tap(finder);
+        await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+      }
+
+      // Ctrl must stay held through that same wait -- released before the
+      // pump that lets onTap fire would make HardwareKeyboard see it up by
+      // the time the row's onSelect callback runs, silently degrading this
+      // into a plain click (same gotcha track_list_multiselect_test.dart
+      // documents on its own ctrlClick).
+      Future<void> ctrlClick(WidgetTester tester, Finder finder) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.tap(finder);
+        await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      }
+
+      testWidgets(
+        'the menu item names the count for a multi-selection',
+        (tester) async {
+          await pumpTrackList(
+            tester,
+            library: fixtureLibrary(),
+            artwork: fakeArtworkServices(
+              search: FakeArtworkSearch(const [[]]),
+              store: FakeArtworkStore(),
+            ),
+          );
+
+          await plainClick(tester, find.text('Time Is Running Out'));
+          await ctrlClick(tester, find.text('Hysteria'));
+          await ctrlClick(tester, find.text('Warm Memories'));
+
+          await tester.tap(
+            find.text('Warm Memories'),
+            buttons: kSecondaryButton,
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.text('Album artwork... (3 tracks)'), findsOneWidget);
+          expect(find.text('Album artwork...'), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'picking a candidate applies it to every selected track -- even '
+        'though they share NO album tag, and even the one right-clicked '
+        'is not the first one selected',
+        (tester) async {
+          final search = FakeArtworkSearch([
+            [itunesCandidate],
+          ]);
+          final store = FakeArtworkStore();
+          final library = fixtureLibrary();
+          await pumpTrackList(
+            tester,
+            library: library,
+            artwork: fakeArtworkServices(search: search, store: store),
+          );
+
+          await plainClick(tester, find.text('Time Is Running Out'));
+          await ctrlClick(tester, find.text('Hysteria'));
+          await ctrlClick(tester, find.text('Warm Memories'));
+          expect(library.selectedTrackIds, {'t1', 't2', 't3'});
+
+          // Right-click the MIDDLE of the selection, not the first row --
+          // the search is anchored on whichever row was clicked, but the
+          // pick still has to land on all three.
+          await tester.tap(find.text('Hysteria'), buttons: kSecondaryButton);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Album artwork... (3 tracks)'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('artwork-picker-selection-count')),
+            findsOneWidget,
+          );
+          expect(find.text('Applies to 3 selected tracks'), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('artwork-candidate-0')));
+          await tester.pumpAndSettle();
+
+          expect(
+            store.appliedTracks.map((t) => t.contentId).toSet(),
+            {'t1', 't2', 't3'},
+            reason: 'every selected track got its own write, not one '
+                'shared write the others silently inherited',
+          );
+          expect(
+            store.appliedChoices.every((c) => c.url == itunesCandidate.url),
+            isTrue,
+            reason: 'the same picked image for all three',
+          );
+          expect(find.byKey(const Key('artwork-picker-dialog')), findsNothing);
+        },
+      );
+
+      testWidgets(
+        'Remove artwork on a multi-selection removes it from every '
+        'selected track',
+        (tester) async {
+          final search = FakeArtworkSearch([
+            [itunesCandidate],
+          ]);
+          final store = FakeArtworkStore();
+          final library = fixtureLibrary();
+          await pumpTrackList(
+            tester,
+            library: library,
+            artwork: fakeArtworkServices(search: search, store: store),
+          );
+
+          await plainClick(tester, find.text('Time Is Running Out'));
+          await ctrlClick(tester, find.text('Hysteria'));
+          await ctrlClick(tester, find.text('Warm Memories'));
+
+          await tester.tap(
+            find.text('Time Is Running Out'),
+            buttons: kSecondaryButton,
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Album artwork... (3 tracks)'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('artwork-remove')));
+          await tester.pumpAndSettle();
+
+          expect(
+            store.removedTracks.map((t) => t.contentId).toSet(),
+            {'t1', 't2', 't3'},
+          );
+        },
+      );
+
+      testWidgets(
+        'a single-track selection is unaffected: the menu says "Album '
+        'artwork..." with no count, and only that one track is written to',
+        (tester) async {
+          final search = FakeArtworkSearch([
+            [itunesCandidate],
+          ]);
+          final store = FakeArtworkStore();
+          await pumpTrackList(
+            tester,
+            library: fixtureLibrary(),
+            artwork: fakeArtworkServices(search: search, store: store),
+          );
+
+          await tester.tap(
+            find.text('Time Is Running Out'),
+            buttons: kSecondaryButton,
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Album artwork...'), findsOneWidget);
+          await tester.tap(find.text('Album artwork...'));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('artwork-picker-selection-count')),
+            findsNothing,
+          );
+
+          await tester.tap(find.byKey(const Key('artwork-candidate-0')));
+          await tester.pumpAndSettle();
+
+          expect(store.appliedTracks, hasLength(1));
+          expect(store.appliedTracks.single.contentId, 't1');
+        },
+      );
+    },
+  );
 
   group('phone: long-press sheet', () {
     testWidgets('no artwork services -> no "Album artwork" sheet item', (

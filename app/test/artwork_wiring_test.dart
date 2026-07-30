@@ -455,8 +455,8 @@ void main() {
   });
 
   group('picker services', () {
-    test('applying a candidate writes the sidecar under the shared key and '
-        'refreshes every surface', () async {
+    test('applying a candidate writes the sidecar under the TRACK key, not '
+        'the shared album key, and refreshes every surface', () async {
       final images = FakeImageFetch({'https://x/cover.jpg': pngBytes});
       final w = buildWiring(imageFetch: images);
       final track = trackAt(root, 'Pink Floyd/DSOTM/01.flac');
@@ -477,17 +477,19 @@ void main() {
       expect(sidecar.existsSync(), isTrue);
       final json = jsonDecode(sidecar.readAsStringSync()) as Map;
       expect(json['schema'], 1);
-      final art = (json['art'] as Map)[albumKeyForTrack(track)] as Map;
+      // A hand pick from the picker is a statement about THIS track and
+      // nothing else -- it never writes the album key, which is what let a
+      // pick made for one track silently replace the cover on every OTHER
+      // track sharing that album label (see ArtworkApplyScope's doc).
+      final artMap = json['art'] as Map;
+      expect(artMap.containsKey(albumKeyForTrack(track)), isFalse);
+      final art = artMap[trackArtKey(track.contentId)] as Map;
       expect(art['source'], 'itunes');
       expect(art['query'], 'Pink Floyd The Dark Side of the Moon');
       expect(art['origin'], 'https://x/cover.jpg');
-      // Image landed in <root>/.artwork/, never in the album directory.
-      // Two files, not one: a hand-picked cover is stored under the album
-      // key AND pinned to the track's content id, and each key owns its own
-      // copy so removing one can never pull the file out from under the
-      // other. A few hundred KB per manual pick, for a lifecycle with no
-      // shared-ownership bugs in it.
-      expect(Directory(p.join(root.path, '.artwork')).listSync().length, 2);
+      // Image landed in <root>/.artwork/, never in the album directory, and
+      // there is exactly one of them now -- one key, one write, one file.
+      expect(Directory(p.join(root.path, '.artwork')).listSync().length, 1);
       expect(
         Directory(p.join(root.path, 'Pink Floyd')).existsSync(),
         isFalse,
@@ -538,9 +540,11 @@ void main() {
         albumKeyForTrack(track),
         ArtworkChoice(source: ArtworkSource.local, localPath: local.path),
       );
+      // Filed under the track's own key -- a hand pick never touches the
+      // album key (see the test above).
       final entry = w.stores
           .forRoot(root.path)
-          .entryFor(albumKeyForTrack(track));
+          .entryFor(trackArtKey(track.contentId));
       expect(entry, isNotNull);
       expect(entry!.source, 'local');
       expect(entry.origin, local.path);

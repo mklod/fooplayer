@@ -83,6 +83,21 @@ class ArtworkPicker extends StatefulWidget {
   /// picker bare (no route to pop) and by hosts that want to stay open.
   final void Function(ArtworkPickerOutcome outcome)? onFinished;
 
+  /// The rest of a multi-selection the picker was opened on -- every
+  /// selected track EXCEPT [track] itself. Empty for the ordinary
+  /// single-track case, which is every caller before this field existed.
+  ///
+  /// Search and the hero preview stay keyed to [track] alone; only apply and
+  /// remove fan out to this list too. What counts as "the same album" is
+  /// decided by what the user selected before right-clicking, not guessed
+  /// from a shared artist/album tag -- twelve YouTube mixes filed under one
+  /// made-up album name are not a real record, and there is nothing in the
+  /// tags that says so. See [ArtworkApplyScope]'s doc for the bug this
+  /// replaced: applying a cover to one track used to also silently overwrite
+  /// it on every OTHER track sharing that album label, whether the user had
+  /// selected them or not.
+  final List<Track> otherTracks;
+
   const ArtworkPicker({
     super.key,
     required this.track,
@@ -92,6 +107,7 @@ class ArtworkPicker extends StatefulWidget {
     required this.services,
     this.onFinished,
     this.resolver,
+    this.otherTracks = const [],
   });
 
   @override
@@ -180,6 +196,11 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
     Navigator.of(context).maybePop(outcome);
   }
 
+  /// Applies [choice] to [widget.track], then to every track in
+  /// [widget.otherTracks] -- one real write per selected track (see
+  /// [ArtworkApplyScope.track]), not one shared write the rest silently
+  /// inherit from. A choice made for a single track never touches this list;
+  /// it is only non-empty when the user had a multi-selection active.
   Future<void> _apply(ArtworkChoice choice) async {
     if (_busy) return;
     setState(() {
@@ -188,6 +209,9 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
     });
     try {
       await widget.services.apply(widget.track, widget.albumKey, choice);
+      for (final t in widget.otherTracks) {
+        await widget.services.apply(t, widget.services.albumKey(t), choice);
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -201,6 +225,10 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
     _finish(ArtworkPickerOutcome.applied);
   }
 
+  /// Removes artwork from [widget.track] and, symmetrically with [_apply],
+  /// every track in [widget.otherTracks] -- clearing a multi-selection's
+  /// covers is the same "acts on exactly what I selected" rule as setting
+  /// them.
   Future<void> _remove() async {
     if (_busy) return;
     setState(() {
@@ -209,6 +237,9 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
     });
     try {
       await widget.services.remove(widget.track, widget.albumKey);
+      for (final t in widget.otherTracks) {
+        await widget.services.remove(t, widget.services.albumKey(t));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -252,16 +283,36 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  widget.albumLabel,
-                  key: const Key('artwork-picker-title'),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.ink,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.albumLabel,
+                      key: const Key('artwork-picker-title'),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    // Says out loud what a pick is about to do, since it is
+                    // no longer implied by a shared album tag: search stays
+                    // keyed to this one track, but Choose/Paste/a grid tap
+                    // applies to every track named here.
+                    if (widget.otherTracks.isNotEmpty)
+                      Text(
+                        'Applies to ${widget.otherTracks.length + 1} '
+                        'selected tracks',
+                        key: const Key('artwork-picker-selection-count'),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.inkSecondary,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               // Explicit dismiss: the dialog is barrier-dismissible and
@@ -636,11 +687,17 @@ class _ArtworkUrlDialogState extends State<_ArtworkUrlDialog> {
 
 /// Desktop chrome: the picker in a fixed-size dialog, opened from the track
 /// row's "Album artwork..." context-menu item.
+///
+/// [otherTracks] is the rest of the row's selection when several were
+/// highlighted before right-clicking -- so a search anchored on [track]
+/// still applies to (or removes from) every one of them. Empty for the
+/// ordinary single-row case.
 Future<ArtworkPickerOutcome?> showArtworkPickerDialog(
   BuildContext context, {
   required Track track,
   required ArtworkServices services,
   ArtworkResolver? resolver,
+  List<Track> otherTracks = const [],
 }) {
   return showDialog<ArtworkPickerOutcome>(
     context: context,
@@ -661,6 +718,7 @@ Future<ArtworkPickerOutcome?> showArtworkPickerDialog(
             query: artworkQueryForTrack(track),
             services: services,
             resolver: resolver,
+            otherTracks: otherTracks,
           ),
         ),
       ),
