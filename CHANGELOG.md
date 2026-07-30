@@ -6,6 +6,47 @@
 > [!tip] Queued for next build
 > - _(empty)_
 
+## Build 2026-07-29--2040
+
+### Changes
+
+- **The icon is geometry now, not pixels** — and that is what fixes the soft
+  splash. Every asset used to be upscaled from one 96×96 PNG whose note
+  occupied 72×76 pixels. `tools/build_icon.py` is the single source: it emits
+  the SVG, three Android VectorDrawables, the legacy launcher bitmaps and the
+  Windows `.ico`.
+- **The splash is sharp.** The Android 12 splash draws its icon at 288dp, so
+  the system was enlarging a 76px note. It is a VectorDrawable now, rasterised
+  by the system at whatever size it wants. Size deliberately unchanged: the
+  viewport is set so the note fills the same 62% of the canvas the old PNGs
+  did — measured 123dp on the tablet against 119dp before.
+- **The Windows `.ico` had exactly one 32px frame**, which is why it looked
+  rough anywhere Windows shows a large icon. Now seven frames, 16 → 256, each
+  rasterised from the vector at its own size rather than resampled down from
+  one big one.
+- **A redraw is allowed to differ, not to become a different icon**, so the
+  geometry was measured off the old 432px bitmap and the result is checked
+  against it: `--verify` reports 0.957 silhouette agreement and 0.935 on the
+  shaded face. It does not reach 1.0 because the old art was itself an upscale
+  of 96px source, so its own edges are soft by about a pixel.
+- Two things that were easy to get wrong and are now pinned in the tool: the
+  beam is a **parallelogram** (vertical ends flush with the stems), not a
+  rotated rectangle, which would splay its ends out past them; and the shaded
+  underside is drawn **only between the stems**, which is the whole depth cue —
+  running it the full width flattens the note (shaded-face agreement 0.71 that
+  way, 0.93 this way).
+- Deleted what the vectors replace: five `drawable-*/splash_icon.png`, five
+  `mipmap-*/ic_launcher_foreground.png`, five `mipmap-*/ic_launcher_monochrome.png`.
+
+> [!warning] Testing Checklist
+> - [ ] Tablet: cold-start the app — the splash note has clean edges
+>   - Notes:
+> - [ ] Tablet: launcher/app-drawer icon still looks right, no clipping
+>   - Notes:
+> - [ ] Windows: close fooplayer, rebuild, check the taskbar and Explorer icon
+>       at large and small sizes
+>   - Notes:
+
 ## Build 2026-07-29--1810
 
 ### Changes

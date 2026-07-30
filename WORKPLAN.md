@@ -29,6 +29,9 @@
 
 ## The immediate queue — cleared 2026-07-29
 
+0. ~~Vector app icon + sharp splash~~ — done. Every asset generated from one
+   vector definition; the Android 12 splash is a VectorDrawable, and the
+   Windows .ico went from a single 32px frame to seven.
 0. ~~Responsive tablet layout~~ — done. A tablet gets the desktop panel
    layout in both orientations, keyed to the shortest side (device size)
    rather than width, so rotating never changes which app it is. Plus the
@@ -48,10 +51,7 @@
    a hand-rolled eight-file precedent: the tablet was seeded with tracks whose
    content IDs and download dates were carried across from the NAS manifest,
    which is exactly what this has to do at scale.
-2. **A vector app icon.** The source art is 96x96 with the note occupying
-   72x76 pixels, so every asset is upscaled from that and the Android 12
-   splash cannot be made genuinely crisp without a redraw.
-3. **The second collection** outside the roots — `albums [no scrape]`,
+2. **The second collection** outside the roots — `albums [no scrape]`,
    `iTunes`, `xmas`, `_to dl`. Still untouched, which is what made the 2007-11
    Rehab date recovery possible. Mike's call whether any of it joins.
 
@@ -150,7 +150,9 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 - ~~**Queue semantics**~~ — settled 2026-07-29: "Play next" IS "add to the
   queue, at the front", so it is a single-track action; a multi-selection gets
   "Add to queue" alone.
-- **Vector icon redraw** — would change the artwork, so it wants a yes.
+- ~~**Vector icon redraw**~~ — done 2026-07-29. One vector source
+  (`tools/build_icon.py`) behind every asset; silhouette checked against the
+  old art at 0.957 so it is the same icon, not a reinterpretation.
 
 - ~~**File-dates fix**~~ — **done 2026-07-28**, all roots (option 1 + per-album placement; see the writeup's Outcome section and [docs/albums-date-recovery.md](docs/albums-date-recovery.md)). Independently re-verified: 5,553/5,553 files match their manifest date.
 - ~~**Full-library artwork embedding**~~ — **run 2026-07-28**, 1,423 covers written, zero failures, zero disturbed dates.
