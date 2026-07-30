@@ -24,6 +24,40 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-07-30--0205
+
+### Changes
+
+- **Queue rows now match the playlist view's column layout exactly.**
+  Reported live with a side-by-side screenshot: "the cue does not match
+  the playlist view... if you create a playlist, the formatting is
+  different from the cue formatting." The previous build added a cover
+  thumbnail to Queue rows but kept a bespoke shape with no `#`, no
+  Album, no Time, and no column header — exactly the mismatch the
+  screenshot caught. Rows now use the same `#`/Song/Album/Time grid as
+  a playlist, built from the actual widgets the playlist view uses
+  (made public for reuse rather than duplicated, since a duplicate is
+  what drifted out of sync last time). The `#` column carries the
+  play/drag icon instead of a position number; a remove button sits
+  past Time.
+- **Fixed: the footer said "2,548 tracks" while viewing a 2-song
+  Queue.** Reported alongside the formatting bug. The footer's track
+  count was always reading the underlying library view's track count,
+  which the Queue destination deliberately leaves untouched rather than
+  repurposing. It now counts the queue itself while the queue is what's
+  showing.
+
+> [!warning] Testing Checklist
+> - [ ] Open the Queue — header row reads #, SONG, ALBUM, TIME, same as
+>       a playlist; each row shows its album and duration
+>   - Notes:
+> - [ ] While the Queue is open with 2 songs in it, the footer at the
+>       bottom of the window says "2 tracks", not the full library count
+>   - Notes:
+> - [ ] Click back to Library or a playlist — the footer count goes back
+>       to the full/filtered count immediately
+>   - Notes:
+
 ## Build 2026-07-30--0139
 
 ### Changes
