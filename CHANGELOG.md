@@ -6,7 +6,31 @@
 > [!tip] Queued for next build
 > - _(empty)_
 
-## Build 2026-07-29--2040
+## Build 2026-07-29--2230
+
+### Changes
+
+- **The icon comes from a real SVG now** — `app/assets/icon/fooplayer_icon.svg`,
+  supplied by Mike. The previous attempt reconstructed the note by measuring
+  the old bitmap, which was wrong twice: it hard-coded a drawing in Python, and
+  it built the note from separate overlapping shapes, so every place a stem met
+  the beam or a head picked up a rounded notch instead of a sharp junction.
+  That is what made it look cheap. Mike's SVG is one continuous outline with
+  sharp armpits and only the outer corners rounded.
+- `tools/build_icon.py` no longer knows anything about the shape of the note.
+  It owns **placement**, which is the part that differs per asset and is easy to
+  get wrong: 41% of the 108dp canvas for the adaptive icon (so no launcher mask
+  can clip it), 62% for the splash, 92% for the legacy tile, 81% for the
+  Windows `.ico`. Every fraction measured off the asset it replaces.
+- It also refuses a source it cannot faithfully convert — strokes, transforms,
+  gradients, filters, masks, `<image>` — rather than silently dropping the
+  effect and shipping a wrong icon. Same for path commands it cannot transform.
+- Transforms are **baked into the path data** rather than carried as a
+  VectorDrawable `<group>`: a group applies scale, then rotation, then
+  translation, and getting that order backwards is a bug that only appears on a
+  device.
+
+## Build 2026-07-29--2040 (superseded by the above)
 
 ### Changes
 
