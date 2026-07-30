@@ -20,6 +20,16 @@
   Multi-select (Ctrl/Shift-click, right-click, "Album artwork... (N
   tracks)") applies to exactly that selection. The automatic best-guess
   pass is unchanged; it correctly still works album-wide.
+- **The Queue is a real scratch playlist now, separate from ordinary
+  playback** (2026-07-30): a normal play still continues through whatever
+  list it was clicked from ("faux queue," unchanged), but the first
+  explicit "Play next" / "Add to queue" discards that continuation down
+  to just the current track and starts a real, small, user-built list —
+  the only thing the Queue view ever shows. Moved from a bottom-of-sidebar
+  popup dialog to a real destination right under Library, appearing only
+  once there is something to show.
+- **Folder panel never shows the sole root's own name**, at any depth —
+  extends yesterday's "no tap to see subfolders" fix to the breadcrumb too.
 - Emulator rebuilt at 16 GB and seeded with the real 444-file library.
 - Live-use polish: metro glyph hairlines, blue shuffle, breadcrumb ↑ up-one-level, phone volume removal, uniform column typography.
 

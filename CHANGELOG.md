@@ -24,6 +24,72 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-07-30--0103
+
+### Changes
+
+- **The Queue no longer inherits the whole library.** Double-clicking a
+  track (desktop) or tapping one (phone) is still a normal music player —
+  it keeps playing through whatever list it was clicked from, current
+  sort/filter, shuffle or not, exactly as before. But that continuation
+  is a "faux queue": nothing the user built, and it is never what the
+  visible **Queue** means. The moment "Play next" / "Add to queue" is
+  used for the first time, that faux continuation is discarded down to
+  just the track playing, and from then on it is a real, small,
+  user-built scratch playlist — current track plus whatever gets added,
+  nothing inherited from browsing. A second explicit add builds on the
+  first rather than re-discarding it; a fresh normal play ends the
+  scratch playlist and starts a new browsing session. `QueueController`
+  gains `hasExplicitQueue` to tell the two apart; nothing about ordinary
+  continuous playback changed.
+- **Queue is a sidebar destination now, not a popup.** Moved from the
+  bottom action group (Rescan/Enrich/Embed/Settings) to right under
+  **Library**, above the saved playlists. Clicking it swaps the main
+  content area — search field, Folder/Artist/Album filters, track list —
+  for the queue itself, the same way clicking a playlist does; no dialog
+  anywhere. It only appears once there is a real queue to show (the faux
+  one needs no panel of its own — it's just whatever the library view
+  already shows); clicking Library or a playlist leaves it without
+  clearing it, so more can be queued while browsing and it is reachable
+  again.
+- **The Folder filter panel no longer shows "Music."** Not just at the
+  top (fixed yesterday) — at every depth. Drilled into `monthly` now
+  shows just "monthly," not "Music › monthly": a single library root
+  names a place nothing is ever NOT under, so putting its own name in
+  front of every real folder was a header nobody could act on. With
+  several roots (the desktop's five) a root's name is real information
+  and nothing changes.
+- Fixed in passing: clicking Library after viewing a playlist was
+  resetting the Folder pane to *empty* on a single-root device — the
+  exact "tap the root before you see anything" bug from yesterday,
+  reappearing through a second code path (`setPlaylist` hard-coded `[]`
+  instead of resetting to the implicit root). Both now go through one
+  shared reset.
+
+> [!warning] Testing Checklist
+> - [ ] Double-click a track in the full library — it plays and keeps
+>       going into the next one, same order as the column sort
+>   - Notes:
+> - [ ] No "Queue" in the sidebar until you right-click → Add to queue
+>   - Notes:
+> - [ ] After Add to queue: sidebar shows Queue, right under Library;
+>       clicking it shows current track + what you added, nothing else
+>   - Notes:
+> - [ ] Add a second track to the queue — both stay, in order added
+>   - Notes:
+> - [ ] Click Library, browse elsewhere, add another track to the queue
+>       — it's still there when you click Queue again
+>   - Notes:
+> - [ ] Remove every added track from the queue — the Queue sidebar
+>       entry disappears again
+>   - Notes:
+> - [ ] Let the queue play out to the end — playback stops, does not
+>       fall back to the library
+>   - Notes:
+> - [ ] Folder panel: drill into any subfolder — no "Music" prefix
+>       anywhere in the breadcrumb
+>   - Notes:
+
 ## Build 2026-07-29--2354
 
 ### Changes
