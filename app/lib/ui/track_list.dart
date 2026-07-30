@@ -144,7 +144,7 @@ class TrackListView extends StatefulWidget {
   final ArtworkServices? artwork;
 
   /// Artwork resolution chain (Plan 4), reused for the playlist view's
-  /// per-row thumbnail ([AlbumArt] via [_SongCell]) -- the same instance
+  /// per-row thumbnail ([AlbumArt] via [SongCell]) -- the same instance
   /// [HomeScreen] hands to [NowPlayingBar]. Null keeps every row's thumbnail
   /// on [AlbumArt]'s embedded-only placeholder path, which is what widget
   /// tests that build the list without the artwork feature wired rely on.
@@ -338,7 +338,7 @@ class _TrackListViewState extends State<TrackListView> {
 /// ([LibraryModel.visibleTracks] preserves it and ignores [LibraryModel.sortColumn]
 /// entirely for an active playlist -- see its doc), so these labels are
 /// deliberately NOT sort controls: plain static text in the same header
-/// typography, no arrows, no hover affordance (see [_PlainHeaderLabel]).
+/// typography, no arrows, no hover affordance (see [PlainHeaderLabel]).
 /// The playlist view's banner: the first track's cover shown large, the
 /// playlist name, and a "N tracks · MM min" summary -- the header half of
 /// the iTunes-style playlist layout whose four columns follow beneath it.
@@ -511,11 +511,11 @@ class _TrackListHeader extends StatelessWidget {
         const SizedBox(width: 8),
         const SizedBox(
           width: _kArtColumnWidth,
-          child: _PlainHeaderLabel(label: 'Art'),
+          child: PlainHeaderLabel(label: 'Art'),
         ),
         const SizedBox(
           width: _kArtColumnWidth,
-          child: _PlainHeaderLabel(label: 'Emb'),
+          child: PlainHeaderLabel(label: 'Emb'),
         ),
       ],
     );
@@ -526,20 +526,20 @@ class _TrackListHeader extends StatelessWidget {
       children: [
         SizedBox(
           width: _kTrackNumberColumnWidth,
-          child: _PlainHeaderLabel(label: '#'),
+          child: PlainHeaderLabel(label: '#'),
         ),
         Expanded(
           flex: _kTitleArtistFlex,
-          child: _PlainHeaderLabel(label: 'Song'),
+          child: PlainHeaderLabel(label: 'Song'),
         ),
         Expanded(
           flex: _kAlbumFlex,
-          child: _PlainHeaderLabel(label: 'Album'),
+          child: PlainHeaderLabel(label: 'Album'),
         ),
         SizedBox(width: 8),
         SizedBox(
           width: _kDurationColumnWidth,
-          child: _PlainHeaderLabel(label: 'Time', alignEnd: true),
+          child: PlainHeaderLabel(label: 'Time', alignEnd: true),
         ),
       ],
     );
@@ -569,10 +569,21 @@ class _ArtTick extends StatelessWidget {
       : const SizedBox.shrink();
 }
 
-class _PlainHeaderLabel extends StatelessWidget {
+// Public (not `_PlainHeaderLabel`/`_SongCell`): queue_view.dart reuses these
+// two directly so a Queue row can never drift out of visual sync with a
+// playlist row again -- that drift is exactly what got reported ("the cue
+// does not match the playlist view"). The column WIDTH/flex constants below
+// stay private and are mirrored locally in queue_view.dart instead, since
+// they're also shared with the library (non-playlist) row/header layout in
+// this file and widening their reach wasn't worth the risk.
+class PlainHeaderLabel extends StatelessWidget {
   final String label;
   final bool alignEnd;
-  const _PlainHeaderLabel({required this.label, this.alignEnd = false});
+  const PlainHeaderLabel({
+    super.key,
+    required this.label,
+    this.alignEnd = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -993,7 +1004,7 @@ class _TrackRowState extends State<_TrackRow> {
     ),
     Expanded(
       flex: _kTitleArtistFlex,
-      child: _SongCell(
+      child: SongCell(
         track: track,
         isCurrent: isCurrent,
         resolver: artworkResolver,
@@ -1029,11 +1040,12 @@ class _TrackRowState extends State<_TrackRow> {
 /// null falls back to [AlbumArt]'s own embedded-only placeholder path (see
 /// [TrackListView.artworkResolver]'s doc), so this never requires a resolver
 /// to render.
-class _SongCell extends StatelessWidget {
+class SongCell extends StatelessWidget {
   final Track track;
   final bool isCurrent;
   final ArtworkResolver? resolver;
-  const _SongCell({
+  const SongCell({
+    super.key,
     required this.track,
     required this.isCurrent,
     required this.resolver,

@@ -15,13 +15,22 @@ import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/now_playing_bar.dart' show AlbumArt;
 import 'package:fooplayer_app/ui/queue_view.dart';
+import 'package:fooplayer_app/ui/track_list.dart' show SongCell;
 
-Track _t(String id, {String title = '', String artist = 'An Artist'}) => Track(
+Track _t(
+  String id, {
+  String title = '',
+  String artist = 'An Artist',
+  String album = '',
+  int? durationMs,
+}) => Track(
   contentId: id,
   relPath: '$id.mp3',
   dateAdded: DateTime.utc(2024),
   title: title.isEmpty ? 'Song $id' : title,
   artist: artist,
+  album: album,
+  durationMs: durationMs,
 );
 
 /// A player whose queue can be driven without an audio engine.
@@ -142,6 +151,44 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'rows are the SAME SongCell the playlist view uses, not a look-alike '
+    'copy -- "the cue does not match the playlist view"',
+    (tester) async {
+      final p = _FakePlayer()
+        ..queueController.setQueue([_t('a'), _t('b'), _t('c')], 0);
+      await _pump(tester, p);
+
+      expect(find.byType(SongCell), findsNWidgets(3));
+    },
+  );
+
+  testWidgets(
+    'the column header matches the playlist view: #, Song, Album, Time',
+    (tester) async {
+      final p = _FakePlayer()..queueController.setQueue([_t('a')], 0);
+      await _pump(tester, p);
+
+      expect(find.text('#'), findsOneWidget);
+      expect(find.text('SONG'), findsOneWidget);
+      expect(find.text('ALBUM'), findsOneWidget);
+      expect(find.text('TIME'), findsOneWidget);
+    },
+  );
+
+  testWidgets('rows show Album and Time, same as a playlist row', (
+    tester,
+  ) async {
+    final p = _FakePlayer()
+      ..queueController.setQueue([
+        _t('a', album: 'First Album', durationMs: 245000),
+      ], 0);
+    await _pump(tester, p);
+
+    expect(find.text('First Album'), findsOneWidget);
+    expect(find.text('4:05'), findsOneWidget);
+  });
 
   testWidgets('the view follows the queue as it changes', (tester) async {
     final p = _FakePlayer()..queueController.setQueue([_t('a')], 0);

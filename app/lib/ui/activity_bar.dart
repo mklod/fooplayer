@@ -79,7 +79,7 @@ class ActivityBar extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               Text(
-                '${_thousands(library.visibleTracks.length)} tracks',
+                '${_thousands(_footerTrackCount())} tracks',
                 key: const Key('footer-track-count'),
                 style: const TextStyle(
                   fontSize: 12,
@@ -105,6 +105,18 @@ class ActivityBar extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// While the Queue is showing, the footer counts the queue itself --
+  /// [LibraryModel.visibleTracks] is untouched browsing state that the Queue
+  /// destination doesn't repurpose (see [LibraryModel.showQueue]'s doc), so
+  /// it still holds whatever the library view last showed. Reported live:
+  /// "I'm in a queue of two songs, and the bottom status bar says 2,548
+  /// tracks."
+  int _footerTrackCount() {
+    final p = player;
+    if (library.showingQueue && p != null) return p.queueController.queue.length;
+    return library.visibleTracks.length;
   }
 
   /// "Title — Artist    1:04 / 4:27", in the footer's own type.
