@@ -45,24 +45,77 @@ void main() {
   );
 
   group('the queue as a scratch playlist', () {
+    // seeded() is a NORMAL PLAY: double-clicking track 'a' out of a
+    // 3-track filtered/sorted library view, exactly what setQueue is for.
+    // That continuation ('b', 'c' queued up behind it) is the ordinary
+    // "keep playing this list" behaviour and is NOT something the user
+    // built -- see hasExplicitQueue's doc. The first explicit queue action
+    // below has to discard it, not build on top of it.
     QueueController seeded() =>
         QueueController()..setQueue([tr('a'), tr('b'), tr('c')], 0);
 
-    test('play next lands immediately after what is playing', () {
-      final q = seeded()..insertNext([tr('x')]);
-      expect(q.queue.map((t) => t.contentId), ['a', 'x', 'b', 'c']);
-      expect(q.current!.contentId, 'a', reason: 'playback is undisturbed');
-      expect(q.advance()!.contentId, 'x');
-    });
+    test(
+      'play next discards the rest of the browsing context, landing '
+      'immediately after what is playing',
+      () {
+        final q = seeded()..insertNext([tr('x')]);
+        expect(
+          q.queue.map((t) => t.contentId),
+          ['a', 'x'],
+          reason: '"b" and "c" were never explicitly queued -- only '
+              'browsed past on the way to "a"',
+        );
+        expect(q.current!.contentId, 'a', reason: 'playback is undisturbed');
+        expect(q.advance()!.contentId, 'x');
+      },
+    );
 
-    test('add to queue lands at the end', () {
+    test('add to queue discards the browsing context too, landing at the '
+        'end of what is actually queued', () {
       final q = seeded()..append([tr('x'), tr('y')]);
-      expect(q.queue.map((t) => t.contentId), ['a', 'b', 'c', 'x', 'y']);
+      expect(q.queue.map((t) => t.contentId), ['a', 'x', 'y']);
     });
 
-    test('several play-nexts keep the order they were given', () {
+    test('several play-nexts in one call keep the order they were given', () {
       final q = seeded()..insertNext([tr('x'), tr('y')]);
-      expect(q.queue.map((t) => t.contentId), ['a', 'x', 'y', 'b', 'c']);
+      expect(q.queue.map((t) => t.contentId), ['a', 'x', 'y']);
+    });
+
+    test(
+      'a SECOND explicit queue action builds on the first -- it does not '
+      're-discard down to just the current track again',
+      () {
+        final q = seeded()
+          ..append([tr('x')])
+          ..append([tr('y')]);
+        expect(
+          q.queue.map((t) => t.contentId),
+          ['a', 'x', 'y'],
+          reason: 'the second add must not have thrown "x" away',
+        );
+      },
+    );
+
+    test(
+      'a fresh normal play discards whatever scratch playlist existed and '
+      'starts over',
+      () {
+        final q = seeded()..append([tr('x')]);
+        expect(q.hasExplicitQueue, isTrue);
+
+        q.setQueue([tr('p'), tr('q')], 0);
+        expect(
+          q.hasExplicitQueue,
+          isFalse,
+          reason: 'a new double-click is a new browsing session',
+        );
+        expect(q.queue.map((t) => t.contentId), ['p', 'q']);
+      },
+    );
+
+    test('hasExplicitQueue is false until the first explicit queue action',
+        () {
+      expect(seeded().hasExplicitQueue, isFalse);
     });
 
     test('on an idle player, either becomes the queue', () {
