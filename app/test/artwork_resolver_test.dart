@@ -531,7 +531,11 @@ void main() {
       await resolver.applyImage(request(), sidecarBytes, source: 'local');
       expect(await resolver.resolve(request()), sidecarBytes);
 
-      await resolver.removeImage(request());
+      // Album scope on both calls: this fixture's request carries no
+      // contentId, and removeImage now defaults to track scope (see
+      // ArtworkApplyScope) -- explicit here so the pair actually undoes each
+      // other rather than silently targeting different keys.
+      await resolver.removeImage(request(), scope: ArtworkApplyScope.album);
       expect(await resolver.resolve(request()), folderBytes);
     });
   });

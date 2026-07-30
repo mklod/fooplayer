@@ -7,8 +7,14 @@
 // into one shared cover plus two orphans -- the tracks kept pointing at a
 // key nothing wrote any more.
 //
-// The fix is to pin a hand-picked cover to the content id as well, which is
-// a hash of the audio and cannot be moved by editing tags.
+// The fix has two halves. A hand-picked cover is pinned to the content id --
+// a hash of the audio, which no tag edit can move -- and it is pinned ONLY
+// there. An earlier version wrote the album key too, so picking a cover for
+// "Forgotten Dreams" silently replaced it on "Colourful Emotions" and
+// "Peaceful Solitude", which is the bug reported again on 2026-07-29. The app
+// cannot tell a real album from a label used as a shortcut for a YouTube
+// playlist, so it does not guess: the picker means this track, the automatic
+// pass means the album it searched for.
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -66,7 +72,7 @@ void main() {
         ArtworkRequest.forTrack(t),
         _jpeg(seed),
         source: 'local',
-        alsoPinToTrack: true,
+        scope: ArtworkApplyScope.track,
       );
     }
 
@@ -85,7 +91,7 @@ void main() {
       ArtworkRequest.forTrack(before),
       _jpeg(7),
       source: 'local',
-      alsoPinToTrack: true,
+      scope: ArtworkApplyScope.track,
     );
 
     // The user retags it, which moves the album key underneath it.
@@ -103,20 +109,117 @@ void main() {
     );
   });
 
-  test('album-mates without a pick still inherit the album cover', () async {
-    // The other half: picking a cover on one track of a REAL album is
-    // expected to dress the whole record, so the album key is still written.
-    final one = track('id-1', 'Speak to Me', album: 'Dark Side');
-    final two = track('id-2', 'Breathe', album: 'Dark Side');
+  test('a hand pick does NOT touch album-mates', () async {
+    // The reported bug, as an assertion. Changing the cover on one track must
+    // change exactly one track, whether or not the album is a real album --
+    // nothing in the tags can tell the app which it is, and silently
+    // rewriting a cover the user chose for another track is the worse error.
+    final one = track('id-1', 'Colourful Emotions', album: 'Sheepy Mixes');
+    final two = track('id-2', 'Peaceful Solitude', album: 'Sheepy Mixes');
 
     await resolver.applyImage(
       ArtworkRequest.forTrack(one),
       _jpeg(9),
       source: 'local',
-      alsoPinToTrack: true,
+      scope: ArtworkApplyScope.track,
     );
 
-    expect(await resolver.resolve(ArtworkRequest.forTrack(two)), _jpeg(9));
+    expect(await resolver.resolve(ArtworkRequest.forTrack(one)), _jpeg(9));
+    expect(
+      await resolver.resolve(ArtworkRequest.forTrack(two)),
+      isNull,
+      reason: 'the sibling had no cover and was not given one',
+    );
+  });
+
+  test('a hand pick does not overwrite a cover a sibling already had', () async {
+    final mine = track('id-mine', 'Forgotten Dreams', album: 'Sheepy Mixes');
+    final theirs = track('id-theirs', 'Warm Memories', album: 'Sheepy Mixes');
+
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(theirs),
+      _jpeg(11),
+      source: 'local',
+      scope: ArtworkApplyScope.track,
+    );
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(mine),
+      _jpeg(12),
+      source: 'local',
+      scope: ArtworkApplyScope.track,
+    );
+
+    expect(await resolver.resolve(ArtworkRequest.forTrack(theirs)), _jpeg(11));
+    expect(await resolver.resolve(ArtworkRequest.forTrack(mine)), _jpeg(12));
+  });
+
+  test('the automatic pass still fills a whole album at once', () async {
+    // The album scope is what the background best-guess pass uses, because
+    // that IS the scope it searched at. Unpinned tracks inherit from it.
+    final one = track('id-a', 'Speak to Me', album: 'Dark Side');
+    final two = track('id-b', 'Breathe', album: 'Dark Side');
+
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(one),
+      _jpeg(21),
+      source: 'itunes',
+      scope: ArtworkApplyScope.album,
+    );
+
+    expect(await resolver.resolve(ArtworkRequest.forTrack(two)), _jpeg(21));
+  });
+
+  test('a pin beats the album cover the automatic pass wrote', () async {
+    final pinned = track('id-p', 'Best of 2025', album: 'Sheepy Mixes');
+    final other = track('id-o', 'Best of 2023', album: 'Sheepy Mixes');
+
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(other),
+      _jpeg(31),
+      source: 'itunes',
+      scope: ArtworkApplyScope.album,
+    );
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(pinned),
+      _jpeg(32),
+      source: 'local',
+      scope: ArtworkApplyScope.track,
+    );
+
+    expect(await resolver.resolve(ArtworkRequest.forTrack(pinned)), _jpeg(32));
+    expect(
+      await resolver.resolve(ArtworkRequest.forTrack(other)),
+      _jpeg(31),
+      reason: 'pinning one track leaves the album cover alone',
+    );
+  });
+
+  test('removing artwork on one track leaves its album-mates alone', () async {
+    // The same bug in reverse: Remove used to suppress the album key too, so
+    // clearing one mix stripped the cover from every track sharing the label.
+    final gone = track('id-g', 'Colourful Emotions', album: 'Sheepy Mixes');
+    final kept = track('id-k', 'Peaceful Solitude', album: 'Sheepy Mixes');
+
+    await resolver.applyImage(
+      ArtworkRequest.forTrack(gone),
+      _jpeg(41),
+      source: 'itunes',
+      scope: ArtworkApplyScope.album,
+    );
+    expect(await resolver.resolve(ArtworkRequest.forTrack(kept)), _jpeg(41));
+
+    await resolver.removeImage(ArtworkRequest.forTrack(gone));
+
+    expect(
+      await resolver.resolve(ArtworkRequest.forTrack(gone)),
+      isNull,
+      reason: 'the track it was removed from shows nothing',
+    );
+    expect(
+      await resolver.resolve(ArtworkRequest.forTrack(kept)),
+      _jpeg(41),
+      reason: 'and the album cover is still there for everyone else',
+    );
   });
 
   test('removing artwork clears the pin too', () async {
@@ -125,7 +228,7 @@ void main() {
       ArtworkRequest.forTrack(t),
       _jpeg(4),
       source: 'local',
-      alsoPinToTrack: true,
+      scope: ArtworkApplyScope.track,
     );
     expect(await resolver.resolve(ArtworkRequest.forTrack(t)), isNotNull);
 

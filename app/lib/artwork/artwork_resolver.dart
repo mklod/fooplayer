@@ -143,6 +143,27 @@ class ArtworkRequest {
   );
 }
 
+/// Who a cover applies to.
+///
+/// The distinction exists because the app cannot tell a real album from a
+/// label someone used as a shortcut. Twelve YouTube mixes tagged
+/// `Sheepy Mixes` are not a record with twelve tracks, and there is nothing in
+/// the tags that says so. So the choice is made by WHO IS ASKING rather than
+/// guessed from the data: a person picking a cover in the picker means this
+/// track, and the automatic pass means the album it queried for.
+enum ArtworkApplyScope {
+  /// Just this track, keyed on its content ID so no tag edit can move it.
+  /// Deliberately does NOT touch the album key: writing both meant picking a
+  /// cover for one track silently replaced it on every album-mate that had no
+  /// pick of its own.
+  track,
+
+  /// The album key, shared by every track whose artist+album resolve to it.
+  /// What the background best-guess pass writes, because that is the scope it
+  /// searched at.
+  album,
+}
+
 /// Resolves (and caches) the bytes each album's art should display.
 ///
 /// **Album-keyed by design.** Cache *and* in-flight dedupe key on
@@ -221,8 +242,13 @@ class ArtworkResolver extends ChangeNotifier {
     final id = req.contentId;
     if (id != null && id.isNotEmpty) {
       final store = stores.forRoot(req.rootPath);
-      if (store.entryFor(trackArtKey(id)) != null) {
-        return '${req.rootPath}\u0000${trackArtKey(id)}';
+      final key = trackArtKey(id);
+      // A pin, or an explicit "show nothing" for this track: either
+      // way this track's answer differs from its album-mates', so it
+      // needs its own slot. Sharing the album's would hand a
+      // suppressed track whichever cover a sibling resolved first.
+      if (store.entryFor(key) != null || store.isSuppressed(key)) {
+        return '${req.rootPath}\u0000$key';
       }
     }
     return '${req.rootPath}\u0000${req.albumKey}';
@@ -309,6 +335,11 @@ class ArtworkResolver extends ChangeNotifier {
     } catch (_) {
       // A sidecar we can't load just means "no recorded choice".
     }
+
+    // "Remove artwork" on this track means this track shows nothing -- not
+    // "fall back to whatever the album, the tag or a sibling file offers",
+    // which would put a cover straight back and make the removal look broken.
+    if (_suppressedForTrack(store, req)) return null;
 
     if (preferSidecar) {
       final chosen = await _sidecarBytes(store, req);
@@ -436,33 +467,22 @@ class ArtworkResolver extends ChangeNotifier {
     String query = '',
     String origin = '',
     String extension = '.jpg',
-    bool alsoPinToTrack = false,
+    ArtworkApplyScope scope = ArtworkApplyScope.album,
   }) async {
     final store = stores.forRoot(req.rootPath);
-    final entry = await store.putImage(
-      req.albumKey,
-      bytes,
-      source: source,
-      query: query,
-      origin: origin,
-      extension: extension,
-    );
 
-    // A cover picked BY HAND is additionally pinned to the track's content
-    // id, which no tag edit can move. Both, not one or the other:
-    //
-    //   - the album key alone means siblings overwrite each other, and
-    //     retagging orphans the lot. Twelve mixes retagged to share one
-    //     album collapsed three separately-chosen covers into one.
-    //   - the track key alone would regress real albums, where picking a
-    //     cover on one track is expected to dress the whole record.
-    //
-    // Writing both gives each: the pinned track keeps exactly what was
-    // chosen for it, and album-mates without a pick of their own still
-    // inherit from the album key.
-    final id = req.contentId;
-    if (alsoPinToTrack && id != null && id.isNotEmpty && entry != null) {
-      await store.putImage(
+    // ONE key, decided by [scope]. An earlier version wrote both on a hand
+    // pick, reasoning that album-mates without a pick of their own should
+    // inherit it. That was the wrong trade and it corrupted real work:
+    // choosing a cover for "Forgotten Dreams" overwrote the shared
+    // `mr suicide sheep|sheepy mixes` key, so "Colourful Emotions" and
+    // "Peaceful Solitude" silently changed too. Rewriting art the user chose
+    // for OTHER tracks is worse than not propagating, and propagation is
+    // still available -- select the tracks and apply to each.
+    if (scope == ArtworkApplyScope.track) {
+      final id = req.contentId;
+      if (id == null || id.isEmpty) return null; // caller reports the failure
+      final entry = await store.putImage(
         trackArtKey(id),
         bytes,
         source: source,
@@ -471,29 +491,64 @@ class ArtworkResolver extends ChangeNotifier {
         extension: extension,
       );
       invalidate(trackArtKey(id));
+      return entry;
     }
+
+    final entry = await store.putImage(
+      req.albumKey,
+      bytes,
+      source: source,
+      query: query,
+      origin: origin,
+      extension: extension,
+    );
     invalidate(req.albumKey);
     return entry;
   }
 
   /// Clears [req]'s recorded artwork ("Remove artwork" in the picker).
   ///
-  /// `suppress: true` persists the user's intent alongside the removal, so
-  /// the background best-guess pass does not re-apply the same auto-guess on
-  /// the next launch. Only picking a new image or an explicit "Search again"
-  /// lifts it (both clear the marker).
-  Future<void> removeImage(ArtworkRequest req) async {
+  /// Suppression is persisted alongside the removal, so the background
+  /// best-guess pass does not re-apply the same auto-guess on the next launch.
+  /// Only picking a new image or an explicit "Search again" lifts it.
+  ///
+  /// Track-scoped by default, and for the same reason [applyImage] is: this
+  /// used to suppress the ALBUM key as well, so removing the cover from one
+  /// mix would have stripped it from every other track sharing that album
+  /// label. A suppressed pin stops the fallback chain (see
+  /// [_suppressedForTrack]), which is what makes a track-scoped removal
+  /// actually show nothing rather than quietly inheriting the album's.
+  Future<void> removeImage(
+    ArtworkRequest req, {
+    ArtworkApplyScope scope = ArtworkApplyScope.track,
+  }) async {
     final store = stores.forRoot(req.rootPath);
-    await store.remove(req.albumKey, suppress: true);
-    // The track's own pin goes too, or "Remove artwork" would clear the
-    // album's cover and leave the pinned one still showing -- the resolver
-    // checks the pin first.
     final id = req.contentId;
+    if (scope == ArtworkApplyScope.track) {
+      if (id == null || id.isEmpty) return;
+      await store.remove(trackArtKey(id), suppress: true);
+      invalidate(trackArtKey(id));
+      return;
+    }
+    await store.remove(req.albumKey, suppress: true);
     if (id != null && id.isNotEmpty) {
       await store.remove(trackArtKey(id), suppress: true);
       invalidate(trackArtKey(id));
     }
     invalidate(req.albumKey);
+  }
+
+  /// Whether this track has been explicitly told to show nothing.
+  ///
+  /// A removal records a suppression marker on the track's pin. Without
+  /// honouring it here the removal would be invisible: the resolver would fall
+  /// straight through to the album key, the embedded tag or a sibling
+  /// `folder.jpg` and put a cover back.
+  bool _suppressedForTrack(ArtworkStore store, ArtworkRequest req) {
+    final id = req.contentId;
+    if (id == null || id.isEmpty) return false;
+    final key = trackArtKey(id);
+    return store.entryFor(key) == null && store.isSuppressed(key);
   }
 
   @override

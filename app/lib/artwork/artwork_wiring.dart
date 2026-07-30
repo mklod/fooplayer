@@ -410,9 +410,10 @@ class ArtworkWiring {
       query: choice.query.isEmpty ? req.query.terms : choice.query,
       origin: origin,
       extension: artworkExtensionFor(origin),
-      // A pick made in the picker is a statement about THIS track, so it is
-      // pinned to its content id as well as the album key.
-      alsoPinToTrack: true,
+      // A pick in the picker is a statement about THIS track and nothing
+      // else. It used to write the album key too, so choosing a cover for one
+      // mix silently replaced it on every track sharing that album label.
+      scope: ArtworkApplyScope.track,
     );
     if (entry == null) throw const ArtworkApplyFailure();
   }
