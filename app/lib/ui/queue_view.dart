@@ -40,8 +40,8 @@ class QueueView extends StatelessWidget {
               padding: EdgeInsets.all(32),
               child: Text(
                 'Nothing queued.\n\n'
-                'Play a song, or long-press one and choose “Play next” or '
-                '“Add to queue”.',
+                'Play a song, or long-press one for “Play next” — or select '
+                'several and “Add to queue”.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: AppColors.inkSecondary),
               ),
@@ -85,10 +85,7 @@ class QueueView extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             remaining == 0 ? 'nothing after this' : '$remaining to come',
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.inkSecondary,
-            ),
+            style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
           ),
           const Spacer(),
           TextButton(
