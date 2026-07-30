@@ -149,6 +149,15 @@ class LibraryModel extends ChangeNotifier {
   Set<String> albumFilters = {};
   String search = '';
   String? activePlaylist;
+
+  /// Whether the main content area shows the Queue instead of the library
+  /// feed or a playlist.
+  ///
+  /// A separate flag rather than a value of [activePlaylist]: the queue is
+  /// not a saved playlist -- it has no name, it is not in [playlists], and
+  /// it is not written to any manifest. Folding it into [activePlaylist]
+  /// would mean inventing a fake name for something that is not one.
+  bool showingQueue = false;
   String status = 'idle';
 
   /// The tracks currently selected in the track list (see
@@ -712,11 +721,10 @@ class LibraryModel extends ChangeNotifier {
         if (scanned.any((t) => !knownIds.contains(t.contentId))) {
           try {
             known =
-                await runIsolateWithTimeout<Map<String, core.TrackEntry>, String>(
-                  _knownEntriesIsolateEntry,
-                  root.path,
-                  timeout: rootTimeout,
-                );
+                await runIsolateWithTimeout<
+                  Map<String, core.TrackEntry>,
+                  String
+                >(_knownEntriesIsolateEntry, root.path, timeout: rootTimeout);
           } catch (_) {
             known = <String, core.TrackEntry>{}; // best effort, never fatal
           }
@@ -747,7 +755,11 @@ class LibraryModel extends ChangeNotifier {
             for (final t in diff.newTracks) {
               final entry = manifest.tracks[t.contentId];
               if (entry != null) {
-                newRecords.add((t.contentId, entry.paths.first, entry.dateAdded));
+                newRecords.add((
+                  t.contentId,
+                  entry.paths.first,
+                  entry.dateAdded,
+                ));
               }
             }
           }
@@ -963,21 +975,36 @@ class LibraryModel extends ChangeNotifier {
     );
   }
 
-  /// The Folder pane's pinned-header breadcrumb, one display segment per
-  /// drill-down step -- `['monthly', '2007-08']` -- or empty when nothing
-  /// is selected (pane at the top level with no Ctrl-selected roots).
+  /// Whether the sole library root's own name is left out of
+  /// [folderBreadcrumbs] entirely, at every depth -- not just at the top.
   ///
-  /// Segment `i` (0-based) corresponds to [folderPath] element `i` (element
-  /// 0 shown by basename, it's a whole root path); when [folderSiblings] is
-  /// non-empty one *extra* trailing segment follows the path segments: the
-  /// sole sibling's name, or `'N selected'` for a multi-selection. The UI
-  /// (`ui/home_screen.dart`) prepends its own leading `'All'` segment, so a
-  /// click on *UI* segment `i` maps straight to `popFolderTo(i)` -- path
-  /// segment `i` here pops to depth `i + 1`, and the trailing sibling
-  /// segment is the current (non-clickable) position.
+  /// With several roots, a root's name is real information (it is one of
+  /// several places tracks could be). With exactly one, it names a place
+  /// nothing is ever NOT under -- every screen, every track, always -- so
+  /// showing it is a header you cannot act on, sitting above the first
+  /// folder that is. [folderTopPath] already makes that root the implicit
+  /// top of navigation; this makes it invisible in the breadcrumb too.
+  bool get _rootIsImplicit => folderTopPath.isNotEmpty;
+
+  /// The Folder pane's pinned-header breadcrumb, one display segment per
+  /// drill-down step -- `['monthly', '2007-08']` -- or empty when there is
+  /// nothing worth naming (pane at the top level, no Ctrl-selected
+  /// siblings, and either no root at all or the one implicit root with
+  /// nothing drilled below it).
+  ///
+  /// With several roots, segment 0 is the root's own basename ([folderPath]
+  /// element 0 is a whole root path); with the one implicit root ([
+  /// _rootIsImplicit]), that segment is dropped and segment 0 starts one
+  /// element deeper. [breadcrumbPopDepth] has to track the same omission,
+  /// or a tap lands one level off from the segment it named.
+  ///
+  /// When [folderSiblings] is non-empty one *extra* trailing segment
+  /// follows the path segments: the sole sibling's name, or `'N selected'`
+  /// for a multi-selection.
   List<String> get folderBreadcrumbs {
     final parts = <String>[
-      if (folderPath.isNotEmpty) p.basename(folderPath.first),
+      if (!_rootIsImplicit && folderPath.isNotEmpty)
+        p.basename(folderPath.first),
       ...folderPath.skip(1),
     ];
     if (folderSiblings.length > 1) {
@@ -991,6 +1018,20 @@ class LibraryModel extends ChangeNotifier {
     }
     return parts;
   }
+
+  /// Converts a tap on [folderBreadcrumbs] UI segment [uiIndex] into the
+  /// depth [popFolderTo] needs -- `uiIndex` exactly as the UI's own
+  /// `onHeaderSegmentTap` receives it, i.e. counting any leading `'All'`
+  /// segment the caller prepends (see `ui/home_screen.dart`) as index 0.
+  ///
+  /// With several roots this is just `uiIndex` (the leading `'All'` and the
+  /// depth both start at the same place, so the offsets cancel). With the
+  /// one implicit root there is no `'All'`, but segment 0 corresponds to
+  /// [folderPath] element 1 rather than element 0 (see [folderBreadcrumbs]),
+  /// so retaining up to and including it needs one MORE than a naive
+  /// `uiIndex + folderTopPath.length` would give.
+  int breadcrumbPopDepth(int uiIndex) =>
+      uiIndex + folderTopPath.length + (_rootIsImplicit ? 1 : 0);
 
   /// The [FolderScope]s the current Folder-pane selection filters tracks
   /// down to (see [applyFilters]' `folders` parameter): one per
@@ -1547,11 +1588,12 @@ class LibraryModel extends ChangeNotifier {
       // read them is not a reason to refuse to set the folder up.
       var known = <String, core.TrackEntry>{};
       try {
-        known = await runIsolateWithTimeout<Map<String, core.TrackEntry>, String>(
-          _knownEntriesIsolateEntry,
-          root.path,
-          timeout: timeout,
-        );
+        known =
+            await runIsolateWithTimeout<Map<String, core.TrackEntry>, String>(
+              _knownEntriesIsolateEntry,
+              root.path,
+              timeout: timeout,
+            );
       } catch (_) {
         known = <String, core.TrackEntry>{};
       }
@@ -1862,13 +1904,40 @@ class LibraryModel extends ChangeNotifier {
 
   void setPlaylist(String? name) {
     activePlaylist = name;
-    folderPath = [];
+    showingQueue = false;
+    _resetBrowseState();
+    notifyListeners();
+  }
+
+  /// Switches the main content area to the Queue. Leaving it is just
+  /// clicking Library or a playlist -- [setPlaylist] already clears
+  /// [showingQueue], so there is no separate "close" affordance to keep in
+  /// sync with it.
+  void showQueue() {
+    if (showingQueue) return;
+    activePlaylist = null;
+    showingQueue = true;
+    _resetBrowseState();
+    notifyListeners();
+  }
+
+  /// Blanks the Folder/Artist/Album filters and search -- shared by every
+  /// place the main content area switches to a different destination
+  /// ([setPlaylist], [showQueue]), so there is exactly one definition of
+  /// "a clean slate" instead of each caller re-deriving it.
+  ///
+  /// Folder resets to [folderTopPath], not to `[]`: with a single library
+  /// root that empty list IS the bug the rest of this session's Folder-pane
+  /// work fixed -- a `[]` here would put the pane back on "tap the root
+  /// before you see anything" on every trip back to Library, until the next
+  /// unrelated [allTracks] write happened to correct it.
+  void _resetBrowseState() {
+    folderPath = List<String>.of(folderTopPath);
     folderSiblings = {};
     artistFilters = {};
     albumFilters = {};
     search = '';
     _clearSelection();
-    notifyListeners();
   }
 
   /// Reverts sort to the default (dateAdded descending) when the album filter

@@ -136,7 +136,12 @@ void main() {
       expect(find.text('jazz'), findsNothing);
       expect(find.text('Jazz Tune'), findsNothing);
       expect(find.text('First Song'), findsOneWidget);
-      expect(find.text('Lib › rock'), findsOneWidget);
+      // Drilled one level into the sole root: just "rock", not "Lib ›
+      // rock" -- the root's own name is never a segment (see
+      // LibraryModel._rootIsImplicit), the same "don't show Music, just
+      // the folders it contains" rule as the desktop filter panel.
+      expect(find.text('rock'), findsOneWidget);
+      expect(find.text('Lib › rock'), findsNothing);
 
       // Back pops exactly one level -- and that lands at the top, because
       // the root IS the top.

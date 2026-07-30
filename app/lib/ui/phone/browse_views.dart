@@ -70,6 +70,14 @@ class FoldersView extends StatelessWidget {
         // "All ›" is only worth showing when there is an All to go back to.
         final breadcrumbText = listingRoots
             ? 'All folders'
+            : crumbs.isEmpty
+            // The one implicit root's own top: no drilled path, no
+            // sibling selection, so folderBreadcrumbs is empty (its own
+            // name is never a segment -- see LibraryModel._rootIsImplicit).
+            // Blank text would look broken with nothing to explain it, so
+            // this is the one place its name still appears -- as plain
+            // orientation text, not a segment anyone can tap.
+            ? p.basename(library.folderPath.first)
             : ([
                 if (library.folderTopPath.isEmpty) 'All',
                 ...crumbs,

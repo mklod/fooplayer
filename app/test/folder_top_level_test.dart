@@ -131,4 +131,74 @@ void main() {
     );
     expect(lib.folderAtTop, isTrue);
   });
+
+  group('one root: its own name is never a breadcrumb segment', () {
+    // Reported: the Folder filter panel showed "Music" as a header before
+    // ever getting to a real folder -- a place nothing is ever NOT under,
+    // so naming it added a step without adding a choice. Unlike the panel's
+    // TITLE ("FOLDER"), which stays; this is the pinned breadcrumb showing
+    // where inside the root you are.
+    test('at the root, nothing drilled: no segment at all', () {
+      final lib = single();
+      expect(lib.folderPath, ['/Music']);
+      expect(lib.folderBreadcrumbs, isEmpty);
+    });
+
+    test('one level in: just the folder name, not "Music / monthly"', () {
+      final lib = single()..drillIntoFolder('monthly');
+      expect(lib.folderBreadcrumbs, ['monthly']);
+    });
+
+    test('two levels in: still no root name at the front', () {
+      final lib = single()
+        ..drillIntoFolder('monthly')
+        ..drillIntoFolder('2024-01');
+      expect(lib.folderBreadcrumbs, ['monthly', '2024-01']);
+    });
+
+    test('several roots: a root IS a real choice, so its name stays', () {
+      final lib = LibraryModel()
+        ..allTracks = [t('a', 'x.mp3', '/Music'), t('b', 'y.mp3', '/Other')]
+        ..drillIntoFolder('/Music');
+      expect(lib.folderBreadcrumbs, ['Music']);
+    });
+  });
+
+  group('one root: a breadcrumb tap still lands on the segment it named', () {
+    // The offset math has to independently track the same root-name
+    // omission folderBreadcrumbs applies, or a tap lands one level off from
+    // what it visibly named -- this pins that agreement directly, rather
+    // than trusting the two to happen to stay in sync.
+    test('tapping the only segment, one level in, keeps the root', () {
+      final lib = single()..drillIntoFolder('monthly');
+      expect(lib.folderBreadcrumbs, ['monthly']);
+      lib.popFolderTo(lib.breadcrumbPopDepth(0));
+      expect(lib.folderPath, ['/Music', 'monthly']);
+    });
+
+    test('tapping the first of two segments keeps root + that segment', () {
+      final lib = single()
+        ..drillIntoFolder('monthly')
+        ..drillIntoFolder('2024-01');
+      expect(lib.folderBreadcrumbs, ['monthly', '2024-01']);
+      lib.popFolderTo(lib.breadcrumbPopDepth(0));
+      expect(lib.folderPath, ['/Music', 'monthly']);
+    });
+
+    test('several roots: uiIndex 0 is the UI-prepended "All"', () {
+      final lib = LibraryModel()
+        ..allTracks = [t('a', 'x.mp3', '/Music'), t('b', 'y.mp3', '/Other')]
+        ..drillIntoFolder('/Music')
+        ..drillIntoFolder('sub');
+      // headerSegments = ['All', ...folderBreadcrumbs] here -- 'All' is
+      // uiIndex 0, folderBreadcrumbs[0] ('Music') is uiIndex 1.
+      expect(lib.folderBreadcrumbs, ['Music', 'sub']);
+      lib.popFolderTo(lib.breadcrumbPopDepth(0));
+      expect(lib.folderPath, isEmpty, reason: '"All" resets to the root list');
+      lib.drillIntoFolder('/Music');
+      lib.drillIntoFolder('sub');
+      lib.popFolderTo(lib.breadcrumbPopDepth(1));
+      expect(lib.folderPath, ['/Music']);
+    });
+  });
 }

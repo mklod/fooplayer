@@ -2,15 +2,34 @@ import '../model/track.dart';
 
 /// What is playing and what is lined up behind it.
 ///
-/// The queue is editable -- a scratch playlist you build as you go. Two
-/// orders are tracked: [_queue] is the play order, [_original] the order to
-/// return to when shuffle is switched off. Anything added has to land in both
-/// or it would vanish the moment shuffle was toggled.
+/// Two different things share this one mechanism, and telling them apart is
+/// the whole point of [hasExplicitQueue]:
+///
+/// - A normal play (double-click / tap) sets up a "faux queue" -- ordinary
+///   music player behaviour, continuing through whatever list was clicked
+///   into (the library as currently filtered and sorted, an album, a
+///   playlist -- shuffled or not per [shuffle]). This is NOT something the
+///   user built and must never be presented as though it were.
+/// - The moment the user right-clicks "Play next" / "Add to queue" -- an
+///   explicit act -- that faux continuation is DISCARDED down to just what
+///   is currently playing, and from then on this becomes a real, small,
+///   user-built scratch playlist: the one thing the Queue view shows.
+///
+/// Two orders are tracked: [_queue] is the play order, [_original] the order
+/// to return to when shuffle is switched off. Anything added has to land in
+/// both or it would vanish the moment shuffle was toggled.
 class QueueController {
   List<Track> _original = [];
   List<Track> _queue = [];
   int _index = -1;
   bool shuffle = false;
+
+  /// Whether [_queue] is the user's own scratch playlist rather than the
+  /// automatic continuation [setQueue] sets up on every normal play. See the
+  /// class doc -- this is what stops "Add to queue" on a track being browsed
+  /// from the whole (possibly thousands-of-tracks) filtered library view
+  /// from silently inheriting that whole view as "the queue".
+  bool hasExplicitQueue = false;
 
   List<Track> get queue => List.unmodifiable(_queue);
   int get index => _index;
@@ -21,11 +40,16 @@ class QueueController {
   List<Track> get upcoming =>
       _index + 1 >= _queue.length ? const [] : _queue.sublist(_index + 1);
 
+  /// Starts the faux queue: continuous play through [tracks] from
+  /// [startIndex], the ordinary "keep playing whatever list I clicked into"
+  /// behaviour. Ends any explicit scratch playlist the user had built --
+  /// a fresh normal play is a fresh browsing session, not an addition to it.
   void setQueue(List<Track> tracks, int startIndex) {
     _original = List.of(tracks);
     _queue = List.of(tracks);
     _index = startIndex;
     shuffle = false;
+    hasExplicitQueue = false;
   }
 
   /// Puts [tracks] immediately after the current track, in the order given.
@@ -37,8 +61,10 @@ class QueueController {
     if (add.isEmpty) return;
     if (_index < 0 || _queue.isEmpty) {
       setQueue(add, 0);
+      hasExplicitQueue = true;
       return;
     }
+    _collapseToExplicitQueue();
     _queue.insertAll(_index + 1, add);
     // Mirror into the un-shuffled order so an unshuffle keeps them. Position
     // is by the current track, which is the only anchor both lists share.
@@ -52,10 +78,31 @@ class QueueController {
     if (add.isEmpty) return;
     if (_index < 0 || _queue.isEmpty) {
       setQueue(add, 0);
+      hasExplicitQueue = true;
       return;
     }
+    _collapseToExplicitQueue();
     _queue.addAll(add);
     _original.addAll(add);
+  }
+
+  /// The first explicit queue action since a normal play discards whatever
+  /// faux-queue continuation was sitting in [_queue] beyond the current
+  /// track, keeping only what is actually playing. Without this, "Add to
+  /// queue" on one track while browsing the whole library would silently
+  /// inherit however many thousand tracks were in that filtered view --
+  /// exactly the bug reported ("appending lands at position 5,471").
+  ///
+  /// A no-op once [hasExplicitQueue] is already true: the second and later
+  /// additions in the same scratch playlist build on it normally.
+  void _collapseToExplicitQueue() {
+    if (hasExplicitQueue) return;
+    hasExplicitQueue = true;
+    final cur = current;
+    if (cur == null) return;
+    _queue = [cur];
+    _original = [cur];
+    _index = 0;
   }
 
   /// Drops the entry at [i] from the queue.
