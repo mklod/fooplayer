@@ -55,28 +55,39 @@ LibraryModel fixtureLibrary() {
   return m;
 }
 
-Future<PlayerService> pumpHome(WidgetTester tester, LibraryModel lib) async {
-  final player = PlayerService();
+Future<PlayerService> pumpHome(
+  WidgetTester tester,
+  LibraryModel lib, {
+  PlayerService? player,
+}) async {
+  final p = player ?? PlayerService();
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
       home: HomeScreen(
         library: lib,
-        player: player,
+        player: p,
         layoutPrefs: LayoutPrefs(),
         libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
       ),
     ),
   );
-  return player;
+  return p;
 }
 
 /// Starts [tracks[0]] "playing" the way a normal double-click would --
 /// straight on the controller, never through PlayerService.playFrom, which
 /// would try to construct a real (native-backed) media_kit Player. Widget
 /// tests must never do that.
+///
+/// Seeds the WHOLE list, not just the first track: a real double-click
+/// hands the faux queue the entire filtered/sorted library view, so
+/// `upcoming` is non-empty from the start. A single-track seed would let
+/// a gate that checks only `upcoming.isNotEmpty` (forgetting
+/// `hasExplicitQueue`) pass by accident -- exactly the bug this file
+/// exists to catch.
 void seedNowPlaying(PlayerService player, List<Track> tracks) {
-  player.queueController.setQueue([tracks.first], 0);
+  player.queueController.setQueue(tracks, 0);
 }
 
 void main() {
@@ -92,9 +103,14 @@ void main() {
     'that is the faux queue, and it needs no panel of its own',
     (tester) async {
       final lib = fixtureLibrary();
-      final player = await pumpHome(tester, lib);
+      // Seeded BEFORE the first build (not via a post-build tester.pump()):
+      // seedNowPlaying mutates the controller directly, without going
+      // through PlayerService, so it never calls notifyListeners -- a
+      // pump() after the fact would rebuild nothing and this assertion
+      // would pass vacuously against the pre-seed (also tile-less) state.
+      final player = PlayerService();
       seedNowPlaying(player, lib.allTracks);
-      await tester.pump();
+      await pumpHome(tester, lib, player: player);
 
       expect(find.byKey(const Key('queue-open')), findsNothing);
     },

@@ -8,13 +8,28 @@
 // desktop behind a sidebar entry; neither needs its own copy of "drag to
 // reorder, swipe or tap to remove, tap to jump".
 //
-// Last modified: 2026-07-29--0110
+// Rows carry a cover thumbnail now -- "formatted like any other playlist,
+// with art showing". Same [AlbumArt] widget and the same 36px size the
+// playlist view's Song cell uses (track_list.dart's _SongCell), so a track
+// looks like the same track whichever list it is seen in.
+//
+// Last modified: 2026-07-30--0200
+
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 
+import '../artwork/artwork_resolver.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
+import 'now_playing_bar.dart' show AlbumArt;
+
+/// Matches track_list.dart's _kPlaylistArtSize -- not shared directly (that
+/// one is private to the playlist table), but the same 36px so a cover reads
+/// as the same size in both lists.
+const double _kQueueArtSize = 36;
 
 class QueueView extends StatelessWidget {
   final PlayerService player;
@@ -23,7 +38,18 @@ class QueueView extends StatelessWidget {
   /// heading and a Clear action. The phone gets those from its AppBar.
   final bool showHeader;
 
-  const QueueView({super.key, required this.player, this.showHeader = false});
+  /// Resolves each row's cover the same way the playlist and library views
+  /// do -- embedded art, a sidecar pick, a sibling file. Null falls back to
+  /// [AlbumArt]'s own embedded-only path (widget tests that build this
+  /// without one, or a host that has not wired Plan 4).
+  final ArtworkResolver? artworkResolver;
+
+  const QueueView({
+    super.key,
+    required this.player,
+    this.showHeader = false,
+    this.artworkResolver,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -103,16 +129,33 @@ class QueueView extends StatelessWidget {
       key: ValueKey('queue-row-${track.contentId}-$i'),
       dense: true,
       selected: isCurrent,
-      leading: isCurrent
-          ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
-          : ReorderableDragStartListener(
-              index: i,
-              child: const Icon(
-                Icons.drag_handle,
-                size: 18,
-                color: AppColors.inkSecondary,
-              ),
-            ),
+      // The playing icon / drag handle stays where it was -- small, at the
+      // very edge, the thing you grab or the thing that says "this one" --
+      // with the cover it now introduces alongside it, same as a playlist
+      // row's leading Song cell.
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          isCurrent
+              ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
+              : ReorderableDragStartListener(
+                  index: i,
+                  child: const Icon(
+                    Icons.drag_handle,
+                    size: 18,
+                    color: AppColors.inkSecondary,
+                  ),
+                ),
+          const SizedBox(width: 8),
+          AlbumArt(
+            contentId: track.contentId,
+            file: File(p.join(track.rootPath, track.relPath)),
+            size: _kQueueArtSize,
+            resolver: artworkResolver,
+            track: track,
+          ),
+        ],
+      ),
       title: Text(
         track.title,
         maxLines: 1,
