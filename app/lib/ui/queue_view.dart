@@ -8,28 +8,51 @@
 // desktop behind a sidebar entry; neither needs its own copy of "drag to
 // reorder, swipe or tap to remove, tap to jump".
 //
-// Rows carry a cover thumbnail now -- "formatted like any other playlist,
-// with art showing". Same [AlbumArt] widget and the same 36px size the
-// playlist view's Song cell uses (track_list.dart's _SongCell), so a track
-// looks like the same track whichever list it is seen in.
+// Rows use the SAME # / Song / Album / Time grid as the playlist view --
+// [SongCell] and [PlainHeaderLabel] straight from track_list.dart, not a
+// look-alike copy. Reported live: "the cue does not match the playlist
+// view... if you create a playlist, the formatting is different from the
+// cue formatting" -- an earlier pass added the cover thumbnail but kept a
+// bespoke ListTile shape (no #, no Album, no Time, no column header), which
+// is exactly the mismatch a screenshot comparison caught. The leading #
+// column carries a play/drag icon instead of a position number (the queue
+// has no stable curated order worth numbering), and a remove button sits
+// past Time -- the queue's own chrome, which a static playlist doesn't need
+// inline. Every row still reserves that column's width even on the current
+// row (which has no remove button), so every row's Album/Time line up.
 //
-// Last modified: 2026-07-30--0200
-
-import 'dart:io';
+// Last modified: 2026-07-30--0201
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 
 import '../artwork/artwork_resolver.dart';
 import '../model/track.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
-import 'now_playing_bar.dart' show AlbumArt;
+import 'track_list.dart' show PlainHeaderLabel, SongCell;
 
-/// Matches track_list.dart's _kPlaylistArtSize -- not shared directly (that
-/// one is private to the playlist table), but the same 36px so a cover reads
-/// as the same size in both lists.
-const double _kQueueArtSize = 36;
+// Mirrors track_list.dart's private playlist-row constants (_kPlaylistArtSize
+// via SongCell, _kTrackNumberColumnWidth, _kDurationColumnWidth,
+// _kTitleArtistFlex, _kAlbumFlex, _kRowTextStyle) -- not shared directly
+// (those stay private, see track_list.dart's note above PlainHeaderLabel),
+// but the same values so a Queue row lines up column-for-column with a
+// playlist row.
+const double _kLeadingColumnWidth = 36;
+const double _kDurationColumnWidth = 44;
+const double _kRemoveColumnWidth = 32;
+const int _kSongFlex = 5;
+const int _kAlbumFlex = 2;
+const _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
+
+/// Matches track_list.dart's private `_fmtDuration` -- foobar-style `m:ss`,
+/// blank when the duration isn't known yet.
+String _fmtDuration(int? ms) {
+  if (ms == null) return '';
+  final totalSeconds = ms ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
 
 class QueueView extends StatelessWidget {
   final PlayerService player;
@@ -40,7 +63,7 @@ class QueueView extends StatelessWidget {
 
   /// Resolves each row's cover the same way the playlist and library views
   /// do -- embedded art, a sidecar pick, a sibling file. Null falls back to
-  /// [AlbumArt]'s own embedded-only path (widget tests that build this
+  /// [SongCell]'s own embedded-only path (widget tests that build this
   /// without one, or a host that has not wired Plan 4).
   final ArtworkResolver? artworkResolver;
 
@@ -78,6 +101,7 @@ class QueueView extends StatelessWidget {
         return Column(
           children: [
             if (showHeader) _header(context, queue.length, current),
+            _columnHeader(),
             Expanded(
               child: ReorderableListView.builder(
                 key: const Key('queue-list'),
@@ -124,70 +148,123 @@ class QueueView extends StatelessWidget {
     );
   }
 
-  Widget _row(BuildContext context, Track track, int i, bool isCurrent) {
-    return ListTile(
-      key: ValueKey('queue-row-${track.contentId}-$i'),
-      dense: true,
-      selected: isCurrent,
-      // The playing icon / drag handle stays where it was -- small, at the
-      // very edge, the thing you grab or the thing that says "this one" --
-      // with the cover it now introduces alongside it, same as a playlist
-      // row's leading Song cell.
-      leading: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          isCurrent
-              ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
-              : ReorderableDragStartListener(
-                  index: i,
-                  child: const Icon(
-                    Icons.drag_handle,
-                    size: 18,
-                    color: AppColors.inkSecondary,
-                  ),
-                ),
-          const SizedBox(width: 8),
-          AlbumArt(
-            contentId: track.contentId,
-            file: File(p.join(track.rootPath, track.relPath)),
-            size: _kQueueArtSize,
-            resolver: artworkResolver,
-            track: track,
-          ),
-        ],
+  /// The playlist view's own #/Song/Album/Time header row (same
+  /// [PlainHeaderLabel] typography), so the table beneath it reads as the
+  /// same kind of table. The trailing gap matches [_kRemoveColumnWidth] so
+  /// Time stays aligned with the rows below it, which reserve that width for
+  /// the remove button.
+  Widget _columnHeader() {
+    return const DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.hairline)),
       ),
-      title: Text(
-        track.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 13,
-          fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
-          color: isCurrent ? AppColors.accent : AppColors.ink,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Row(
+          children: [
+            SizedBox(
+              width: _kLeadingColumnWidth,
+              child: PlainHeaderLabel(label: '#'),
+            ),
+            Expanded(flex: _kSongFlex, child: PlainHeaderLabel(label: 'Song')),
+            Expanded(
+              flex: _kAlbumFlex,
+              child: PlainHeaderLabel(label: 'Album'),
+            ),
+            SizedBox(width: 8),
+            SizedBox(
+              width: _kDurationColumnWidth,
+              child: PlainHeaderLabel(label: 'Time', alignEnd: true),
+            ),
+            SizedBox(width: _kRemoveColumnWidth),
+          ],
         ),
       ),
-      subtitle: track.artist.isEmpty
-          ? null
-          : Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                color: AppColors.inkSecondary,
-              ),
+    );
+  }
+
+  Widget _row(BuildContext context, Track track, int i, bool isCurrent) {
+    // The playing icon / drag handle stands in for the playlist's # -- the
+    // queue has no stable curated position worth numbering, but the column
+    // still carries a row identifier, left-aligned the same way # is.
+    final leading = isCurrent
+        ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
+        : ReorderableDragStartListener(
+            index: i,
+            child: const Icon(
+              Icons.drag_handle,
+              size: 18,
+              color: AppColors.inkSecondary,
             ),
-      // No remove on the playing row: the audio would carry on regardless,
-      // so the list would name one track while another was audible.
-      trailing: isCurrent
-          ? null
-          : IconButton(
-              key: Key('queue-remove-$i'),
-              icon: const Icon(Icons.close, size: 16),
-              tooltip: 'Remove from queue',
-              onPressed: () => player.removeFromQueue(i),
-            ),
+          );
+
+    return InkWell(
+      key: ValueKey('queue-row-${track.contentId}-$i'),
       onTap: () => player.playQueueIndex(i),
+      splashFactory: NoSplash.splashFactory,
+      hoverColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isCurrent ? AppColors.selectionFill : Colors.transparent,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: Row(
+            children: [
+              SizedBox(
+                width: _kLeadingColumnWidth,
+                child: Align(alignment: Alignment.centerLeft, child: leading),
+              ),
+              Expanded(
+                flex: _kSongFlex,
+                child: SongCell(
+                  track: track,
+                  isCurrent: isCurrent,
+                  resolver: artworkResolver,
+                ),
+              ),
+              Expanded(
+                flex: _kAlbumFlex,
+                child: Text(
+                  track.album,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _kRowTextStyle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: _kDurationColumnWidth,
+                child: Text(
+                  _fmtDuration(track.durationMs),
+                  textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _kRowTextStyle,
+                ),
+              ),
+              SizedBox(
+                width: _kRemoveColumnWidth,
+                // No remove on the playing row: the audio would carry on
+                // regardless, so the list would name one track while
+                // another was audible. The slot stays reserved either way
+                // so every row's Album/Time columns stay aligned.
+                child: isCurrent
+                    ? null
+                    : IconButton(
+                        key: Key('queue-remove-$i'),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        icon: const Icon(Icons.close, size: 16),
+                        tooltip: 'Remove from queue',
+                        onPressed: () => player.removeFromQueue(i),
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
