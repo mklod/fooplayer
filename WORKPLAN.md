@@ -48,16 +48,10 @@
    a hand-rolled eight-file precedent: the tablet was seeded with tracks whose
    content IDs and download dates were carried across from the NAS manifest,
    which is exactly what this has to do at scale.
-2. **Queue semantics — needs a decision.** "Add to queue" is close to
-   meaningless today because double-clicking a track sets the queue to the
-   ENTIRE visible library, so appending lands at position 5,471. Options: drop
-   the second action; make double-click queue less than everything; or make
-   "add to queue" mean "after the things I have explicitly queued". See the
-   session notes.
-3. **A vector app icon.** The source art is 96x96 with the note occupying
+2. **A vector app icon.** The source art is 96x96 with the note occupying
    72x76 pixels, so every asset is upscaled from that and the Android 12
    splash cannot be made genuinely crisp without a redraw.
-4. **The second collection** outside the roots — `albums [no scrape]`,
+3. **The second collection** outside the roots — `albums [no scrape]`,
    `iTunes`, `xmas`, `_to dl`. Still untouched, which is what made the 2007-11
    Rehab date recovery possible. Mike's call whether any of it joins.
 
@@ -153,7 +147,9 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 
 ## Decision gates (Mike only)
 
-- **Queue semantics** — see "Next" above; three reasonable answers and no obvious default.
+- ~~**Queue semantics**~~ — settled 2026-07-29: "Play next" IS "add to the
+  queue, at the front", so it is a single-track action; a multi-selection gets
+  "Add to queue" alone.
 - **Vector icon redraw** — would change the artwork, so it wants a yes.
 
 - ~~**File-dates fix**~~ — **done 2026-07-28**, all roots (option 1 + per-album placement; see the writeup's Outcome section and [docs/albums-date-recovery.md](docs/albums-date-recovery.md)). Independently re-verified: 5,553/5,553 files match their manifest date.
@@ -169,8 +165,6 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 - `visibleTracks` memoization (recomputes per player tick); gear-tap integration test; multi-format tagged-file fixtures (package-upgrade protection)
 - Duration re-check on retag (the deeper probe landed 2026-07-28: header-only
   estimator on every give-up path, stacked-tag aware)
-- `AB2G Cygnus.mp3` has no ID3 tag at all, so it shows no artist. Nothing to
-  read — a candidate for the metadata-repair feature rather than a bug
 - A second, larger collection sits OUTSIDE the configured roots:
   `albums [no scrape]`, `iTunes`, `xmas`, `_to dl`. Untouched by any of this
   work (which is what made the Rehab date recovery possible). Decide whether

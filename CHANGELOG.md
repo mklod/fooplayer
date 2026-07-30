@@ -6,6 +6,52 @@
 > [!tip] Queued for next build
 > - _(empty)_
 
+## Build 2026-07-29--1810
+
+### Changes
+
+- **Multi-select now offers only "Add to queue".** Both items are the same
+  operation — put these in the queue — differing only in where: directly after
+  what is playing, or at the end. That distinction is real for one track and
+  vacuous for ten, because ten songs can't all play next. So on a selection the
+  menu was showing two names for one action with nothing to choose between
+  them. A single row still gets both. Right-clicking outside the selection
+  collapses it to that row, so "Play next" comes back.
+
+> [!warning] Testing Checklist
+> - [ ] Select 10 rows, right-click → only "Add to queue (10 tracks)"
+>   - Notes:
+> - [ ] Right-click a single row → both "Play next" and "Add to queue"
+>   - Notes:
+
+## Build 2026-07-29--1715
+
+### Changes
+
+- **Scrolling the library selected a track on every flick.** Selection fired
+  on pointer DOWN — right for a mouse (Explorer and foobar2000 both do it, and
+  it is what removed a 300ms double-click-window stutter), but every finger
+  flick begins with a pointer-down on whatever row is under the finger. So
+  browsing constantly changed the selection, and with it the sidebar's cover
+  preview.
+  A finger now selects on LIFT, and only if it stayed within `kTouchSlop` —
+  the same threshold the enclosing scrollable uses to decide it is being
+  dragged, so "the list would have scrolled" and "that was not a tap" are the
+  same question by construction. **A distance test rather than a timed pause**:
+  a deliberate tap still selects the instant the finger lifts, with no hold to
+  sit through. A mouse is untouched — still selects on press.
+
+> [!warning] Testing Checklist
+> - [ ] Tablet: flick through the library — nothing gets selected, no cover
+>       appears in the sidebar
+>   - Notes:
+> - [ ] Tablet: tap a row — it selects immediately, cover appears
+>   - Notes:
+> - [ ] Tablet: double-tap still plays; long-press still opens the menu
+>   - Notes:
+> - [ ] Desktop: click still selects the moment the button goes down
+>   - Notes:
+
 ## Build 2026-07-29--1640
 
 ### Changes
