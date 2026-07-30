@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Android 12 replaced the old windowBackground splash with a system
-         one that draws the LAUNCHER icon, scaled up. Ours is upscaled from
-         96px of source art, so that scaling is what made the splash look
-         soft and aliased. Pointing the splash at its own asset, generated at
-         192dp for every density, at least stops the system enlarging a
-         small bitmap. -->
+         one that draws the LAUNCHER icon, scaled up to 288dp. That is why the
+         splash used to look soft: the icon was upscaled from 96px of source
+         art, so the system was enlarging a 76px note by nearly 4x. Density
+         PNGs only moved the resampling around.
+
+         @drawable/splash_icon is a VectorDrawable now (see tools/build_icon.py),
+         so there is nothing to enlarge — the system rasterises it at whatever
+         size it wants. Its viewport is sized so the note fills the same 62% of
+         the canvas the old PNGs did, so this changed sharpness, not size. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>

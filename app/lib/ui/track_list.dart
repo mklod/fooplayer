@@ -1107,6 +1107,11 @@ enum _TrackMenuAction {
 ///   always single-target (opening N Explorer windows for a multi-selection
 ///   would be nonsensical), labelled "(this track)" when a wider selection
 ///   is active so that's unambiguous;
+/// - "Play next" and "Add to queue" are both "put this in the queue"; the
+///   first puts it directly after what is playing, the second at the end.
+///   "Play next" is therefore offered for a SINGLE track only -- ten selected
+///   songs cannot all play next, so on a selection the two items were two
+///   names for one action;
 /// - "Add to playlist" opens a follow-up menu (a poor-man's submenu, shown
 ///   at the same anchor) listing every merged playlist plus "New
 ///   playlist..." and adds every selected track -- see
@@ -1177,10 +1182,16 @@ Future<void> _showTrackContextMenu({
             multi ? 'Album artwork... (this track)' : 'Album artwork...',
           ),
         ),
-      PopupMenuItem(
-        value: _TrackMenuAction.playNext,
-        child: Text(multi ? 'Play next ($n tracks)' : 'Play next'),
-      ),
+      // "Play next" IS "add to the queue, at the front" -- and that only
+      // means something for one track. Ten songs cannot all play next, so
+      // offering it alongside "Add to queue" for a selection was two names
+      // for the same thing with no way to tell them apart. A multi-selection
+      // gets the one action that reads true.
+      if (!multi)
+        const PopupMenuItem(
+          value: _TrackMenuAction.playNext,
+          child: Text('Play next'),
+        ),
       PopupMenuItem(
         value: _TrackMenuAction.addToQueue,
         child: Text(multi ? 'Add to queue ($n tracks)' : 'Add to queue'),
