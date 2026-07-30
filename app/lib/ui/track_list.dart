@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/gestures.dart' show kPrimaryButton;
+import 'package:flutter/gestures.dart'
+    show PointerDeviceKind, kPrimaryButton, kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -663,13 +664,16 @@ class _HeaderCellState extends State<_HeaderCell> {
 /// Time and Date.
 ///
 /// Click/selection model: single click selects only ([onSelect]); double
-/// click plays (and selects) via [onPlay]; right click opens a context menu
-/// (see [_showTrackContextMenu]) with a "View in folder" item that invokes
-/// [launchExplorer]. [isCurrent] (playing) and [isSelected] are independent
-/// -- a row can be both, either, or neither, each with its own highlight:
-/// playing keeps the accent title treatment, selected gets the
-/// [AppColors.selectionFill] row background.
-class _TrackRow extends StatelessWidget {
+/// click plays (and selects) via [onPlay]; right click (or a long press)
+/// opens a context menu (see [_showTrackContextMenu]) with a "View in
+/// folder" item that invokes [launchExplorer]. [isCurrent] (playing) and
+/// [isSelected] are independent -- a row can be both, either, or neither,
+/// each with its own highlight: playing keeps the accent title treatment,
+/// selected gets the [AppColors.selectionFill] row background.
+///
+/// Stateful only to remember where a finger went down, which is what
+/// separates a tap from a scroll -- see [_TrackRowState._handleUp].
+class _TrackRow extends StatefulWidget {
   final Track track;
   final bool isCurrent;
   final bool isSelected;
@@ -728,21 +732,86 @@ class _TrackRow extends StatelessWidget {
   });
 
   @override
+  State<_TrackRow> createState() => _TrackRowState();
+}
+
+class _TrackRowState extends State<_TrackRow> {
+  /// Where the current press started, and whether it has since travelled far
+  /// enough to be a scroll rather than a tap. Null between gestures.
+  Offset? _downAt;
+  bool _dragged = false;
+
+  void _handleDown(PointerDownEvent event) {
+    if (event.buttons != kPrimaryButton) return;
+    _downAt = event.position;
+    _dragged = false;
+    // A MOUSE still selects on press: that is Explorer/foobar behavior, and
+    // it is what keeps selection instant. It used to hang off InkWell.onTap,
+    // which Flutter withholds for the whole kDoubleTapTimeout window
+    // (~300ms) while it decides whether a second tap is coming -- so the row
+    // sat unhighlighted long enough to read as a stutter. Measured at library
+    // scale, the model work behind a selection is ~5ms, so that wait WAS the
+    // lag.
+    if (event.kind != PointerDeviceKind.touch) widget.onSelect();
+  }
+
+  void _handleMove(PointerMoveEvent event) {
+    final downAt = _downAt;
+    if (downAt == null || _dragged) return;
+    if ((event.position - downAt).distance > kTouchSlop) _dragged = true;
+  }
+
+  /// A finger selects on LIFT, and only if it stayed put.
+  ///
+  /// Selecting on press is right for a mouse and wrong for a touchscreen:
+  /// every flick to scroll the library begins with a pointer-down on whatever
+  /// row happens to be under the finger, so scrolling selected a track
+  /// constantly -- and each one redrew the sidebar's cover preview.
+  ///
+  /// The test is distance, not time. [kTouchSlop] is the same threshold the
+  /// enclosing scrollable uses to decide it is being dragged, so "the list
+  /// would have scrolled" and "this was not a tap" are by construction the
+  /// same question. A deliberate tap therefore still selects the instant the
+  /// finger lifts, with no hold to wait out -- better than a timed pause,
+  /// which would have made every real tap feel sticky.
+  void _handleUp(PointerUpEvent event) {
+    final downAt = _downAt;
+    final dragged = _dragged;
+    _downAt = null;
+    if (downAt == null) return;
+    if (event.kind != PointerDeviceKind.touch) return; // selected on press
+    if (dragged) return; // that was a scroll
+    widget.onSelect();
+  }
+
+  // Plain-named forwards, so the cell builders below read the same as they
+  // did when this was a StatelessWidget.
+  Track get track => widget.track;
+  bool get isCurrent => widget.isCurrent;
+  bool get isSelected => widget.isSelected;
+  VoidCallback get onPlay => widget.onPlay;
+  void Function(Track) get launchExplorer => widget.launchExplorer;
+  LibraryModel get library => widget.library;
+  PlaylistStore get playlistStore => widget.playlistStore;
+  ArtworkServices? get artwork => widget.artwork;
+  ArtworkResolver? get artworkResolver => widget.artworkResolver;
+  TagSearch? get tagSearch => widget.tagSearch;
+  PlayerService? get queuePlayer => widget.queuePlayer;
+  ActivityModel? get activity => widget.activity;
+  bool get showTrackNumber => widget.showTrackNumber;
+  String? get trackNumberText => widget.trackNumberText;
+  bool get playlistMode => widget.playlistMode;
+  bool get hasArtwork => widget.hasArtwork;
+
+  @override
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      // Selection fires on pointer DOWN, the way Explorer and foobar2000
-      // behave. It used to hang off InkWell.onTap, which Flutter withholds
-      // for the whole kDoubleTapTimeout window (~300ms) while it decides
-      // whether a second tap is coming -- so the row sat unhighlighted long
-      // enough to read as a stutter. Measured at library scale, the model
-      // work behind a selection is ~5ms total, so that wait WAS the lag.
-      // Double-click-to-play is unaffected: the first press selects, the
-      // second completes the double tap.
       child: Listener(
-        onPointerDown: (event) {
-          if (event.buttons == kPrimaryButton) onSelect();
-        },
+        onPointerDown: _handleDown,
+        onPointerMove: _handleMove,
+        onPointerUp: _handleUp,
+        onPointerCancel: (_) => _downAt = null,
         // A finger has no right button, so on a tablet the row menu hangs off
         // a long press instead. onLongPressStart rather than InkWell's
         // onLongPress because the menu has to open *at* the row -- and the
