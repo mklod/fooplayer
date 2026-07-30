@@ -106,6 +106,60 @@ void main() {
       expect(find.byType(CircularProgressIndicator), findsNothing);
     });
 
+    testWidgets(
+      'while the Queue is showing, the footer counts the queue -- not the '
+      'library view left behind underneath it. Reported live: "I\'m in a '
+      'queue of two songs, and the bottom status bar says 2,548 tracks"',
+      (tester) async {
+        final library = LibraryModel()
+          ..allTracks = [
+            for (var i = 0; i < 2548; i++)
+              Track(
+                contentId: '$i',
+                relPath: '$i.mp3',
+                rootPath: r'L:\M',
+                dateAdded: DateTime.utc(2026),
+                title: 'T$i',
+                artist: 'A',
+              ),
+          ]
+          ..showQueue();
+        final player = PlayerService()
+          ..queueController.setQueue([
+            Track(
+              contentId: 'a',
+              relPath: 'a.mp3',
+              dateAdded: DateTime.utc(2024),
+              title: 'Misbehave',
+              artist: 'Aluna & SIDEPIECE',
+            ),
+            Track(
+              contentId: 'b',
+              relPath: 'b.mp3',
+              dateAdded: DateTime.utc(2024),
+              title: 'Like It Or Not',
+              artist: 'Bob Moses',
+            ),
+          ], 0);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(),
+            home: Scaffold(
+              body: ActivityBar(
+                activity: ActivityModel(),
+                library: library,
+                player: player,
+              ),
+            ),
+          ),
+        );
+
+        expect(find.text('2 tracks'), findsOneWidget);
+        expect(find.text('2,548 tracks'), findsNothing);
+      },
+    );
+
     testWidgets('appears with the label, and a determinate bar once counted', (
       tester,
     ) async {
