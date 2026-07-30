@@ -173,7 +173,10 @@ class _PhoneShellState extends State<PhoneShell> {
     final override = widget.viewBuilders[_view];
     if (override != null) return override(context);
     if (_view == PhoneView.queue) {
-      return QueueView(player: widget.player);
+      return QueueView(
+        player: widget.player,
+        artworkResolver: widget.artworkResolver,
+      );
     }
     if (_view == PhoneView.library) {
       return PhoneFeedView(

@@ -161,7 +161,11 @@ class HomeScreen extends StatelessWidget {
                         child: ListenableBuilder(
                           listenable: library,
                           builder: (context, _) => library.showingQueue
-                              ? QueueView(player: player, showHeader: true)
+                              ? QueueView(
+                                  player: player,
+                                  showHeader: true,
+                                  artworkResolver: artworkResolver,
+                                )
                               : Column(
                                   children: [
                                     Padding(
@@ -676,7 +680,8 @@ class _SidebarState extends State<_Sidebar> {
                 // own, and showing this entry for it would be exactly the
                 // "queue full of the whole library" bug restated as a menu
                 // item.
-                if (widget.player.queueController.upcoming.isNotEmpty)
+                if (widget.player.queueController.hasExplicitQueue &&
+                    widget.player.queueController.upcoming.isNotEmpty)
                   ListTile(
                     key: const Key('queue-open'),
                     leading: const Icon(Icons.playlist_play, size: 18),

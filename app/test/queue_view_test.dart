@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/now_playing_bar.dart' show AlbumArt;
 import 'package:fooplayer_app/ui/queue_view.dart';
 
 Track _t(String id, {String title = '', String artist = 'An Artist'}) => Track(
@@ -124,6 +125,23 @@ void main() {
     );
     expect(button.onPressed, isNull);
   });
+
+  testWidgets(
+    'every row carries a cover, the same widget the playlist view uses',
+    (tester) async {
+      final p = _FakePlayer()
+        ..queueController.setQueue([_t('a'), _t('b'), _t('c')], 0);
+      await _pump(tester, p);
+
+      expect(
+        find.byType(AlbumArt),
+        findsNWidgets(3),
+        reason:
+            '"formatted like any other playlist, with art showing" -- one '
+            'cover per row',
+      );
+    },
+  );
 
   testWidgets('the view follows the queue as it changes', (tester) async {
     final p = _FakePlayer()..queueController.setQueue([_t('a')], 0);
