@@ -4,7 +4,25 @@
 
 ## TODO
 > [!tip] Queued for next build
-> - _(empty)_
+> - **Tag lookup must prefer the ORIGINAL release over later compilations.**
+>   A 1970s track should not have a ca. 2000s Various-Artists mixtape or
+>   collection promoted over the album it actually came from — and the album
+>   decides the artwork query, so a wrong album also costs the good cover.
+>   Two concrete problems in `metadata/tag_scoring.dart` + `tag_providers.dart`:
+>   1. **Nothing currently distinguishes releases at all.** Every release of a
+>      recording gets identical title (40) / artist (30) / duration (20)
+>      scores, because those fields are per-recording. So which release wins is
+>      decided by the 10-point album term alone, or arbitrarily.
+>   2. **That album term rewards agreeing with the tag being corrected.** It
+>      scores the candidate album against the file's *current* album — so on a
+>      file whose album is wrong, the closest match to the wrong value wins.
+>      Backwards for the one job it has.
+>   Fix: add a release-preference term fed by data MusicBrainz already has but
+>   the query does not ask for (`inc=releases+release-groups`) — penalise
+>   `secondary-types` of Compilation / DJ-mix / Mixtape+Street / Live / Remix,
+>   penalise a release credited to Various Artists, and reward a release date
+>   equal to the release-group's `first-release-date` (that is what "original"
+>   means). Then stop scoring album against the existing tag.
 
 ## Build 2026-07-29--2230
 

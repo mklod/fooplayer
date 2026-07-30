@@ -161,6 +161,15 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
 
 ## Backlog (deferred minors, triaged non-blocking)
 
+- **Tag lookup ranks releases badly** (raised 2026-07-29, queued in CHANGELOG's
+  TODO): every release of a recording scores identically on title/artist/
+  duration, so the original album and a later Various-Artists compilation are
+  indistinguishable to the matcher — and the 10-point album term breaks the tie
+  by similarity to the *current, wrong* tag. Needs a release-preference term
+  (`secondary-types`, Various-Artists credit, `first-release-date`) and the
+  album term decoupled from the existing tag. Matters for artwork too: the
+  chosen album is what the cover lookup queries.
+
 - "NN." dot-prefix track-number parse ("01. Gorilla Zoe")
 - Fuzzy title matching for the 26 unmatched "alternative times" playlist lines
 - Missing-file tracks not hidden from the feed (spec line-item; rescan's diff already knows)
