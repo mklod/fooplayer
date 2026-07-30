@@ -1,8 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
-  <path fill="#ED3675" d="M41.87,37.7L46.12,37.7L46.12,69.75L41.87,69.75Z"/>
-  <path fill="#ED3675" d="M71.37,31.08L75.62,31.08L75.62,67.5L71.37,67.5Z"/>
-  <path fill="#ED3675" d="M31.88,69.75A7.12,7.12 0 0 1 46.12,69.75A7.12,7.12 0 0 1 31.88,69.75Z"/>
-  <path fill="#ED3675" d="M61.38,67.5A7.12,7.12 0 0 1 75.62,67.5A7.12,7.12 0 0 1 61.38,67.5Z"/>
-  <path fill="#ED3675" d="M41.87,39.46A2.2,2.2 0 0 1 43.59,37.31L72.94,30.73A2.2,2.2 0 0 1 75.62,32.88L75.62,40.12A2.2,2.2 0 0 1 73.9,42.26L44.55,48.85A2.2,2.2 0 0 1 41.87,46.7Z"/>
-  <path fill="#CC1B4E" d="M46.12,42.99L71.37,37.33L71.37,42.83L46.12,48.49Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- music.svg - vectorized from music.png (96x96). Generated 2026-07-29--2204
+       Exact geometry recovered by sub-pixel measurement of the source:
+         note heads  r=12 at (20,74) and (68,70)
+         stems       x=24..32 and x=72..80 (tangent to heads at x=32 / x=80)
+         beam edges  y = -7x/32 + 26.5  (top)  and  + 46.5 (bottom)
+         dark band   y = -7x/32 + 37.0  (top), spans x=32..72
+         convex corner radius 4; armpits and head junctions sharp -->
+  <path fill="#ed3675" d="M24 24.46958A4 4 0 0 1 27.14521 20.56198L75.14521 10.06198A4 4 0 0 1 80 13.96958L80 70A12 12 0 1 1 72 58.68629L72 30.75L32 39.5L32 74A12 12 0 1 1 24 62.68629Z"/>
+  <path fill="#cc1b4e" d="M32 30L72 21.25L72 30.75L32 39.5Z"/>
 </svg>
