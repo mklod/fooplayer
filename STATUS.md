@@ -1,6 +1,6 @@
 # fooplayer — STATUS
 
-*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-29.*
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-30.*
 
 ## Component status
 
@@ -16,12 +16,12 @@
 | Tag reading | ✅ Own ID3 reader (`id3_text.dart`) recovers what the upstream parser drops — frames behind a large picture, ID3v2.2 IDs, stacked tags. Artist reads TPE1 before TPE2 (359 files were showing the album artist). 1 track library-wide has no artist, and it genuinely carries no tag |
 | Durations | ✅ Persisted in the manifest beside `date_added` (5,453 written), so a cache loss no longer costs the Time column. Zero tracks missing a duration; a timed-out read falls back to the header-only estimator |
 | Album artwork | ✅ Auto-enrichment (iTunes / Deezer / Cover Art Archive — keyless; conservative auto-apply at ≥75 score with ≥10 margin) + picker on both platforms (grid, choose file, paste URL, search again, remove). Stored per-root in `.artwork/` + `.artwork.json` sidecar; two adversarial-review passes' findings fixed. **A hand pick is scoped to exactly the tracks selected when the picker opens** — never a shared album key, which used to let picking a cover for one track silently change others sharing an unrelated album label. Multi-select right-click ("Album artwork... (N tracks)") applies to the whole selection, individually. The automatic best-guess pass is still correctly album-wide |
-| Test suite | ✅ 945 app tests + 44 core tests; `flutter analyze` at 2 pre-existing style hints in test files; Windows release and debug APK both build from one tree |
+| Test suite | ✅ 965 app tests + 44 core tests; `flutter analyze` at 2 pre-existing style hints in test files; Windows release and debug APK both build from one tree |
 | Android emulator | ✅ Healthy under Microsoft WHPX (15s boots), data partition 16 GB, seeded with the real 444-file "loose tracks - 2020 and later" library. AEHD driver permanently removed after it bluescreened the machine |
 | Repo location | ✅ Migrated: canonical repo is `L:\PROJECTS\fooplayer`; old `L:\PROJECTS\foobar` deleted and verified clear (no processes, services, tasks, or git references) |
 | Background audio (Plan 2c) | ✅ **Done 2026-07-29.** Foreground service + media session: lock screen, notification, headset and Bluetooth transport. Audio focus handled separately because libmpv never requests it — a call pauses and hands back, a permanent takeover pauses for good, navigation ducks, headphones out pauses and never self-resumes. Verified on the Pixel 7 emulator: still PLAYING after HOME, media keys driving it |
 | Tag editing | ✅ **Done 2026-07-29.** Edit one track or a selection; MP3 via ID3v2, FLAC via Vorbis comments. "Find correct tags…" proposes MusicBrainz matches with a confidence bar and never writes on its own. Same guarantees as the cover embedding: content ID unmoved, dates restored and read back |
-| Queue | ✅ **Reworked 2026-07-30.** Two things share the playback mechanism and are kept visibly distinct: a normal play still continues through whatever list it was clicked from (the "faux queue" — ordinary, unmet, needs no panel), while the first "Play next" / "Add to queue" discards that continuation down to just the current track and starts a real, small, user-built scratch playlist — current track + whatever gets added, nothing inherited from browsing. That's the only thing the **Queue** view shows: a sidebar destination now (not a popup), appearing right under Library once there is one to show, disappearing again once emptied back down. Drag to reorder, tap to jump, remove, clear; the playing track cannot be removed out from under itself. "Play next" is offered for a single track only — a selection of ten gets "Add to queue" |
+| Queue | ✅ **Reworked 2026-07-30, art thumbnails + tile-gating bug fixed same day.** Two things share the playback mechanism and are kept visibly distinct: a normal play still continues through whatever list it was clicked from (the "faux queue" — ordinary, unmet, needs no panel), while the first "Play next" / "Add to queue" discards that continuation down to just the current track and starts a real, small, user-built scratch playlist — current track + whatever gets added, nothing inherited from browsing. That's the only thing the **Queue** view shows: a sidebar destination now (not a popup), appearing right under Library once there is one to show, disappearing again once emptied back down. Rows carry the same album-art thumbnail the playlist view uses. Drag to reorder, tap to jump, remove, clear; the playing track cannot be removed out from under itself. "Play next" is offered for a single track only — a selection of ten gets "Add to queue". Fixed: the sidebar tile was showing on every normal play (gated on "anything queued up next" alone, which a faux queue over the whole library always satisfies) — now also requires the explicit-queue flag; verified live on the Galaxy Tab S9+ |
 | Phone library sync (Plan 3) | ⛔ Not started — LAN pull of files + manifests to the phone |
 | File-dates fix (foobar2000/Explorer sorting) | ✅ **Fully resolved 2026-07-28, and independently verified** — 5,553 of 5,553 files match their manifest `date_added` (checked by reading the manifests directly, not by trusting any pass's self-report). The last 66 were duplicate paths: the stamping tool iterated `paths[0]` only, so where one content ID names two files, the twin kept its copy-event date. Every root accounted for: `monthly` folder-derived (canon), `alternative times` split into its two acquisitions, `albums` placed album-by-album (13 individually, 2 on recovered evidence). Zero files disagree with their manifest date. Details: [docs/albums-date-recovery.md](docs/albums-date-recovery.md). Was: **Resolved 2026-07-28** — option 1 applied: every track's filesystem date stamped from its manifest `date_added` (5,483 tracks, 1,724 re-stamped, 0 failures). This share reports creation time as equal to modified time, so both Explorer columns and foobar2000's sort are now correct; no NAS config change needed. Reversible via the logged previous values |
 
@@ -35,7 +35,28 @@
 
 *Worktrees must live on `C:` — the NAS share can't host Flutter's plugin symlinks. The `foobar-app` folder name is legacy; the path is stale, its branch and contents are current.*
 
-## Last session (2026-07-29)
+## Last session (2026-07-30)
+
+- **Queue rows now show album art**, matching every other playlist view —
+  "queue needs formatting like any other playlist, with art showing."
+  Same 36px `AlbumArt` thumbnail, same resolver, on both the desktop
+  Queue destination and the phone's `QueueView`.
+- **Found and fixed a real bug while verifying it live on the tablet**:
+  the sidebar's Queue tile was appearing on every normal play, not just
+  after an explicit queue action, because its visibility check only
+  looked at whether anything was queued up next — and a normal play's
+  faux-queue continuation covers the whole filtered library, so that was
+  almost never empty. Now also requires the explicit-queue flag. The
+  test that should have caught this was seeding a single-track faux
+  queue (side-stepping the real condition) and asserting after a
+  `pump()` that never actually rebuilt anything — both fixed alongside
+  the app bug, verified fail-without-fix before restoring it.
+- Also this session (folded into the 2026-07-30--0103 build, see
+  CHANGELOG): the Queue redesign itself (faux vs. explicit queue,
+  sidebar destination not a popup) and the Folder filter panel no longer
+  showing the library root's own name at any depth.
+
+## Earlier session (2026-07-29)
 
 - **A hand-picked cover no longer leaks to other tracks.** Reported live:
   fixing "Forgotten Dreams"'s art also silently changed "Colourful Emotions"

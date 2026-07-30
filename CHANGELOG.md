@@ -24,6 +24,39 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-07-30--0139
+
+### Changes
+
+- **Queue rows now show a cover, like every other playlist row.**
+  "Queue needs formatting like any other playlist — with art showing."
+  Each row carries the same 36px `AlbumArt` thumbnail the playlist view
+  uses, resolved the same way (embedded art, sidecar, sibling file), so a
+  track looks like the same track whichever list it's seen in.
+- **Fixed: the Queue sidebar tile was appearing on every normal play, not
+  just after an explicit queue action.** Found while verifying the art
+  change on-device — double-clicking a track and doing nothing else was
+  enough to make "Queue" show up in the sidebar, even though nothing had
+  been explicitly queued. Root cause: the tile's visibility check only
+  asked "is there anything queued up next" (`upcoming.isNotEmpty`), but a
+  normal play's faux-queue continuation IS the rest of the filtered
+  library — so `upcoming` is essentially never empty during ordinary
+  playback. Fixed by also requiring `hasExplicitQueue`. The test that
+  should have caught this was seeding the faux queue with a single track
+  (sidestepping the real condition) and asserting after a `pump()` that
+  never actually triggered a rebuild — both fixed alongside the real bug.
+
+> [!warning] Testing Checklist
+> - [ ] Double-click a track and just let it keep playing — no "Queue"
+>       tile appears in the sidebar (faux queue, nothing explicit)
+>   - Notes:
+> - [ ] Right-click another track → Add to queue — the Queue tile now
+>       appears, current track keeps playing uninterrupted
+>   - Notes:
+> - [ ] Open Queue — both tracks show, each with its own cover art,
+>       matching the look of a regular playlist row
+>   - Notes:
+
 ## Build 2026-07-30--0103
 
 ### Changes
