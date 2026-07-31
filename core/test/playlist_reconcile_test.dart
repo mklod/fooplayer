@@ -98,4 +98,50 @@ void main() {
     expect(acts.map((a) => a.op), unorderedEquals(
         [PlaylistSyncOp.copyToRemote, PlaylistSyncOp.copyToLocal]));
   });
+
+  test('dead-with-file (DF) local cleanup: both sides agree on tombstone, local has stray file', () {
+    // Finding 1: local has a stray file under an agreed-upon tombstone
+    final l = pf('p_1', 'gone', ['x'], '2026-07-31T09:00:00Z');
+    final acts = run(state(p: {'p_1': l}, t: {'p_1': ts('2026-07-31T10:00:00Z')}),
+        state(t: {'p_1': ts('2026-07-31T10:00:00Z')}));
+    expect(acts.map((a) => a.op), contains(PlaylistSyncOp.deleteLocal));
+    expect(acts.firstWhere((a) => a.op == PlaylistSyncOp.deleteLocal).backupFirst, isTrue);
+  });
+
+  test('dead-with-file (DF) remote cleanup: both sides agree on tombstone, remote has stray file', () {
+    // Mirror of Finding 1: remote has a stray file under an agreed-upon tombstone
+    final r = pf('p_1', 'gone', ['x'], '2026-07-31T09:00:00Z');
+    final acts = run(state(t: {'p_1': ts('2026-07-31T10:00:00Z')}),
+        state(p: {'p_1': r}, t: {'p_1': ts('2026-07-31T10:00:00Z')}));
+    expect(acts.map((a) => a.op), contains(PlaylistSyncOp.deleteRemote));
+    expect(acts.firstWhere((a) => a.op == PlaylistSyncOp.deleteRemote).backupFirst, isTrue);
+  });
+
+  test('resurrect-overwrite with backup: local edit resurrects and overwrites remote DF with differing content', () {
+    // Finding 2: remote DF with content ['x'], local resurrects with different content ['x','y','z']
+    final l = pf('p_1', 'playlist', ['x', 'y', 'z'], '2026-07-31T12:00:00Z');
+    final r = pf('p_1', 'playlist', ['x'], '2026-07-31T09:00:00Z');
+    final acts = run(state(p: {'p_1': l}),
+        state(p: {'p_1': r}, t: {'p_1': ts('2026-07-31T10:00:00Z')}));
+    expect(acts.single.op, PlaylistSyncOp.copyToRemote);
+    expect(acts.single.backupFirst, isTrue);  // Must backup remote's differing file
+  });
+
+  test('resurrect-overwrite mirror: remote edit resurrects and overwrites local DF with differing content', () {
+    // Mirror of Finding 2: local DF with differing content, remote resurrects
+    final l = pf('p_1', 'playlist', ['x'], '2026-07-31T09:00:00Z');
+    final r = pf('p_1', 'playlist', ['x', 'y', 'z'], '2026-07-31T12:00:00Z');
+    final acts = run(state(p: {'p_1': l}, t: {'p_1': ts('2026-07-31T10:00:00Z')}),
+        state(p: {'p_1': r}));
+    expect(acts.single.op, PlaylistSyncOp.copyToLocal);
+    expect(acts.single.backupFirst, isTrue);  // Must backup local's differing file
+  });
+
+  test('stale local tombstone under live local edit still resurrects', () {
+    // Local edit @12:00 is newer than local stale tombstone @10:00; should resurrect
+    final l = pf('p_1', 'playlist', ['x'], '2026-07-31T12:00:00Z');
+    final acts = run(state(p: {'p_1': l}, t: {'p_1': ts('2026-07-31T10:00:00Z')}),
+        state());
+    expect(acts.single.op, PlaylistSyncOp.copyToRemote);
+  });
 }

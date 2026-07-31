@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1535
+// Last modified: 2026-07-31--1546
 //
 // Pure whole-playlist LWW between two sidecar states. Produces actions; the
 // app-side executor does the I/O. Never touches disk itself.
@@ -78,6 +78,7 @@ List<PlaylistSyncAction> reconcilePlaylists(
         }
       } else {
         actions.add(PlaylistSyncAction(PlaylistSyncOp.copyToRemote, id,
+            backupFirst: rp != null && !lp.sameContentAs(rp),
             note: tomb == null
                 ? 'new playlist "${lp.name}" from $localLabel'
                 : 'restored "${lp.name}" — edited on $localLabel after deletion'));
@@ -97,6 +98,7 @@ List<PlaylistSyncAction> reconcilePlaylists(
         }
       } else {
         actions.add(PlaylistSyncAction(PlaylistSyncOp.copyToLocal, id,
+            backupFirst: lp != null && !rp.sameContentAs(lp),
             note: tomb == null
                 ? 'new playlist "${rp.name}" from $remoteLabel'
                 : 'restored "${rp.name}" — edited on $remoteLabel after deletion'));
@@ -105,6 +107,17 @@ List<PlaylistSyncAction> reconcilePlaylists(
     }
 
     // Dead (or tombstone-only) on both sides: converge tombstones newest-first.
+    // Also clean up stray files that are covered by agreed-upon tombstones.
+    if (lp != null && localDead) {
+      actions.add(PlaylistSyncAction(PlaylistSyncOp.deleteLocal, id,
+          backupFirst: true,
+          note: 'removed stale file for deleted playlist "${lp.name}"'));
+    }
+    if (rp != null && remoteDead) {
+      actions.add(PlaylistSyncAction(PlaylistSyncOp.deleteRemote, id,
+          backupFirst: true,
+          note: 'removed stale file for deleted playlist "${rp.name}"'));
+    }
     if (lt != null && (rt == null || lt.deleted.isAfter(rt.deleted))) {
       actions.add(PlaylistSyncAction(PlaylistSyncOp.tombstoneToRemote, id));
     } else if (rt != null && (lt == null || rt.deleted.isAfter(lt.deleted))) {
