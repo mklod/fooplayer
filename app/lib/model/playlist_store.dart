@@ -208,9 +208,19 @@ class PlaylistStore {
   /// that playlist's file FRESH (never a cached copy -- so a change that
   /// landed since the last reload, from another device's sync or this
   /// app's own previous mutation, is never overwritten), applies [mutate],
+  /// and -- ONLY if [mutate] actually changed the name or membership --
   /// stamps `modified`/`modifiedBy`, saves, refreshes
   /// [LibraryModel.playlists], and calls [onMutated]. [mutate] may throw a
   /// [PlaylistStoreException] to abort -- nothing is saved in that case.
+  ///
+  /// The no-op check matters beyond "why write nothing": [addTrack] of an
+  /// id already present, or [removeTrack]/[removeTracks] of one that was
+  /// never there, leaves [core.PlaylistFile.trackIds] byte-for-byte
+  /// unchanged. Stamping `modified` anyway would still be a NEWER
+  /// timestamp than a real edit another device made to the same playlist,
+  /// so the Task 2 reconciler's last-write-wins would wrongly prefer this
+  /// no-op touch over that real edit -- or, worse, a no-op bump could
+  /// out-date and resurrect a playlist another device just tombstoned.
   Future<void> _withPlaylist(
     String displayName,
     void Function(core.PlaylistFile p) mutate,
@@ -232,7 +242,18 @@ class PlaylistStore {
         'changed outside the app.',
       );
     }
+    final before = core.PlaylistFile(
+      id: p.id,
+      name: p.name,
+      trackIds: List<String>.of(p.trackIds),
+      created: p.created,
+      modified: p.modified,
+      modifiedBy: p.modifiedBy,
+    );
     mutate(p);
+    if (p.sameContentAs(before)) {
+      return;
+    }
     p.modified = DateTime.now().toUtc();
     p.modifiedBy = device;
     await core.savePlaylistFile(homeDir, p);

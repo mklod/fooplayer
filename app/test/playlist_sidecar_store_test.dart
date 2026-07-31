@@ -31,6 +31,29 @@ Future<LibraryModel> _modelWithHome(Directory home) async {
   return model;
 }
 
+/// Writes a sidecar playlist file directly (bypassing [PlaylistStore], the
+/// way a pre-seeded fixture or another device's sync would land one) --
+/// what the merge-suffix tests below use to get two SAME-named playlists
+/// (different ids) onto disk at once, which [PlaylistStore.createPlaylist]
+/// itself refuses to do.
+Future<void> _seedPlaylist(
+  Directory home, {
+  required String id,
+  required String name,
+  required List<String> trackIds,
+  required DateTime created,
+}) => core.savePlaylistFile(
+  home,
+  core.PlaylistFile(
+    id: id,
+    name: name,
+    trackIds: trackIds,
+    created: created,
+    modified: created,
+    modifiedBy: 'seed',
+  ),
+);
+
 void main() {
   late Directory tmp;
   late Directory home;
@@ -196,5 +219,168 @@ void main() {
           'the external edit survived because the mutation reloaded the '
           'file fresh from disk instead of mutating a stale in-memory copy',
     );
+  });
+
+  group('no-op mutations never rewrite the file (LWW/tombstone safety)', () {
+    // The regression this pins: a no-op write (adding an id already there,
+    // removing one that was never there) used to still bump `modified` and
+    // save. Under the Task 2 reconciler that is a real bug, not just wasted
+    // I/O -- a no-op touch newer than another device's genuine edit would
+    // win last-write-wins and discard that edit, and a no-op bump could
+    // even out-date and resurrect a playlist another device just
+    // tombstoned. So a no-op mutation must leave the file byte-for-byte
+    // (and `modified`) untouched.
+    test('addTrack of an already-present id does not rewrite the file',
+        () async {
+      final model = await _modelWithHome(home);
+      final store = PlaylistStore(library: model, device: 'desktop');
+      await store.createPlaylist('work');
+      final id = model.playlists.single.id!;
+      await store.addTrack('work', 't1');
+      final before = core.loadPlaylistsDir(home).playlists[id]!;
+      final beforeMtime = File(
+        '${home.path}/.playlists/$id.json',
+      ).statSync().modified;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      await store.addTrack('work', 't1'); // already present -- a no-op
+
+      final after = core.loadPlaylistsDir(home).playlists[id]!;
+      expect(after.trackIds, ['t1']);
+      expect(
+        after.modified,
+        before.modified,
+        reason: 'a no-op must not advance modified',
+      );
+      expect(after.modifiedBy, before.modifiedBy);
+      expect(
+        File('${home.path}/.playlists/$id.json').statSync().modified,
+        beforeMtime,
+        reason: 'a no-op must not touch the file at all',
+      );
+    });
+
+    test(
+      'removeTracks that removes nothing (returns 0) does not rewrite the '
+      'file',
+      () async {
+        final model = await _modelWithHome(home);
+        final store = PlaylistStore(library: model, device: 'desktop');
+        await store.createPlaylist('work');
+        final id = model.playlists.single.id!;
+        await store.addTracks('work', ['t1', 't2']);
+        final before = core.loadPlaylistsDir(home).playlists[id]!;
+        final beforeMtime = File(
+          '${home.path}/.playlists/$id.json',
+        ).statSync().modified;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+
+        final removed = await store.removeTracks('work', ['never-there']);
+
+        expect(removed, 0);
+        final after = core.loadPlaylistsDir(home).playlists[id]!;
+        expect(after.trackIds, ['t1', 't2']);
+        expect(
+          after.modified,
+          before.modified,
+          reason: 'a no-op must not advance modified',
+        );
+        expect(
+          File('${home.path}/.playlists/$id.json').statSync().modified,
+          beforeMtime,
+          reason: 'a no-op must not touch the file at all',
+        );
+      },
+    );
+
+    test('a no-op mutation does not call onMutated', () async {
+      var mutated = 0;
+      final model = await _modelWithHome(home);
+      final store = PlaylistStore(
+        library: model,
+        device: 'desktop',
+        onMutated: () => mutated++,
+      );
+      await store.createPlaylist('work'); // 1
+      await store.addTrack('work', 't1'); // 2
+      expect(mutated, 2);
+
+      await store.addTrack('work', 't1'); // no-op
+      await store.removeTrack('work', 'never-there'); // no-op
+
+      expect(mutated, 2, reason: 'neither no-op mutation should signal');
+    });
+  });
+
+  group('merge-suffixed display names ("mix (2)") address the right file', () {
+    // The exact scenario ManifestPlaylist.id exists for: two sidecar
+    // playlists with the SAME name (different ids) merge as "mix" and
+    // "mix (2)" (LibraryModel._sidecarPlaylists sorts by `created`
+    // ascending, so the earlier one keeps the bare name). A mutation
+    // against the suffixed display name must resolve back to the SECOND
+    // playlist's id, not silently fall through to the first.
+    late String firstId;
+    late String secondId;
+
+    setUp(() async {
+      firstId = 'p_mix_first';
+      secondId = 'p_mix_second';
+      await _seedPlaylist(
+        home,
+        id: firstId,
+        name: 'mix',
+        trackIds: const ['a1'],
+        created: DateTime.utc(2024, 1, 1),
+      );
+      await _seedPlaylist(
+        home,
+        id: secondId,
+        name: 'mix', // collides -- created later, so this becomes "mix (2)"
+        trackIds: const ['b1'],
+        created: DateTime.utc(2024, 1, 2),
+      );
+    });
+
+    test('addTrack("mix (2)", ...) lands in the SECOND file and leaves the '
+        'first untouched', () async {
+      final model = await _modelWithHome(home);
+      expect(model.playlists.map((pl) => pl.name), ['mix', 'mix (2)']);
+      final store = PlaylistStore(library: model, device: 'desktop');
+      final firstBefore = core.loadPlaylistsDir(home).playlists[firstId]!;
+
+      await store.addTrack('mix (2)', 'x1');
+
+      final second = core.loadPlaylistsDir(home).playlists[secondId]!;
+      expect(second.trackIds, ['b1', 'x1']);
+      final firstAfter = core.loadPlaylistsDir(home).playlists[firstId]!;
+      expect(firstAfter.trackIds, ['a1'], reason: 'first file untouched');
+      expect(
+        firstAfter.modified,
+        firstBefore.modified,
+        reason: 'first file must not even be re-saved',
+      );
+    });
+
+    test('deletePlaylist("mix (2)") removes/tombstones the SECOND id only',
+        () async {
+      final model = await _modelWithHome(home);
+      final store = PlaylistStore(library: model, device: 'desktop');
+
+      await store.deletePlaylist('mix (2)');
+
+      expect(model.playlists.map((pl) => pl.name), ['mix']);
+      expect(
+        File('${home.path}/.playlists/$secondId.json').existsSync(),
+        isFalse,
+      );
+      expect(
+        File('${home.path}/.playlists/$firstId.json').existsSync(),
+        isTrue,
+        reason: 'the first (unsuffixed) playlist survives',
+      );
+      final tombstones = core.loadPlaylistsDir(home).tombstones;
+      expect(tombstones.containsKey(secondId), isTrue);
+      expect(tombstones.containsKey(firstId), isFalse);
+    });
   });
 }

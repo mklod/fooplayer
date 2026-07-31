@@ -94,7 +94,8 @@ Future<void> pumpTrackList(
         player: player,
         onPlayTrack: onPlayTrack,
         launchExplorer: launchExplorer ?? (_) {},
-        playlistStore: playlistStore,
+        playlistStore:
+            playlistStore ?? PlaylistStore(library: lib, device: 'test'),
       ),
     ),
   ),

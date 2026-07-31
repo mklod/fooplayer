@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -46,6 +47,7 @@ Future<void> _pump(WidgetTester tester, LibraryModel lib) async {
         body: TrackListView(
           library: lib,
           player: PlayerService(),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
           onPlayTrack: (_, _) {},
         ),
       ),
@@ -92,6 +94,7 @@ void main() {
           body: TrackListView(
             library: lib,
             player: PlayerService(),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
             onPlayTrack: (tracks, i) => played.add(tracks[i].contentId),
           ),
         ),

@@ -128,9 +128,11 @@ class TrackListView extends StatefulWidget {
   final void Function(Track track) launchExplorer;
 
   /// Backs the context menu's "Add to playlist" / "Remove from playlist"
-  /// items. Defaults to a real [PlaylistStore] over [library]; injectable
-  /// so widget tests can substitute a spy that never touches disk.
-  final PlaylistStore? playlistStore;
+  /// items. `HomeScreen` always forwards its own real store (which carries
+  /// the real device label -- see `PlaylistStore.device`); tests substitute
+  /// a spy that never touches disk, or a plain `PlaylistStore` with a
+  /// throwaway device label.
+  final PlaylistStore playlistStore;
 
   /// Backs the context menu's "Album artwork..." item (Plan 4 task A3).
   /// Null -- the default -- hides the item entirely: without a search/store
@@ -173,7 +175,7 @@ class TrackListView extends StatefulWidget {
     required this.player,
     this.onPlayTrack,
     this.launchExplorer = _launchInExplorer,
-    this.playlistStore,
+    required this.playlistStore,
     this.artwork,
     this.artworkResolver,
     this.hasArtwork,
@@ -224,11 +226,7 @@ class _TrackListViewState extends State<TrackListView> {
   Widget build(BuildContext context) {
     final library = widget.library;
     final player = widget.player;
-    // HomeScreen always injects a real store; this fallback only fires in
-    // widget tests that build TrackListView directly without one.
-    final store =
-        widget.playlistStore ??
-        PlaylistStore(library: library, device: 'test');
+    final store = widget.playlistStore;
     return Focus(
       focusNode: _focusNode,
       onKeyEvent: _handleKeyEvent,

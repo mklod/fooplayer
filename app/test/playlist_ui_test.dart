@@ -503,7 +503,11 @@ void main() {
       MaterialApp(
         theme: buildAppTheme(),
         home: Scaffold(
-          body: TrackListView(library: lib, player: PlayerService()),
+          body: TrackListView(
+            library: lib,
+            player: PlayerService(),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
+          ),
         ),
       ),
     );

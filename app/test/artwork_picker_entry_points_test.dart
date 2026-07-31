@@ -71,6 +71,7 @@ Future<void> pumpTrackList(
       body: TrackListView(
         library: library,
         player: PlayerService(),
+        playlistStore: PlaylistStore(library: library, device: 'test'),
         onPlayTrack: (_, _) {},
         launchExplorer: (_) {},
         artwork: artwork,
@@ -121,6 +122,7 @@ Future<void> pumpHomeScreen(
       player: PlayerService(),
       layoutPrefs: LayoutPrefs(),
       libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+      playlistStore: PlaylistStore(library: library, device: 'test'),
       artworkServices: artwork,
     ),
   ),

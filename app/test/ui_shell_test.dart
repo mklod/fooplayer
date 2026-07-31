@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -55,6 +56,7 @@ void main() {
           player: player,
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
       ),
     );
@@ -78,6 +80,7 @@ void main() {
           player: player,
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
       ),
     );
@@ -100,6 +103,7 @@ void main() {
           player: player,
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
       ),
     );
@@ -145,6 +149,7 @@ void main() {
             player: player,
             layoutPrefs: LayoutPrefs(),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
         ),
       );
@@ -197,6 +202,7 @@ void main() {
             player: player,
             layoutPrefs: LayoutPrefs(),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
         ),
       );
@@ -280,6 +286,7 @@ void main() {
           player: player,
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
       ),
     );
@@ -307,6 +314,7 @@ void main() {
             player: player,
             layoutPrefs: LayoutPrefs(),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
         ),
       );
@@ -360,6 +368,7 @@ void main() {
             player: player,
             layoutPrefs: layoutPrefs,
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
         ),
       );
@@ -396,6 +405,7 @@ void main() {
           player: player,
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
       ),
     );

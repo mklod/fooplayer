@@ -43,9 +43,12 @@ class HomeScreen extends StatelessWidget {
   final LibraryRootsPrefs libraryRootsPrefs;
 
   /// Playlist CRUD service the sidebar and track-list context menus write
-  /// through. Defaults to a real [PlaylistStore] over [library]; injectable
-  /// so widget tests can substitute a spy that never touches disk.
-  final PlaylistStore? playlistStore;
+  /// through. `main.dart` always constructs and injects a real one (it
+  /// needs the real device label -- see `PlaylistStore.device` -- which
+  /// this widget has no way to know on its own); tests substitute a spy
+  /// that never touches disk, or a plain `PlaylistStore` with a throwaway
+  /// device label.
+  final PlaylistStore playlistStore;
 
   /// Artwork resolution chain (Plan 4), forwarded to [NowPlayingBar]. Null
   /// keeps the pre-Plan-4 embedded-art-only behavior, which is what widget
@@ -85,7 +88,7 @@ class HomeScreen extends StatelessWidget {
     required this.player,
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
-    this.playlistStore,
+    required this.playlistStore,
     this.artworkResolver,
     this.artworkServices,
     this.artworkStores,
@@ -96,11 +99,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // main.dart always injects a real store (with the real device label);
-    // this fallback only fires in widget tests that build the screen
-    // without one.
-    final store =
-        playlistStore ?? PlaylistStore(library: library, device: 'test');
+    final store = playlistStore;
     return Scaffold(
       // The panel layout was written for a window with a title bar, so it
       // painted from pixel zero. On a tablet that put the Android status bar

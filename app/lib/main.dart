@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
+import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:path/path.dart' as p;
 import 'artwork/artwork_backfill.dart';
@@ -244,16 +245,52 @@ void main() async {
   // migration must not block startup: playlists simply stay in their
   // manifests (still readable the old way, just not by [PlaylistStore]
   // anymore) until it succeeds on a later launch.
-  final initialHome = currentLibraryHome();
-  if (initialHome != null) {
-    try {
-      await migratePlaylistsToSidecar(
-        roots: libraryRootsPrefs.roots.map(Directory.new).toList(),
-        home: Directory(initialHome),
-        device: device,
-      );
-    } catch (_) {
-      // Logged nowhere yet (no crash-reporting wired) -- see the doc above.
+  //
+  // Gated on `config['playlistsMigrated']`: once every configured root's
+  // manifest has been confirmed to have no `playlists` left, this whole
+  // pass -- which re-parses every root's `.library.json` (can be
+  // megabytes, over SMB) just to find nothing left to do -- is skipped on
+  // every subsequent cold start, on the pre-first-frame path. Left unset
+  // (so the next launch retries) whenever the post-check can't confirm
+  // every root is actually clean -- a root with no manifest yet, or one
+  // that migrated cleanly, counts as clean; a root whose manifest fails to
+  // parse does not, since that's exactly the kind of transient/corrupt
+  // read that deserves another chance rather than being silently written
+  // off as "done".
+  if (config['playlistsMigrated'] != true) {
+    final initialHome = currentLibraryHome();
+    if (initialHome != null) {
+      final roots = libraryRootsPrefs.roots.map(Directory.new).toList();
+      try {
+        await migratePlaylistsToSidecar(
+          roots: roots,
+          home: Directory(initialHome),
+          device: device,
+        );
+        var allClean = true;
+        for (final root in roots) {
+          final manifestFile = File(
+            p.join(root.path, core.manifestFileName),
+          );
+          if (!manifestFile.existsSync()) continue; // nothing to migrate
+          try {
+            if (core.loadManifest(root).playlists.isNotEmpty) {
+              allClean = false;
+              break;
+            }
+          } catch (_) {
+            allClean = false; // corrupt -- retry next launch
+            break;
+          }
+        }
+        if (allClean) {
+          config['playlistsMigrated'] = true;
+          _writeConfig(config, dataDir);
+        }
+      } catch (_) {
+        // Logged nowhere yet (no crash-reporting wired) -- flag stays
+        // unset, so the next launch retries the whole pass.
+      }
     }
   }
 

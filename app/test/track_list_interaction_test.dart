@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -52,6 +53,7 @@ Future<void> pumpTrackList(
       body: TrackListView(
         library: lib,
         player: player,
+        playlistStore: PlaylistStore(library: lib, device: 'test'),
         onPlayTrack: onPlayTrack,
         launchExplorer: launchExplorer ?? (_) {},
       ),

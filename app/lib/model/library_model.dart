@@ -1717,18 +1717,21 @@ class LibraryModel extends ChangeNotifier {
     super.dispose();
   }
 
-  /// The first configured library root -- where [PlaylistStore.createPlaylist]
-  /// always writes new playlists (see its class doc) -- or null before the
-  /// first [load]. Kept in [load]'s remembered-arguments group
-  /// ([_libraryRoots]).
+  /// The first configured library root, or null before the first [load].
+  /// Kept in [load]'s remembered-arguments group ([_libraryRoots]).
+  ///
+  /// No longer where new playlists land -- those go to the shared
+  /// `.playlists/` sidecar under [libraryHome] (see [PlaylistStore]), not
+  /// any particular root. Currently unused internally; kept as a small,
+  /// generally useful accessor.
   Directory? get firstRoot =>
       _libraryRoots.isEmpty ? null : _libraryRoots.first;
 
   /// Resolves a configured library root by its [Directory.path] -- what
-  /// [PlaylistStore] uses to turn a merged [ManifestPlaylist.rootPath] back
-  /// into the [Directory] it needs to load/save that root's manifest. Null
-  /// if no currently-configured root matches (e.g. the roots were edited in
-  /// Settings since the merge that produced the entry).
+  /// [persistDurationsToManifests] uses to turn a track's stamped
+  /// [Track.rootPath] back into the [Directory] it needs to load/save that
+  /// root's manifest. Null if no currently-configured root matches (e.g.
+  /// the roots were edited in Settings since the track was loaded).
   Directory? rootWithPath(String path) {
     for (final r in _libraryRoots) {
       if (r.path == path) return r;

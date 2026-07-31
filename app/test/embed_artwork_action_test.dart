@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -52,14 +53,16 @@ LibraryModel _library() => LibraryModel()
 Future<void> _pump(WidgetTester tester, {ArtworkStoreRegistry? stores}) async {
   await tester.binding.setSurfaceSize(const Size(1400, 900));
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  final library = _library();
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
       home: HomeScreen(
-        library: _library(),
+        library: library,
         player: PlayerService(),
         layoutPrefs: LayoutPrefs(),
         libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+        playlistStore: PlaylistStore(library: library, device: 'test'),
         artworkStores: stores,
       ),
     ),
