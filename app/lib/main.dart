@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-07-31--1619
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -13,8 +13,10 @@ import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
 import 'metadata/tag_providers.dart';
 import 'model/activity_model.dart';
+import 'model/library_home.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
+import 'model/playlist_migration.dart';
 import 'model/playlist_store.dart';
 import 'platform_paths.dart';
 import 'model/track.dart';
@@ -221,6 +223,40 @@ void main() async {
       _writeConfig(config, dataDir);
     },
   );
+
+  // Who signs `modified_by` on every playlist file this device writes (Plan
+  // 3) -- config `deviceName` if set, else the OS hostname.
+  final device = deviceLabel(config);
+
+  // Where `.playlists/` lives: the deepest common parent of every
+  // configured root, or the `libraryHome` config override verbatim.
+  // Recomputed on every [reloadLibrary] (roots can change via Settings);
+  // this first value is only for the one-time migration below.
+  String? currentLibraryHome() => resolveLibraryHome(
+    libraryRootsPrefs.roots,
+    override: config['libraryHome'] as String?,
+  );
+
+  // One-time move of any playlists still sitting in a root's
+  // `.library.json` into the shared sidecar (Plan 3 Task 4) -- must run
+  // before the very first [reloadLibrary] so that load's playlist merge
+  // already reads the sidecar, not a stale pre-migration manifest. A failed
+  // migration must not block startup: playlists simply stay in their
+  // manifests (still readable the old way, just not by [PlaylistStore]
+  // anymore) until it succeeds on a later launch.
+  final initialHome = currentLibraryHome();
+  if (initialHome != null) {
+    try {
+      await migratePlaylistsToSidecar(
+        roots: libraryRootsPrefs.roots.map(Directory.new).toList(),
+        home: Directory(initialHome),
+        device: device,
+      );
+    } catch (_) {
+      // Logged nowhere yet (no crash-reporting wired) -- see the doc above.
+    }
+  }
+
   // [triggerLaunchRescan] is true only for the very first load (app
   // launch): that's the one load() call main.dart wires an automatic
   // rescan onto. The rescan is fired only *after* load() itself has fully
@@ -267,6 +303,7 @@ void main() async {
     await library.load(
       libraryRoots: libraryRootsPrefs.roots.map(Directory.new).toList(),
       cacheFile: cacheFile,
+      libraryHome: currentLibraryHome(),
     );
     if (triggerLaunchRescan) {
       // Once the launch rescan itself settles, queue a FOLLOW-UP backfill
@@ -367,6 +404,7 @@ void main() async {
       player: player,
       layoutPrefs: layoutPrefs,
       libraryRootsPrefs: libraryRootsPrefs,
+      device: device,
       artworkResolver: artworkResolver,
       artworkServices: artworkServices,
       artworkStores: artwork.stores,
@@ -381,6 +419,11 @@ class FooPlayerApp extends StatelessWidget {
   final PlayerService player;
   final LayoutPrefs layoutPrefs;
   final LibraryRootsPrefs libraryRootsPrefs;
+
+  /// Who signs `modified_by` on every playlist file this device's
+  /// [PlaylistStore] writes (Plan 3) -- see `library_home.dart`'s
+  /// `deviceLabel`, computed once in `main()`.
+  final String device;
 
   /// Shared artwork resolution chain (Plan 4) -- handed to every art
   /// surface so desktop bar, phone mini-player and phone Now Playing all
@@ -413,6 +456,7 @@ class FooPlayerApp extends StatelessWidget {
     required this.player,
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
+    required this.device,
     this.artworkResolver,
     this.artworkServices,
     this.artworkStores,
@@ -432,12 +476,22 @@ class FooPlayerApp extends StatelessWidget {
       // check runs under MaterialApp's MediaQuery.
       home: Builder(
         builder: (context) {
+          // Shared by both branches below -- a stateless facade over
+          // [library], so one instance per build is as good as one per
+          // branch. `onMutated` is null for now; Task 8 wires the sync
+          // scheduler's "something changed" hook here.
+          final store = PlaylistStore(
+            library: library,
+            device: device,
+            onMutated: null,
+          );
           if (!usePhoneShell(context)) {
             return HomeScreen(
               library: library,
               player: player,
               layoutPrefs: layoutPrefs,
               libraryRootsPrefs: libraryRootsPrefs,
+              playlistStore: store,
               artworkResolver: artworkResolver,
               artworkServices: artworkServices,
               artworkStores: artworkStores,
@@ -455,9 +509,6 @@ class FooPlayerApp extends StatelessWidget {
           // map (every drawer destination has a real body -- no
           // placeholders), and P3's real track context sheet (Add to
           // playlist / View details) handles feed and search long-presses.
-          // Same PlaylistStore-per-build pattern as HomeScreen (the store
-          // is a stateless facade over the library).
-          final store = PlaylistStore(library: library);
           return PhoneShell(
             library: library,
             player: player,

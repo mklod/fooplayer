@@ -1,3 +1,4 @@
+// Last modified: 2026-07-31--1619
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
@@ -5,33 +6,40 @@ import 'track.dart';
 
 class ManifestPlaylist {
   /// Merged/display name -- may carry LibraryModel's collision suffix
-  /// (" (2)", " (3)", ...) when a same-named playlist was already taken by
-  /// an earlier root, so it is NOT necessarily the name stored in any
-  /// manifest file. See [sourceName].
+  /// (" (2)", " (3)", ...) when a same-named playlist collided with one
+  /// already loaded, so it is NOT necessarily the name stored on disk. See
+  /// [sourceName].
   final String name;
   final List<String> trackIds;
 
-  /// The library root whose `.library.json` this playlist actually lives in
-  /// -- the merge step (LibraryModel `_loadBody`/`reloadPlaylists`) stamps
-  /// it so PlaylistStore can tell first-root playlists (editable) apart
-  /// from ones owned by another root (mutations blocked with a clear
-  /// message). Null only for hand-built fixtures that never went through
-  /// the merge.
+  /// The sidecar [PlaylistFile.id] this merged entry was built from (see
+  /// `LibraryModel._sidecarPlaylists`) -- what [PlaylistStore] uses to
+  /// address the exact file for a mutation, since [name] may be a
+  /// collision-suffixed display name that exists nowhere on disk. Null only
+  /// for hand-built fixtures that never went through the sidecar merge.
+  final String? id;
+
+  /// Formerly the library root whose `.library.json` this playlist lived
+  /// in, back when playlists were merged per-root. Playlists now live in
+  /// the single shared `.playlists/` sidecar (see [id]), so this is always
+  /// null for real (merged) entries -- kept only so old hand-built fixtures
+  /// still compile.
   final String? rootPath;
 
-  /// The playlist's name as written inside its owning manifest file --
-  /// differs from [name] exactly when the merge had to suffix a collision.
-  /// Null falls back to [name] (see PlaylistStore).
+  /// The playlist's name as written on disk -- differs from [name] exactly
+  /// when the merge had to suffix a collision. Null falls back to [name].
   final String? sourceName;
 
-  /// Index of this playlist within its owning manifest's `playlists` array
-  /// at merge time -- lets PlaylistStore address the exact entry even when
-  /// one manifest holds several same-named playlists. Null for fixtures.
+  /// Formerly this playlist's index within its owning manifest's
+  /// `playlists` array. No sidecar equivalent (each playlist is its own
+  /// file, addressed by [id]) -- kept only so old hand-built fixtures still
+  /// compile.
   final int? sourceIndex;
 
   const ManifestPlaylist({
     required this.name,
     required this.trackIds,
+    this.id,
     this.rootPath,
     this.sourceName,
     this.sourceIndex,
@@ -76,20 +84,11 @@ ManifestData loadManifestFile(File f, {required String rootPath}) {
 }
 
 /// Parses ONLY the `playlists` section of a `.library.json` manifest --
-/// the lightweight read [LibraryModel.reloadPlaylists] uses after a
-/// PlaylistStore mutation, where re-materializing every [Track] (the
-/// expensive part of [loadManifestFile] for a large library) would be
-/// wasted work. Throws the same [FormatException]/[TypeError]s
-/// [loadManifestFile] does on a corrupt/wrong-schema file.
-List<ManifestPlaylist> loadManifestPlaylistsFile(File f) {
-  final j = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-  final schema = j['schema'] as int;
-  if (schema != 1) {
-    throw FormatException('unsupported manifest schema: $schema');
-  }
-  return _playlistsFromJson(j);
-}
-
+/// shared by [loadManifestFile] above. Playlists now live in the shared
+/// `.playlists/` sidecar (see `playlist_sidecar.dart`), not per-root
+/// manifests, so this is purely a legacy-format reader: it still parses
+/// whatever a manifest's `playlists` array happens to contain (old
+/// manifests written before the sidecar migration, or hand-built fixtures).
 List<ManifestPlaylist> _playlistsFromJson(Map<String, dynamic> j) =>
     (j['playlists'] as List)
         .map(

@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1807
+// Last modified: 2026-07-31--1619
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -111,6 +111,14 @@ class LibraryModel extends ChangeNotifier {
 
   List<ManifestPlaylist> playlists = [];
 
+  /// Where `.playlists/` lives -- resolved by the caller (see
+  /// `resolveLibraryHome` in `library_home.dart`) and remembered by [load].
+  /// Null before the first [load], or if no home could be resolved (e.g.
+  /// library roots with no common parent and no override configured);
+  /// [PlaylistStore] refuses playlist writes with a clear message in that
+  /// case rather than guessing where to put them.
+  String? libraryHome;
+
   /// Configured roots that have no `.library.json` yet, as of the last
   /// [load] -- skipped (not fatal) so the rest of the library still loads.
   /// The settings dialog surfaces these with a "seed with foolib" note.
@@ -205,24 +213,17 @@ class LibraryModel extends ChangeNotifier {
 
   /// True while a phase that actually reads or writes a root's
   /// `.library.json` is in flight: [load]'s manifest merge, [rescan]'s
-  /// per-root scan/stamp/save, or an external [PlaylistStore] mutation.
+  /// per-root scan/stamp/save, or [persistDurationsToManifests].
   ///
-  /// Deliberately NARROWER than [busy]. Playlist mutations used to gate on
-  /// [_busy], which stays set for the whole of [load] -- including Part B's
-  /// background tag enrichment, minutes of work on a large SMB-mounted
-  /// library. The result was that "add to playlist" was refused for
-  /// essentially the entire session on a real library (5k+ tracks), and
-  /// since the refusal only surfaced after PlaylistStore's retry deadline,
-  /// it read to the user as a silent failure. Enrichment writes only the
-  /// AppData meta cache, never a manifest, so it has no business blocking
-  /// manifest writes.
+  /// Deliberately NARROWER than [busy]. This flag used to also gate
+  /// [PlaylistStore] mutations -- playlists lived in the very same
+  /// `.library.json` files back then, so a write needed the same
+  /// exclusivity. They've since moved to the shared `.playlists/` sidecar
+  /// (a different file, with its own LWW reconciliation), so
+  /// [PlaylistStore] no longer touches this flag at all; see
+  /// [tryBeginManifestWrite]'s doc for why the acquire/release pair is kept
+  /// around anyway.
   bool _manifestIo = false;
-
-  /// Bumped by every completed external manifest write ([endManifestWrite]).
-  /// [load] samples it around its merge so a playlist write that lands
-  /// mid-load can't be overwritten in the UI by the pre-write playlists this
-  /// load already read.
-  int _manifestWriteEpoch = 0;
 
   /// Set by [load] when a new load request arrives while [_busy] already
   /// holds (see [load]'s re-entrancy doc); re-issued by [_runPendingLoad]
@@ -276,6 +277,7 @@ class LibraryModel extends ChangeNotifier {
     void Function(int done, int total)? onProgress,
     Duration batchTimeout = _defaultBatchTimeout,
     Duration fileTimeout = _defaultFileTimeout,
+    String? libraryHome,
   }) async {
     if (_busy) {
       _pendingLoad = () => load(
@@ -284,6 +286,7 @@ class LibraryModel extends ChangeNotifier {
         onProgress: onProgress,
         batchTimeout: batchTimeout,
         fileTimeout: fileTimeout,
+        libraryHome: libraryHome,
       );
       return;
     }
@@ -291,6 +294,7 @@ class LibraryModel extends ChangeNotifier {
     _cacheFile = cacheFile;
     _enrichBatchTimeout = batchTimeout;
     _enrichFileTimeout = fileTimeout;
+    this.libraryHome = libraryHome;
     _busy = true;
     try {
       await _loadBody(
@@ -330,21 +334,17 @@ class LibraryModel extends ChangeNotifier {
 
       // Merge every root's manifest: tracks dedupe by contentId, first root
       // wins (so re-ordering roots in settings doesn't shuffle which copy
-      // "owns" a track already known from an earlier root); playlists are
-      // concatenated, with a same-name collision from a different root
-      // suffixed " (2)", " (3)", ... so neither is silently shadowed.
+      // "owns" a track already known from an earlier root). Playlists are
+      // NOT part of this merge -- they live in the shared `.playlists/`
+      // sidecar (see [_sidecarPlaylists]), a single directory rather than
+      // one array per root, so there is no per-root race to guard against
+      // here the way there used to be.
       final mergedTracks = <String, Track>{};
-      final mergedPlaylists = <ManifestPlaylist>[];
-      final usedPlaylistNames = <String>{};
       final missingManifest = <String>[];
       final failedRoots = <String>[];
 
       // Held across the merge below (manifest reads) and released before
-      // Part B's enrichment, which touches only the meta cache. A playlist
-      // write that refuses to come free in time doesn't block the load:
-      // saveManifest is an atomic tmp-then-rename, so the worst case is
-      // reading the pre-write copy -- which the epoch check below repairs.
-      final epoch = _manifestWriteEpoch;
+      // Part B's enrichment, which touches only the meta cache.
       final tookPhase = await _beginManifestPhase(const Duration(seconds: 5));
       try {
         for (final root in libraryRoots) {
@@ -368,18 +368,6 @@ class LibraryModel extends ChangeNotifier {
           for (final t in data.tracks) {
             mergedTracks.putIfAbsent(t.contentId, () => t);
           }
-          for (var i = 0; i < data.playlists.length; i++) {
-            final pl = data.playlists[i];
-            mergedPlaylists.add(
-              ManifestPlaylist(
-                name: _uniquePlaylistName(pl.name, usedPlaylistNames),
-                trackIds: pl.trackIds,
-                rootPath: root.path,
-                sourceName: pl.name,
-                sourceIndex: i,
-              ),
-            );
-          }
         }
       } finally {
         if (tookPhase) _endManifestPhase();
@@ -387,13 +375,7 @@ class LibraryModel extends ChangeNotifier {
 
       rootsMissingManifest = missingManifest;
       rootsFailed = failedRoots;
-      playlists = mergedPlaylists;
-      if (_manifestWriteEpoch != epoch) {
-        // A playlist write landed while this load was merging, so
-        // `mergedPlaylists` predates it -- re-read just the playlists rather
-        // than leaving the UI showing the pre-write state.
-        reloadPlaylists();
-      }
+      playlists = _sidecarPlaylists();
 
       if (mergedTracks.isEmpty) {
         allTracks = [];
@@ -737,7 +719,7 @@ class LibraryModel extends ChangeNotifier {
         final newRecords = <(String, String, String)>[];
         if (!await _beginManifestPhase(const Duration(seconds: 5))) {
           if (!quiet) {
-            status = 'rescan skipped (a playlist write was in progress)';
+            status = 'rescan skipped (another manifest write was in progress)';
           }
           continue; // this root waits for the next tick
         }
@@ -1812,16 +1794,21 @@ class LibraryModel extends ChangeNotifier {
   /// is wrong until the rows rebuild.
   void notifyDerivedChanged() => notifyListeners();
 
-  /// Attempts to take the [busy] flag for a short external manifest write
-  /// (PlaylistStore's load-mutate-save cycle on the first root's
-  /// `.library.json`). Returns false -- caller should retry shortly -- when
-  /// a [load]/[rescan] already holds it; those write the very same manifest
+  /// Attempts to take the [busy] flag for a short external `.library.json`
+  /// write. Returns false -- caller should retry shortly -- when a
+  /// [load]/[rescan] already holds it; those write the very same manifest
   /// file from inside their isolates, so interleaving would lose updates.
   ///
   /// While held, [rescan] no-ops and a concurrent [load] queues itself via
   /// [_pendingLoad] -- exactly the discipline the two of them already apply
   /// to each other. MUST be paired with [endManifestWrite] (in a
   /// `finally`).
+  ///
+  /// No longer used by [PlaylistStore] -- playlists moved to the shared
+  /// `.playlists/` sidecar (a different file, with its own tombstones and
+  /// LWW reconciliation), which doesn't need this lock at all. Kept for any
+  /// future writer that genuinely needs to touch a root's `.library.json`
+  /// from outside [load]/[rescan]/[persistDurationsToManifests].
   bool tryBeginManifestWrite() {
     if (_manifestIo) return false;
     _manifestIo = true;
@@ -1829,12 +1816,12 @@ class LibraryModel extends ChangeNotifier {
   }
 
   /// Takes [_manifestIo] for one of THIS model's own manifest-touching
-  /// phases, waiting up to [wait] for an in-flight external write (a
-  /// PlaylistStore mutation is a sub-second load-mutate-save, so the wait is
-  /// short by design). Returns false if it never came free -- the caller
-  /// decides whether to skip ([rescan], which runs again on its timer) or
-  /// proceed anyway ([load], which must not be skipped and whose reads are
-  /// safe against `saveManifest`'s atomic tmp-then-rename).
+  /// phases ([load]'s merge, [rescan]'s scan/stamp/save,
+  /// [persistDurationsToManifests]), waiting up to [wait] for it to come
+  /// free. Returns false if it never did -- the caller decides whether to
+  /// skip ([rescan], which runs again on its timer) or proceed anyway
+  /// ([load], which must not be skipped and whose reads are safe against
+  /// `saveManifest`'s atomic tmp-then-rename).
   Future<bool> _beginManifestPhase(Duration wait) async {
     final deadline = DateTime.now().add(wait);
     while (_manifestIo) {
@@ -1854,49 +1841,55 @@ class LibraryModel extends ChangeNotifier {
   /// while the write held the flag.
   Future<void> endManifestWrite() async {
     _manifestIo = false;
-    _manifestWriteEpoch++;
     notifyListeners();
     await _runPendingLoad();
   }
 
-  /// Re-reads ONLY the playlists section of every root's manifest and
-  /// rebuilds the merged [playlists] list (same first-root-first collision
-  /// suffixing and ownership stamping as [load]'s merge) -- the lightweight
-  /// refresh PlaylistStore asks for after each mutation, deliberately NOT a
-  /// full [load] (no track re-merge, no tag enrichment, no [busy]
-  /// involvement -- callable while PlaylistStore still holds the manifest
-  /// write flag).
+  /// Reads every playlist out of [libraryHome]'s `.playlists/` sidecar and
+  /// returns it as the merged [ManifestPlaylist] shape the UI already
+  /// expects, sorted by [core.PlaylistFile.created] ascending (oldest
+  /// first -- "the order I made them") with same-name collisions suffixed
+  /// " (2)", " (3)", ... via the existing [_uniquePlaylistName] convention.
+  /// Empty (not an error) when [libraryHome] is null -- there is nowhere to
+  /// read from yet.
   ///
-  /// Roots with a missing or unparseable manifest are skipped, mirroring
-  /// [load]. If [activePlaylist] no longer exists afterward (it was just
-  /// deleted), the selection falls back to the Library view.
-  void reloadPlaylists() {
-    final merged = <ManifestPlaylist>[];
+  /// Shared by [_loadBody]'s merge and [reloadPlaylists] so there is exactly
+  /// one definition of "what the sidecar currently says", read fresh from
+  /// disk every time (never cached) so an external edit -- another device's
+  /// sync, or this app's own [PlaylistStore] -- is always picked up.
+  List<ManifestPlaylist> _sidecarPlaylists() {
+    final home = libraryHome;
+    if (home == null) return const [];
+    final state = core.loadPlaylistsDir(Directory(home));
+    final entries = state.playlists.values.toList()
+      ..sort((a, b) {
+        final byCreated = a.created.compareTo(b.created);
+        return byCreated != 0 ? byCreated : a.id.compareTo(b.id);
+      });
     final used = <String>{};
-    for (final root in _libraryRoots) {
-      final manifest = File(p.join(root.path, '.library.json'));
-      if (!manifest.existsSync()) continue;
-      List<ManifestPlaylist> loaded;
-      try {
-        loaded = loadManifestPlaylistsFile(manifest);
-      } catch (_) {
-        continue; // corrupt manifest: skipped, same as load()
-      }
-      for (var i = 0; i < loaded.length; i++) {
-        merged.add(
-          ManifestPlaylist(
-            name: _uniquePlaylistName(loaded[i].name, used),
-            trackIds: loaded[i].trackIds,
-            rootPath: root.path,
-            sourceName: loaded[i].name,
-            sourceIndex: i,
-          ),
-        );
-      }
-    }
-    playlists = merged;
+    return [
+      for (final p in entries)
+        ManifestPlaylist(
+          id: p.id,
+          name: _uniquePlaylistName(p.name, used),
+          trackIds: List.of(p.trackIds),
+          sourceName: p.name,
+        ),
+    ];
+  }
+
+  /// Re-reads the `.playlists/` sidecar and rebuilds the merged [playlists]
+  /// list -- the lightweight refresh [PlaylistStore] asks for after each
+  /// mutation, deliberately NOT a full [load] (no track re-merge, no tag
+  /// enrichment, no [busy] involvement).
+  ///
+  /// If [activePlaylist] no longer exists afterward (it was just deleted,
+  /// including by another device via sync), the selection falls back to the
+  /// Library view.
+  void reloadPlaylists() {
+    playlists = _sidecarPlaylists();
     if (activePlaylist != null &&
-        !merged.any((pl) => pl.name == activePlaylist)) {
+        !playlists.any((pl) => pl.name == activePlaylist)) {
       activePlaylist = null;
     }
     notifyListeners();

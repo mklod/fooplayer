@@ -224,7 +224,11 @@ class _TrackListViewState extends State<TrackListView> {
   Widget build(BuildContext context) {
     final library = widget.library;
     final player = widget.player;
-    final store = widget.playlistStore ?? PlaylistStore(library: library);
+    // HomeScreen always injects a real store; this fallback only fires in
+    // widget tests that build TrackListView directly without one.
+    final store =
+        widget.playlistStore ??
+        PlaylistStore(library: library, device: 'test');
     return Focus(
       focusNode: _focusNode,
       onKeyEvent: _handleKeyEvent,

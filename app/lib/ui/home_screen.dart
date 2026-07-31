@@ -96,7 +96,11 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final store = playlistStore ?? PlaylistStore(library: library);
+    // main.dart always injects a real store (with the real device label);
+    // this fallback only fires in widget tests that build the screen
+    // without one.
+    final store =
+        playlistStore ?? PlaylistStore(library: library, device: 'test');
     return Scaffold(
       // The panel layout was written for a window with a title bar, so it
       // painted from pixel zero. On a tablet that put the Android status bar

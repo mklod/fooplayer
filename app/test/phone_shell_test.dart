@@ -114,7 +114,7 @@ void main() {
   testWidgets('long-press on a feed row opens the real context sheet with both '
       'plan actions (Add to playlist / View details)', (tester) async {
     final library = fixtureLibrary();
-    final store = PlaylistStore(library: library);
+    final store = PlaylistStore(library: library, device: 'test');
     // Production-shaped wiring (main.dart closes the real sheet over the
     // library + store exactly like this).
     await pumpShell(

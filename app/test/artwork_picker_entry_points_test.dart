@@ -96,7 +96,7 @@ Future<void> pumpSheetHost(
             context,
             track: track,
             library: library,
-            store: PlaylistStore(library: library),
+            store: PlaylistStore(library: library, device: 'test'),
             artwork: artwork,
           ),
           child: const Text('open sheet'),

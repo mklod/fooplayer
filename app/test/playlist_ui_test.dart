@@ -23,7 +23,8 @@ import 'package:fooplayer_app/ui/home_screen.dart';
 import 'package:fooplayer_app/ui/layout_prefs.dart';
 
 class SpyPlaylistStore extends PlaylistStore {
-  SpyPlaylistStore(LibraryModel library) : super(library: library);
+  SpyPlaylistStore(LibraryModel library)
+    : super(library: library, device: 'test');
 
   final created = <String>[];
   final deleted = <String>[];
@@ -126,7 +127,8 @@ Future<SpyPlaylistStore> pumpHome(WidgetTester tester, LibraryModel lib) async {
 /// ownership block) to prove the UI surfaces it via a visible SnackBar
 /// rather than swallowing it silently.
 class RefusingPlaylistStore extends PlaylistStore {
-  RefusingPlaylistStore(LibraryModel library) : super(library: library);
+  RefusingPlaylistStore(LibraryModel library)
+    : super(library: library, device: 'test');
 
   @override
   Future<int> addTracks(String name, List<String> contentIds) async {
