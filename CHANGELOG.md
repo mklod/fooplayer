@@ -15,6 +15,11 @@
 >   conflict resolution between two offline edits) are scoped in
 >   [WORKPLAN.md](WORKPLAN.md)'s Next section, to be folded into Plan 3
 >   (phone library sync) design work.
+> - **Inline metadata editing in the track list** (raised 2026-07-31):
+>   edit a track's artist/title/album/etc. directly in its row, like an
+>   Excel spreadsheet cell — click into the field, type, commit — instead
+>   of only through the tag-edit dialog. Same write path and invariants as
+>   the existing tag editing (content ID unmoved, file dates restored).
 > - **Tag lookup must prefer the ORIGINAL release over later compilations.**
 >   A 1970s track should not have a ca. 2000s Various-Artists mixtape or
 >   collection promoted over the album it actually came from — and the album
