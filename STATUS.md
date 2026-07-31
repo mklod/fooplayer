@@ -1,6 +1,19 @@
 # fooplayer — STATUS
 
-*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-30.*
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-31.*
+
+## Next session starts here
+
+**Plan 3 — phone/LAN library sync** (see [WORKPLAN.md](WORKPLAN.md)'s Next
+section for the full writeup). Fold in the newly-scoped **persistent,
+synced playlists** requirement while designing it — same no-account,
+same-shared-folder mechanism as the rest of the library, detailed in
+WORKPLAN and in CHANGELOG's TODO tip.
+
+**Parked, not forgotten:** a UI reskin (moving/restyling existing
+controls) is deliberately punted until Mike runs a dedicated Claude-design
+pass on it — see WORKPLAN's "Deliberately parked" section. Don't fold
+visual tweaks into unrelated functional work before that pass happens.
 
 ## Component status
 
@@ -76,6 +89,15 @@
   CHANGELOG): the Queue redesign itself (faux vs. explicit queue,
   sidebar destination not a popup) and the Folder filter panel no longer
   showing the library root's own name at any depth.
+- **Session wrap-up**: the Queue work is done and verified; a UI reskin
+  (moving/restyling buttons) was raised but explicitly punted until Mike
+  runs a dedicated Claude-design pass on it, rather than iterating it live
+  — see WORKPLAN's "Deliberately parked" section. **Persistent, synced
+  playlists** (no account/login — same-shared-folder mechanism as the rest
+  of the library) was scoped as a new requirement to fold into Plan 3's
+  design, not yet implemented — see WORKPLAN's Next section and
+  CHANGELOG's TODO. Next session starts on **Plan 3, phone/LAN library
+  sync.**
 
 ## Earlier session (2026-07-29)
 

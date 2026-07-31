@@ -1,6 +1,6 @@
 # fooplayer — WORKPLAN
 
-*Forward-looking queue. State: [STATUS.md](STATUS.md) · History: [CHANGELOG.md](CHANGELOG.md). Last update: 2026-07-29.*
+*Forward-looking queue. State: [STATUS.md](STATUS.md) · History: [CHANGELOG.md](CHANGELOG.md). Last update: 2026-07-31.*
 
 ## ✅ Completed since the last plan revision
 
@@ -59,14 +59,46 @@
 3. ~~Plan 2c, background audio~~ — done and verified on the emulator.
 4. ~~Queue actions~~ — done; the queue is an editable scratch playlist now.
 
-## Next
+## Next — starting point for the next session
 
-1. **Plan 3 — phone library sync.** The last big one. One-button LAN pull of
-   new files + manifests from the NAS. Content IDs make the diff trivial; the
-   hard parts are Android storage scope and transfer resilience. There is now
-   a hand-rolled eight-file precedent: the tablet was seeded with tracks whose
-   content IDs and download dates were carried across from the NAS manifest,
-   which is exactly what this has to do at scale.
+1. **Plan 3 — phone library sync.** The last big one, and where the next
+   session starts. One-button LAN pull of new files + manifests from the NAS.
+   Content IDs make the diff trivial; the hard parts are Android storage scope
+   and transfer resilience. There is now a hand-rolled eight-file precedent:
+   the tablet was seeded with tracks whose content IDs and download dates were
+   carried across from the NAS manifest, which is exactly what this has to do
+   at scale.
+
+   **Fold in while designing it — persistent, synced playlists (raised
+   2026-07-31):** a playlist made on the tablet or phone should show up on
+   desktop, and vice versa, with no account/login — the same reason all three
+   see the same library at all: they're all pointed at the same music
+   folder(s). The natural shape is a **playlist sidecar**, the same pattern
+   `.artwork.json` and the library manifest already use — a file living
+   inside the music root(s) themselves, read by whichever device is pointed
+   at that root, no server involved. Open questions worth settling before
+   writing code (not yet designed, just scoped):
+   - **Where does the sidecar live** — one file per root (matches how
+     manifests and `.artwork.json` are already scoped per-root), or one
+     playlist file per playlist, or a single library-wide file? A playlist
+     can span tracks from more than one of the five roots, which a
+     per-root file doesn't cleanly capture — probably wants its own
+     location, not bolted onto an existing per-root sidecar.
+   - **Membership by content ID**, not path — the same reason everything
+     else here is content-ID keyed: retag-proof, rescan-proof, and it
+     already means "the same audio," which is exactly what "the same
+     playlist across three libraries with three different folder layouts"
+     needs.
+   - **Conflict resolution** — if the same playlist is edited on two
+     devices before either has seen the other's write (plausible: phone
+     edits on the go, NAS not reachable until home Wi-Fi), what happens?
+     Last-write-wins is simplest and matches how the manifest itself
+     already handles concurrent writers, but silently dropping one
+     device's edit is a real cost worth naming, not assuming away.
+   - **Detecting a change from another device** — this reuses whatever
+     Plan 3's own file-watching/diffing mechanism ends up being (the NAS
+     pull already has to notice "something changed since last sync"), so
+     design them together rather than as two separate polling systems.
 2. **The second collection** outside the roots — `albums [no scrape]`,
    `iTunes`, `xmas`, `_to dl`. Still untouched, which is what made the 2007-11
    Rehab date recovery possible. Mike's call whether any of it joins.
@@ -160,6 +192,17 @@ discipline the artwork embedding now has, applied to the rest of the metadata.
   restores timestamps through SetFileTime, and both are verified per file
   before anything is written. Text-frame editing is a small extension of the
   same code path, not a new one.
+
+## Deliberately parked
+
+- **UI reskin (buttons moved, visual pass) — punted 2026-07-31.** Mostly
+  skinning and rearranging existing controls, not new functionality. Mike
+  wants to run a dedicated Claude-design pass on it rather than iterate it
+  live alongside functional work; **do not start this without that pass
+  happening first, and do not fold small "while I'm in there" visual
+  tweaks into unrelated functional changes in the meantime** — keep the
+  surface stable so the design pass has a clean, unchanged baseline to
+  work from.
 
 ## Decision gates (Mike only)
 

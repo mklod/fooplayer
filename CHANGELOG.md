@@ -4,6 +4,17 @@
 
 ## TODO
 > [!tip] Queued for next build
+> - **Persistent playlists, synced across devices with no account/login**
+>   (raised 2026-07-31). Make a playlist on the tablet or phone, it shows
+>   up on desktop, and vice versa — purely because all three point at the
+>   same music folder(s), the same reason they already see the same
+>   library. Shape: a playlist sidecar file (like `.artwork.json`/the
+>   manifest already are), content-ID keyed, living in the shared music
+>   root(s) rather than any single device. Not yet designed — open
+>   questions (sidecar location for a playlist spanning multiple roots,
+>   conflict resolution between two offline edits) are scoped in
+>   [WORKPLAN.md](WORKPLAN.md)'s Next section, to be folded into Plan 3
+>   (phone library sync) design work.
 > - **Tag lookup must prefer the ORIGINAL release over later compilations.**
 >   A 1970s track should not have a ca. 2000s Various-Artists mixtape or
 >   collection promoted over the album it actually came from — and the album
