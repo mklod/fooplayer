@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1846
+// Last modified: 2026-07-31--1853
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -273,7 +273,22 @@ class SyncEngine {
         }
       });
 
-      final localManifest = core.loadManifest(localRootDir);
+      // core.loadManifest deliberately rethrows a TypeError (not a
+      // FormatException) when the local .library.json is valid JSON but the
+      // wrong shape (e.g. `tracks` stored as a list) and there's no .bak to
+      // fall back to -- a real, documented data-corruption signal (first
+      // sync / hand-seeded / tampered root; saveManifest only starts
+      // rotating a .bak after the first successful local write). That's not
+      // a programming bug, so the outer `on Exception` catch-all below must
+      // not be the only thing standing between it and taking down the whole
+      // run() -- catch it here, specifically, before it can ever reach that
+      // net.
+      core.Manifest localManifest;
+      try {
+        localManifest = core.loadManifest(localRootDir);
+      } on TypeError catch (e) {
+        return _abortedRoot(rootName, 'local manifest unreadable: $e');
+      }
       final localFiles = await _walkLocalAudioFiles(localRootDir);
       final stateFile = File(
         '${localRootDir.path}/${core.syncStateFileName}',
@@ -587,9 +602,11 @@ class SyncEngine {
     } on Exception catch (e) {
       // Last-resort net for anything not already turned into a per-file
       // SyncFailure or a specific early abort above -- a throwing listTree,
-      // a corrupt local manifest with no usable .bak, an unexpected
-      // filesystem error during planning. This root aborts; the run as a
-      // whole (and any other root in it) does not.
+      // a syntactically-invalid local manifest with no usable .bak (the
+      // shape-but-not-syntax corruption case is caught specifically at the
+      // loadManifest call above, since it rethrows a TypeError, not an
+      // Exception), an unexpected filesystem error during planning. This
+      // root aborts; the run as a whole (and any other root in it) does not.
       //
       // Deliberately `on Exception`, not a bare `catch`: an `Error`
       // (TypeError, a null check, RangeError -- a genuine bug, not an
@@ -597,6 +614,18 @@ class SyncEngine {
       // must never be silently reported as just another "sync failed,
       // try again" abort. Letting it propagate is what makes it visible
       // enough to actually get fixed.
+      //
+      // This Error-vs-Exception policy is deliberately applied ONLY at this
+      // outer boundary (and the loadManifest TypeError catch above, which
+      // exists for the same "documented corruption signal, not a bug"
+      // reason). The inner per-item catches throughout this method (rename,
+      // delete, and the two inside _downloadAndVerify) stay bare `catch`
+      // ON PURPOSE: those convert EVERYTHING -- Error included -- into a
+      // per-file SyncFailure and keep going, because a single file's local
+      // I/O quirk (a locked file, a transient rename race) must never take
+      // the rest of the root down with it. Only this top-level boundary
+      // (where the alternative is silently reporting a real bug as routine)
+      // draws the Exception/Error line.
       final state = stateForRecovery;
       final stateFile = stateFileForRecovery;
       if (state != null && stateFile != null) {

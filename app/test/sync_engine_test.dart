@@ -805,6 +805,47 @@ void main() {
       },
     );
 
+    test(
+      'a wrong-shaped-but-valid-JSON local manifest (no usable .bak) aborts '
+      'only that root; run() still returns a report',
+      () async {
+        final idGood = await writeNasTrack('RootGood', 'a.wav', 1);
+        await writeNasManifest('RootGood', {
+          idGood: ['a.wav'],
+        });
+
+        final idBroken = await writeNasTrack('RootBroken', 'b.wav', 2);
+        await writeNasManifest('RootBroken', {
+          idBroken: ['b.wav'],
+        });
+        // Valid JSON, wrong SHAPE (tracks as a list instead of a map) --
+        // core.loadManifest rethrows this as a TypeError (not a
+        // FormatException) when there's no .bak to fall back to. A real
+        // shape a first-sync / hand-seeded / tampered root can be in, since
+        // saveManifest only starts rotating a .bak after the FIRST
+        // successful local write.
+        final localManifestFile = File(
+          '${localHome.path}/RootBroken/${core.manifestFileName}',
+        );
+        await localManifestFile.parent.create(recursive: true);
+        await localManifestFile.writeAsString(
+          '{"schema":1,"tracks":[],"playlists":[]}',
+        );
+
+        final report = await buildEngine(
+          rootNames: ['RootBroken', 'RootGood'],
+        ).run();
+
+        final good = report.roots.firstWhere((r) => r.rootName == 'RootGood');
+        final broken = report.roots.firstWhere((r) => r.rootName == 'RootBroken');
+
+        expect(good.aborted, isFalse);
+        expect(good.copied, 1);
+        expect(broken.aborted, isTrue);
+        expect(broken.abortReason, contains('local manifest unreadable'));
+      },
+    );
+
     test('a throwing probe() is treated as unreachable, not an escaping exception', () async {
       final throwing = _ThrowingProbeTransport(LocalDirTransport(nasHome));
       final report = await buildEngine(
