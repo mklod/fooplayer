@@ -1,6 +1,6 @@
 // Which layout this device gets: the desktop panel layout or the phone shell.
 //
-// Last modified: 2026-07-29--1625
+// Last modified: 2026-07-31--2210
 import 'dart:io';
 import 'package:flutter/widgets.dart';
 
@@ -58,6 +58,15 @@ bool useDesktopLayout(BuildContext context) {
 /// Whether this app instance should render the phone UI (`PhoneShell`)
 /// instead of the desktop panel layout.
 bool usePhoneShell(BuildContext context) => !useDesktopLayout(context);
+
+/// Whether this platform is Android, honoring [isAndroidOverride] the same
+/// way [useDesktopLayout] does -- shared by anything that needs a plain
+/// "is this Android" answer rather than the layout question, e.g. gating
+/// Android-only entry points (the sync settings UI's "Sync…" button and
+/// "Sync" list tile -- there is no SMB bridge implementation anywhere else)
+/// so the same one test switch that already picks phone-shell-vs-panel also
+/// controls those, with no separate seam to wire per widget.
+bool isAndroidPlatform() => isAndroidOverride ?? Platform.isAndroid;
 
 /// Whether "View in folder" can do anything here.
 ///

@@ -1,6 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/sync/sync_engine.dart';
+import 'package:fooplayer_app/sync/sync_settings.dart';
+import 'package:fooplayer_app/ui/adaptive.dart';
 import 'package:fooplayer_app/ui/settings_dialog.dart';
+import 'package:fooplayer_app/ui/sync_view.dart';
+
+/// A [SyncUiSeams] whose five closures are all harmless no-op fakes -- the
+/// button-forwarding tests below only need the dialog to OPEN, never a real
+/// sync to run.
+SyncUiSeams _fakeSyncUi() => SyncUiSeams(
+  currentSettings: () => SyncSettings(),
+  onSave: (_) {},
+  runSync: () async => SyncReport(
+    playlistNotes: const [],
+    roots: const [],
+    finishedAt: DateTime(2026, 7, 31),
+  ),
+  probe: () async => true,
+  discoverRoots: () async => const [],
+);
 
 /// Pumps a [SettingsDialog] wrapped in a small [StatefulWidget] harness that
 /// owns the roots list itself and feeds add/remove callbacks back into
@@ -15,6 +34,8 @@ class _Harness extends StatefulWidget {
   final Future<String?> Function() pickDirectory;
   final void Function(String)? onAdd;
   final void Function(String)? onRemove;
+  final Future<void> Function(String root)? onSetUpRoot;
+  final SyncUiSeams? syncUi;
 
   const _Harness({
     required this.initialRoots,
@@ -23,6 +44,8 @@ class _Harness extends StatefulWidget {
     required this.pickDirectory,
     this.onAdd,
     this.onRemove,
+    this.onSetUpRoot,
+    this.syncUi,
   });
 
   @override
@@ -57,6 +80,8 @@ class _HarnessState extends State<_Harness> {
               failed = failed.where((r) => r != path).toList();
             });
           },
+          onSetUpRoot: widget.onSetUpRoot,
+          syncUi: widget.syncUi,
         ),
       ),
     );
@@ -207,4 +232,91 @@ void main() {
       expect(find.byType(ListTile), findsNothing);
     },
   );
+
+  // Regression coverage for the Task 11 bug fix: SettingsDialog.build used
+  // to construct LibraryRootsEditor without forwarding its own onSetUpRoot
+  // at all, so a tablet -- which runs this exact dialog, not the phone
+  // Settings page, see adaptive.dart's useDesktopLayout -- never saw "Set
+  // up" for a freshly-added, not-yet-scanned root no matter what the caller
+  // passed in. Asserted on the DIALOG (not LibraryRootsEditor directly, the
+  // way phone_settings_view_test.dart already covers), since that's exactly
+  // the layer the bug lived in.
+  testWidgets(
+    'forwards onSetUpRoot to its LibraryRootsEditor -- "Set up" appears for '
+    'a missing-manifest root',
+    (tester) async {
+      var setUpCalledFor = '';
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music', r'L:\new drop'],
+          initialMissing: [r'L:\new drop'],
+          pickDirectory: () async => null,
+          onSetUpRoot: (root) async => setUpCalledFor = root,
+        ),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('root-tile-L:\\new drop')),
+          matching: find.text('not set up yet — tap Set up to scan it'),
+        ),
+        findsOneWidget,
+        reason:
+            'this wording only shows when onSetUpRoot is non-null -- the '
+            'previous bug silently fell back to "seed with foolib" instead',
+      );
+      expect(find.byKey(const Key('setup-root-L:\\new drop')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('setup-root-L:\\new drop')));
+      await tester.pumpAndSettle();
+      expect(setUpCalledFor, r'L:\new drop');
+    },
+  );
+
+  group('Android-gated "Sync…" action', () {
+    tearDown(() => isAndroidOverride = null);
+
+    testWidgets('appears and opens SyncView when the gate returns true', (
+      tester,
+    ) async {
+      isAndroidOverride = true;
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music'],
+          pickDirectory: () async => null,
+          syncUi: _fakeSyncUi(),
+        ),
+      );
+
+      expect(find.byKey(const Key('open-sync-view')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('open-sync-view')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sync-host')), findsOneWidget);
+    });
+
+    testWidgets('is absent when the gate returns false', (tester) async {
+      isAndroidOverride = false;
+      await tester.pumpWidget(
+        _Harness(
+          initialRoots: [r'L:\music'],
+          pickDirectory: () async => null,
+          syncUi: _fakeSyncUi(),
+        ),
+      );
+
+      expect(find.byKey(const Key('open-sync-view')), findsNothing);
+    });
+
+    testWidgets('is absent when the gate is true but no sync seams are wired', (
+      tester,
+    ) async {
+      isAndroidOverride = true;
+      await tester.pumpWidget(
+        _Harness(initialRoots: [r'L:\music'], pickDirectory: () async => null),
+      );
+
+      expect(find.byKey(const Key('open-sync-view')), findsNothing);
+    });
+  });
 }

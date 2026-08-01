@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1743
+// Last modified: 2026-07-31--2013
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -24,6 +24,9 @@ import 'model/track.dart';
 import 'player/audio_handler.dart';
 import 'player/player_service.dart';
 import 'sync/playlist_reconciler.dart';
+import 'sync/smb_transport.dart';
+import 'sync/sync_engine.dart';
+import 'sync/sync_settings.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
@@ -34,6 +37,7 @@ import 'ui/phone/phone_settings_view.dart';
 import 'ui/phone/phone_shell.dart';
 import 'ui/phone/storage_access.dart';
 import 'ui/phone/track_context_sheet.dart';
+import 'ui/sync_view.dart';
 
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
 /// launch-time and Refresh-button triggers -- see main() below.
@@ -230,15 +234,6 @@ void main() async {
   // 3) -- config `deviceName` if set, else the OS hostname.
   final device = deviceLabel(config);
 
-  // Android-only playlist sync scheduler (Plan 3 Task 8) -- probe-gated,
-  // debounced auto-cadence over [PlaylistReconciler]. Real construction
-  // (`Platform.isAndroid` + configured `SyncSettings` + `SmbTransport`)
-  // lands in Task 9 (SyncEngine) and Task 11 (settings UI); until then this
-  // stays null so every hook wired below compiles and is completely inert
-  // -- PlaylistStore.onMutated, the periodic-rescan tick, and the
-  // post-first-load app-start hook all just no-op via `?.`.
-  final PlaylistSyncScheduler? syncScheduler = null; // wired fully in Task 9/11
-
   // Where `.playlists/` lives: the deepest common parent of every
   // configured root, or the `libraryHome` config override verbatim.
   // Recomputed on every [reloadLibrary] (roots can change via Settings);
@@ -247,6 +242,180 @@ void main() async {
     libraryRootsPrefs.roots,
     override: config['libraryHome'] as String?,
   );
+
+  // ---- LAN sync (Plan 3 Tasks 9-11) --------------------------------------
+  // Mutable holder for the persisted `"sync"` config block. `syncUi` below
+  // hands the UI a GETTER (`() => syncSettings`), never this value directly,
+  // so reopening the sync UI later in the same run sees whatever the
+  // previous visit's edits already saved rather than the value at launch.
+  var syncSettings = SyncSettings.fromConfig(config) ?? SyncSettings();
+  void saveSyncSettings(SyncSettings s) {
+    syncSettings = s;
+    config['sync'] = s.toJson();
+    _writeConfig(config, dataDir);
+  }
+
+  // Where a sync lands. Same resolution as the playlists home, but with a
+  // concrete fallback for the one case that has neither a configured root
+  // nor a `libraryHome` override yet: the very first sync ever run, before
+  // this device has any music folder configured at all.
+  String syncLocalHomePath() =>
+      currentLibraryHome() ?? '/storage/emulated/0/Music';
+
+  // Every SmbTransport/PlaylistReconciler/SyncEngine below is constructed
+  // freshly INSIDE these closures and closed again before returning --
+  // never held across calls. On a non-Android build these are simply never
+  // invoked (see the `Platform.isAndroid` gates on `syncUi`/`syncScheduler`
+  // below), so nothing here ever reaches for a platform channel that
+  // doesn't exist there.
+  Future<List<String>> discoverSyncRoots() async {
+    final s = syncSettings;
+    final transport = SmbTransport(
+      host: s.host,
+      share: s.share,
+      basePath: s.basePath,
+    );
+    try {
+      // listTree('') is a full recursive listing, not just top-level dirs --
+      // derive the top-level folder names from it, then keep only the ones
+      // that actually look like a synced root (their own manifest present).
+      final entries = await transport.listTree('');
+      final topLevel = <String>{};
+      for (final rf in entries) {
+        final slash = rf.relPath.indexOf('/');
+        if (slash <= 0) continue; // a stray file at the base, not a folder
+        topLevel.add(rf.relPath.substring(0, slash));
+      }
+      final withManifest = <String>[];
+      for (final name in topLevel) {
+        final bytes = await transport.readFile(
+          '$name/${core.manifestFileName}',
+        );
+        if (bytes != null) withManifest.add(name);
+      }
+      withManifest.sort();
+      return withManifest;
+    } finally {
+      await transport.close();
+    }
+  }
+
+  Future<bool> probeSyncNow() async {
+    final s = syncSettings;
+    final transport = SmbTransport(
+      host: s.host,
+      share: s.share,
+      basePath: s.basePath,
+    );
+    try {
+      return await transport.probe();
+    } finally {
+      await transport.close();
+    }
+  }
+
+  Future<SyncReport> runSyncNow() async {
+    final s = syncSettings;
+    final localHomePath = syncLocalHomePath();
+    final transport = SmbTransport(
+      host: s.host,
+      share: s.share,
+      basePath: s.basePath,
+    );
+    try {
+      final engine = SyncEngine(
+        transport: transport,
+        localHome: Directory(localHomePath),
+        settings: s,
+        library: library,
+        activity: activity,
+        freeSpace: SmbTransport.freeSpace,
+        reconciler: PlaylistReconciler(
+          localHome: Directory(localHomePath),
+          transport: transport,
+          localLabel: device,
+        ),
+      );
+      final report = await engine.run();
+      // A checked root's local folder is only worth adopting once a sync
+      // that could have created it has actually run -- never for the bare
+      // NAS-unreachable sentinel (RootSyncResult.rootName == '', see
+      // SyncEngine.run's doc), which never attempted a single real root.
+      if (report.roots.any((r) => r.rootName.isNotEmpty)) {
+        for (final entry in s.roots.entries) {
+          if (!entry.value) continue;
+          final localRootPath = p.join(localHomePath, entry.key);
+          if (libraryRootsPrefs.roots.contains(localRootPath)) continue;
+          if (Directory(localRootPath).existsSync()) {
+            libraryRootsPrefs.addRoot(localRootPath);
+          }
+        }
+      }
+      return report;
+    } finally {
+      await transport.close();
+    }
+  }
+
+  // Standalone playlist reconcile, for the scheduler's own cadence (app
+  // start / 5-minute tick / debounced-after-edit) -- deliberately NOT
+  // routed through SyncEngine.run(), which would also attempt every checked
+  // music-file root on each of those triggers. SyncEngine's own reconcile
+  // phase reloads playlists internally when it produces notes (Task 9); this
+  // standalone path has to do the same thing itself, since it never goes
+  // through SyncEngine at all.
+  Future<List<String>> runPlaylistReconcileOnly() async {
+    final s = syncSettings;
+    final localHomePath = syncLocalHomePath();
+    final transport = SmbTransport(
+      host: s.host,
+      share: s.share,
+      basePath: s.basePath,
+    );
+    try {
+      final reconciler = PlaylistReconciler(
+        localHome: Directory(localHomePath),
+        transport: transport,
+        localLabel: device,
+      );
+      final notes = await reconciler.run();
+      if (notes.isNotEmpty) {
+        library.reloadPlaylists();
+      }
+      return notes;
+    } finally {
+      await transport.close();
+    }
+  }
+
+  // The five SyncView seams, bundled for the UI to thread through (see
+  // SyncUiSeams' doc) -- Android only, since there is no SMB bridge
+  // implementation anywhere else. Null hides every sync entry point
+  // (SettingsDialog's "Sync…" button, PhoneSettingsView's "Sync" tile)
+  // regardless of screen size/layout.
+  final syncUi = Platform.isAndroid
+      ? SyncUiSeams(
+          currentSettings: () => syncSettings,
+          onSave: saveSyncSettings,
+          runSync: runSyncNow,
+          probe: probeSyncNow,
+          discoverRoots: discoverSyncRoots,
+        )
+      : null;
+
+  // Android-only playlist sync scheduler (Plan 3 Task 8) -- probe-gated,
+  // debounced auto-cadence over [PlaylistReconciler]. Constructed eagerly
+  // (unlike the transport/engine objects above, which are built fresh per
+  // call) because its onAppStart/onPeriodicTick hooks need to be live from
+  // the very first load -- null on every other platform, which is what
+  // keeps PlaylistStore.onMutated, the periodic-rescan tick, and the
+  // post-first-load app-start hook all inert there (every call is `?.`).
+  final syncScheduler = Platform.isAndroid
+      ? PlaylistSyncScheduler(
+          probe: probeSyncNow,
+          runReconcile: runPlaylistReconcileOnly,
+        )
+      : null;
 
   // One-time move of any playlists still sitting in a root's
   // `.library.json` into the shared sidecar (Plan 3 Task 4) -- must run
@@ -279,9 +448,7 @@ void main() async {
         );
         var allClean = true;
         for (final root in roots) {
-          final manifestFile = File(
-            p.join(root.path, core.manifestFileName),
-          );
+          final manifestFile = File(p.join(root.path, core.manifestFileName));
           if (!manifestFile.existsSync()) continue; // nothing to migrate
           try {
             if (core.loadManifest(root).playlists.isNotEmpty) {
@@ -462,6 +629,7 @@ void main() async {
       artworkBackfill: artworkBackfill,
       activity: activity,
       syncScheduler: syncScheduler,
+      syncUi: syncUi,
     ),
   );
 }
@@ -502,12 +670,19 @@ class FooPlayerApp extends StatelessWidget {
   /// without the artwork feature wired rely on.
   final ArtworkBackfill? artworkBackfill;
 
-  /// The Plan 3 auto-sync cadence (Task 8) -- null until Task 9/11 wire real
-  /// construction (Android + configured `SyncSettings` + `SmbTransport`).
-  /// [PlaylistStore.onMutated] points at [PlaylistSyncScheduler.onPlaylistMutated]
-  /// through this field, so it's inert (every call is `?.`) as long as it
-  /// stays null.
+  /// The Plan 3 auto-sync cadence (Task 8) -- real (Android) or null (every
+  /// other platform; there is no SMB bridge implementation there). See
+  /// main()'s construction above. [PlaylistStore.onMutated] points at
+  /// [PlaylistSyncScheduler.onPlaylistMutated] through this field, so it's
+  /// inert (every call is `?.`) whenever it's null.
   final PlaylistSyncScheduler? syncScheduler;
+
+  /// The [SyncView] seams (Plan 3 Task 11) -- real (Android) or null (every
+  /// other platform), forwarded to [HomeScreen] (the tablet path, via
+  /// SettingsDialog's "Sync…" button) and [PhoneSettingsView] (the phone
+  /// path, via its "Sync" tile). Both also gate on [isAndroidPlatform]
+  /// themselves, so a null here is belt-and-suspenders, not the only guard.
+  final SyncUiSeams? syncUi;
 
   const FooPlayerApp({
     super.key,
@@ -522,6 +697,7 @@ class FooPlayerApp extends StatelessWidget {
     this.artworkBackfill,
     this.activity,
     this.syncScheduler,
+    this.syncUi,
   });
 
   @override
@@ -563,6 +739,7 @@ class FooPlayerApp extends StatelessWidget {
               // request a second is a condition of using the service, and two
               // independent limiters would quietly break it.
               tagSearch: searchMusicBrainzRecordings,
+              syncUi: syncUi,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
@@ -616,6 +793,7 @@ class FooPlayerApp extends StatelessWidget {
               PhoneView.settings: (_) => PhoneSettingsView(
                 library: library,
                 libraryRootsPrefs: libraryRootsPrefs,
+                syncUi: syncUi,
               ),
             },
           );

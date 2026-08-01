@@ -30,6 +30,7 @@ import 'phone/storage_access.dart';
 import 'playlist_dialogs.dart';
 import 'queue_view.dart';
 import 'settings_dialog.dart';
+import 'sync_view.dart';
 import 'track_list.dart';
 
 /// Stand-in for widget tests that build a screen without wiring background
@@ -82,6 +83,14 @@ class HomeScreen extends StatelessWidget {
   /// through; they get a throwaway that nothing renders.
   final ActivityModel? activity;
 
+  /// LAN-sync seams (Plan 3 Task 11), forwarded to the sidebar's Settings
+  /// dialog. Null hides its "Sync…" action -- see
+  /// `SettingsDialog.syncUi`'s doc for why (also gated on
+  /// [isAndroidPlatform], since a Windows/macOS/Linux desktop running this
+  /// same panel layout has no SMB bridge implementation to sync with; only
+  /// an Android tablet, which runs this layout too, ever has both true).
+  final SyncUiSeams? syncUi;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -95,6 +104,7 @@ class HomeScreen extends StatelessWidget {
     this.artworkBackfill,
     this.activity,
     this.tagSearch,
+    this.syncUi,
   });
 
   @override
@@ -143,6 +153,7 @@ class HomeScreen extends StatelessWidget {
                             artworkServices: artworkServices,
                             activity: activity ?? _idleActivity,
                             layoutPrefs: layoutPrefs,
+                            syncUi: syncUi,
                           ),
                         ),
                       ),
@@ -411,6 +422,10 @@ class _Sidebar extends StatefulWidget {
   /// Where the sidebar's long-running actions report progress.
   final ActivityModel activity;
 
+  /// LAN-sync seams, forwarded straight through to the Settings dialog this
+  /// sidebar opens -- see [HomeScreen.syncUi]'s doc.
+  final SyncUiSeams? syncUi;
+
   const _Sidebar({
     required this.layoutPrefs,
     required this.library,
@@ -422,6 +437,7 @@ class _Sidebar extends StatefulWidget {
     this.artworkResolver,
     this.artworkServices,
     required this.activity,
+    this.syncUi,
   });
 
   @override
@@ -445,6 +461,7 @@ class _SidebarState extends State<_Sidebar> {
   ArtworkStoreRegistry? get artworkStores => widget.artworkStores;
   ArtworkServices? get artworkServices => widget.artworkServices;
   ActivityModel get activity => widget.activity;
+  SyncUiSeams? get syncUi => widget.syncUi;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -646,6 +663,7 @@ class _SidebarState extends State<_Sidebar> {
             if (!await requestFullStorageAccess()) return;
             await library.seedRoot(Directory(root));
           },
+          syncUi: syncUi,
         ),
       ),
     );

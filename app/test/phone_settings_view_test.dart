@@ -13,9 +13,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
 import 'package:fooplayer_app/player/player_service.dart';
+import 'package:fooplayer_app/sync/sync_engine.dart';
+import 'package:fooplayer_app/sync/sync_settings.dart';
+import 'package:fooplayer_app/ui/adaptive.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/phone/phone_settings_view.dart';
 import 'package:fooplayer_app/ui/phone/phone_shell.dart';
+import 'package:fooplayer_app/ui/sync_view.dart';
 
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
@@ -23,11 +27,27 @@ LibraryModel fixtureLibrary() {
   return m;
 }
 
+/// A [SyncUiSeams] whose five closures are all harmless no-op fakes -- the
+/// "Sync" entry test below only needs the page to OPEN, never a real sync
+/// to run.
+SyncUiSeams fakeSyncUi() => SyncUiSeams(
+  currentSettings: () => SyncSettings(),
+  onSave: (_) {},
+  runSync: () async => SyncReport(
+    playlistNotes: const [],
+    roots: const [],
+    finishedAt: DateTime(2026, 7, 31),
+  ),
+  probe: () async => true,
+  discoverRoots: () async => const [],
+);
+
 Future<void> pumpSettings(
   WidgetTester tester, {
   required LibraryModel library,
   required LibraryRootsPrefs prefs,
   Future<String?> Function()? pickDirectory,
+  SyncUiSeams? syncUi,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -37,6 +57,7 @@ Future<void> pumpSettings(
           library: library,
           libraryRootsPrefs: prefs,
           pickDirectory: pickDirectory ?? () async => null,
+          syncUi: syncUi,
         ),
       ),
     ),
@@ -161,5 +182,53 @@ void main() {
     expect(find.text('Library roots'), findsOneWidget);
     expect(find.text(r'C:\music'), findsOneWidget);
     expect(find.byKey(const Key('add-folder-button')), findsOneWidget);
+  });
+
+  group('Android-gated "Sync" entry (Plan 3 Task 11)', () {
+    tearDown(() => isAndroidOverride = null);
+
+    testWidgets(
+      'appears and navigates to a page hosting SyncView when the gate '
+      'returns true and sync seams are wired',
+      (tester) async {
+        isAndroidOverride = true;
+        final prefs = LibraryRootsPrefs(roots: [r'C:\music'], writer: (_) {});
+        await pumpSettings(
+          tester,
+          library: fixtureLibrary(),
+          prefs: prefs,
+          syncUi: fakeSyncUi(),
+        );
+
+        expect(find.byKey(const Key('phone-sync-entry')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('phone-sync-entry')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('sync-host')), findsOneWidget);
+      },
+    );
+
+    testWidgets('is absent when the gate returns false', (tester) async {
+      isAndroidOverride = false;
+      final prefs = LibraryRootsPrefs(roots: [r'C:\music'], writer: (_) {});
+      await pumpSettings(
+        tester,
+        library: fixtureLibrary(),
+        prefs: prefs,
+        syncUi: fakeSyncUi(),
+      );
+
+      expect(find.byKey(const Key('phone-sync-entry')), findsNothing);
+    });
+
+    testWidgets('is absent when the gate is true but no sync seams are wired', (
+      tester,
+    ) async {
+      isAndroidOverride = true;
+      final prefs = LibraryRootsPrefs(roots: [r'C:\music'], writer: (_) {});
+      await pumpSettings(tester, library: fixtureLibrary(), prefs: prefs);
+
+      expect(find.byKey(const Key('phone-sync-entry')), findsNothing);
+    });
   });
 }

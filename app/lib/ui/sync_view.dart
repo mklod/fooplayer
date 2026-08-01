@@ -1,0 +1,442 @@
+// Sync settings + "Sync now" + the report it ends in (Plan 3 Task 11).
+//
+// Pure content, no chrome of its own -- same split as `LibraryRootsEditor`
+// (settings_dialog.dart): the desktop/tablet path wraps this in an
+// `AlertDialog` (SettingsDialog's "Sync…" button), the phone path pushes it
+// as a page (phone_settings_view.dart's "Sync" tile). Every side effect --
+// reading/writing config.json, talking to the NAS -- lives behind the five
+// injected seams below; this widget never touches `dart:io` or a
+// `SyncTransport` directly, which is what makes it testable with fakes.
+//
+// Last modified: 2026-07-31--2013
+import 'package:flutter/material.dart';
+
+import 'app_theme.dart';
+import 'report_dialog.dart';
+import '../sync/sync_engine.dart';
+import '../sync/sync_settings.dart';
+
+/// Bundles the five [SyncView] seams so callers that only need to THREAD
+/// them through several widget layers -- `SettingsDialog` via
+/// `HomeScreen`/`_Sidebar` on a tablet, `PhoneSettingsView` on a phone --
+/// pass one object instead of five separate optional parameters at every
+/// hop. [SyncView] itself still takes the five named parameters directly
+/// (that's the shape its widget tests construct it with); this bundle
+/// exists purely so the pass-through call sites don't each grow five more
+/// fields of their own.
+///
+/// [currentSettings] is a getter, not a plain value, so that reopening the
+/// sync UI later in the same app session -- after an earlier visit already
+/// called [onSave] -- sees the latest edit rather than whatever was current
+/// when main.dart built this bundle once at startup.
+class SyncUiSeams {
+  final SyncSettings Function() currentSettings;
+  final void Function(SyncSettings) onSave;
+  final Future<SyncReport> Function() runSync;
+  final Future<bool> Function() probe;
+  final Future<List<String>> Function() discoverRoots;
+
+  const SyncUiSeams({
+    required this.currentSettings,
+    required this.onSave,
+    required this.runSync,
+    required this.probe,
+    required this.discoverRoots,
+  });
+}
+
+/// LAN-sync settings: NAS location fields, a connection check, discovered
+/// root checkboxes, and the "Sync now" action that ends in [SyncReportDialog].
+class SyncView extends StatefulWidget {
+  final SyncSettings settings;
+  final void Function(SyncSettings) onSave;
+  final Future<SyncReport> Function() runSync;
+  final Future<bool> Function() probe;
+  final Future<List<String>> Function() discoverRoots;
+
+  const SyncView({
+    super.key,
+    required this.settings,
+    required this.onSave,
+    required this.runSync,
+    required this.probe,
+    required this.discoverRoots,
+  });
+
+  @override
+  State<SyncView> createState() => _SyncViewState();
+}
+
+class _SyncViewState extends State<SyncView> {
+  // Owned clone -- [widget.settings] is only ever a prefill snapshot from
+  // the caller; every edit from here on lives in this copy and is pushed
+  // out via [widget.onSave], never mutated back into the widget's own prop.
+  late final SyncSettings _settings;
+
+  late final TextEditingController _hostController;
+  late final TextEditingController _shareController;
+  late final TextEditingController _baseController;
+  late final FocusNode _hostFocus;
+  late final FocusNode _shareFocus;
+  late final FocusNode _baseFocus;
+
+  bool _probing = false;
+  bool? _probeOk; // null = never checked this session
+
+  bool _discovering = true;
+  List<String> _discoveredRoots = const [];
+
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = SyncSettings(
+      host: widget.settings.host,
+      share: widget.settings.share,
+      basePath: widget.settings.basePath,
+      roots: Map<String, bool>.of(widget.settings.roots),
+    );
+    _hostController = TextEditingController(text: _settings.host);
+    _shareController = TextEditingController(text: _settings.share);
+    _baseController = TextEditingController(text: _settings.basePath);
+    _hostFocus = FocusNode()
+      ..addListener(
+        () => _onFocusChange(_hostFocus, _commitHost, _hostController),
+      );
+    _shareFocus = FocusNode()
+      ..addListener(
+        () => _onFocusChange(_shareFocus, _commitShare, _shareController),
+      );
+    _baseFocus = FocusNode()
+      ..addListener(
+        () => _onFocusChange(_baseFocus, _commitBase, _baseController),
+      );
+    _loadRoots();
+  }
+
+  @override
+  void dispose() {
+    _hostController.dispose();
+    _shareController.dispose();
+    _baseController.dispose();
+    _hostFocus.dispose();
+    _shareFocus.dispose();
+    _baseFocus.dispose();
+    super.dispose();
+  }
+
+  // Tapping straight from one field into another (or into "Check
+  // connection") never fires onSubmitted -- only losing focus does, via
+  // this listener. onSubmitted itself still calls the same commit function,
+  // redundantly but harmlessly (both are idempotent against the already-
+  // current value).
+  void _onFocusChange(
+    FocusNode node,
+    void Function(String) commit,
+    TextEditingController controller,
+  ) {
+    if (!node.hasFocus) commit(controller.text);
+  }
+
+  void _save() => widget.onSave(_settings);
+
+  void _commitHost(String v) {
+    if (_settings.host == v) return;
+    setState(() => _settings.host = v);
+    _save();
+  }
+
+  void _commitShare(String v) {
+    if (_settings.share == v) return;
+    setState(() => _settings.share = v);
+    _save();
+  }
+
+  void _commitBase(String v) {
+    if (_settings.basePath == v) return;
+    setState(() => _settings.basePath = v);
+    _save();
+  }
+
+  Future<void> _loadRoots() async {
+    List<String> roots;
+    try {
+      roots = await widget.discoverRoots();
+    } catch (_) {
+      // No connection yet, or the NAS is down -- an empty list reads the
+      // same as "nothing discovered", which is honest enough without a
+      // dedicated error seam.
+      roots = const [];
+    }
+    if (!mounted) return;
+    setState(() {
+      _discoveredRoots = roots;
+      _discovering = false;
+    });
+  }
+
+  Future<void> _checkConnection() async {
+    setState(() {
+      _probing = true;
+      _probeOk = null;
+    });
+    bool ok;
+    try {
+      ok = await widget.probe();
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _probeOk = ok;
+    });
+  }
+
+  void _toggleRoot(String name, bool? checked) {
+    setState(() => _settings.roots[name] = checked ?? false);
+    _save();
+  }
+
+  Future<void> _runSync() async {
+    setState(() => _syncing = true);
+    SyncReport report;
+    try {
+      report = await widget.runSync();
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => SyncReportDialog(report: report),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: const Key('sync-host'),
+          controller: _hostController,
+          focusNode: _hostFocus,
+          decoration: const InputDecoration(labelText: 'NAS host'),
+          onSubmitted: _commitHost,
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const Key('sync-share'),
+          controller: _shareController,
+          focusNode: _shareFocus,
+          decoration: const InputDecoration(labelText: 'Share'),
+          onSubmitted: _commitShare,
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const Key('sync-base'),
+          controller: _baseController,
+          focusNode: _baseFocus,
+          decoration: const InputDecoration(labelText: 'Base path'),
+          onSubmitted: _commitBase,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            OutlinedButton(
+              key: const Key('sync-check-connection'),
+              onPressed: _probing ? null : _checkConnection,
+              child: const Text('Check connection'),
+            ),
+            const SizedBox(width: 12),
+            if (_probing)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else if (_probeOk != null)
+              Expanded(
+                child: Text(
+                  _probeOk!
+                      ? 'Connected to \\\\${_settings.host}\\${_settings.share}'
+                      : 'Could not reach \\\\${_settings.host}\\${_settings.share}',
+                  key: const Key('sync-probe-result'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _probeOk!
+                        ? AppColors.inkSecondary
+                        : const Color(0xFFD70015),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Roots to sync',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.inkSecondary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        if (_discovering)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          )
+        else if (_discoveredRoots.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('No syncable folders found on the NAS.'),
+          )
+        else
+          for (final name in _discoveredRoots)
+            CheckboxListTile(
+              key: Key('sync-root-$name'),
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(name),
+              value: _settings.roots[name] ?? false,
+              onChanged: (v) => _toggleRoot(name, v),
+            ),
+        const SizedBox(height: 16),
+        FilledButton(
+          key: const Key('sync-now'),
+          onPressed: _syncing ? null : _runSync,
+          child: _syncing
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Sync now'),
+        ),
+      ],
+    );
+  }
+}
+
+/// What a [SyncEngine.run] call actually did, in a window that waits to be
+/// read -- same "embed-pass discipline" as [EmbedReportDialog]: a sync can
+/// run for minutes over SMB, so its outcome gets a dialog that stays until
+/// dismissed, not a SnackBar that's gone before anyone reads it. Built on
+/// the shared [ReportDialog] shell every other long-running pass in this app
+/// uses.
+class SyncReportDialog extends StatelessWidget {
+  final SyncReport report;
+
+  const SyncReportDialog({super.key, required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    // Biggest-first: the root that did the most work is the answer to "what
+    // did this sync actually do?", so it leads. A cancelled run's
+    // [SyncReport.roots] can be shorter than the checked-roots set -- this
+    // renders exactly what's there, never zipped against expectation.
+    final roots = List<RootSyncResult>.of(report.roots)
+      ..sort((a, b) => _weight(b).compareTo(_weight(a)));
+
+    return ReportDialog(
+      reportKey: 'sync-report-dialog',
+      title: 'Sync finished',
+      children: [
+        if (report.playlistNotes.isNotEmpty) ...[
+          const Text(
+            'Playlists',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          for (final note in report.playlistNotes) ReportNote(note),
+          const SizedBox(height: 16),
+        ],
+        if (roots.isEmpty)
+          const ReportNote('No roots were synced.')
+        else
+          for (final r in roots) _rootSection(r),
+      ],
+    );
+  }
+
+  static int _weight(RootSyncResult r) =>
+      r.copied + r.updated + r.renamed + r.deleted + r.adopted;
+
+  Widget _rootSection(RootSyncResult r) {
+    // The sentinel used when the NAS never answered at all -- no real root
+    // was ever attempted, so there is no per-root tally to show, only why.
+    if (r.rootName.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          'Sync did not run: ${r.abortReason ?? "unknown reason"}',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      );
+    }
+
+    // "files", never "tracks" -- sidecar files (artwork, playlists) are
+    // folded into these same counts, so "tracks" would undercount what
+    // actually moved. copiedBytes deliberately excludes recopy bytes (a
+    // recopy is still content that changed, just not NEW content), so only
+    // the copied clause ever gets a size figure.
+    final bytesSuffix = r.copiedBytes > 0
+        ? ' (${_humanBytes(r.copiedBytes)} new data)'
+        : '';
+    final line =
+        '${r.rootName} — ${r.copied} files copied$bytesSuffix, '
+        '${r.updated} files updated, ${r.renamed} files renamed, '
+        '${r.deleted} files deleted, ${r.adopted} files adopted (already present)';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(line, style: const TextStyle(fontSize: 13)),
+          if (r.aborted)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Stopped: ${r.abortReason ?? "unknown reason"}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFFD70015)),
+              ),
+            ),
+          for (final f in r.failures)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 8),
+              child: Text(
+                '${f.relPath}: ${f.reason}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.inkSecondary,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _humanBytes(int bytes) {
+    const kb = 1024;
+    const mb = kb * 1024;
+    const gb = mb * 1024;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(1)} MB';
+    if (bytes >= kb) return '${(bytes / kb).toStringAsFixed(1)} KB';
+    return '$bytes B';
+  }
+}
