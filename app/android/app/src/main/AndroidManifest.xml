@@ -12,6 +12,11 @@
          appears. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!-- Task 10: LAN sync talks to the NAS over SMB. Declared explicitly so
+         a release build doesn't depend on some plugin's merged manifest
+         happening to declare it. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <!-- Reading a music folder the user picked.
 
          READ_MEDIA_AUDIO (13+) and READ_EXTERNAL_STORAGE (32 and below) cover
