@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1805
+// Last modified: 2026-07-31--1833
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -98,13 +98,15 @@ class SyncReport {
       roots.any((r) => r.aborted || r.failures.isNotEmpty);
 }
 
-/// A synced root's rename source/target pair or single-file download failed
-/// only at the transport level (vs. a verification mismatch) -- distinguishes
-/// "the network dropped" from "the file that landed is wrong", since only
-/// the former counts toward the 3-consecutive-failures "connection lost"
-/// abort. A corrupted remote manifest entry must never trip that abort: it
-/// fails the same way every retry, forever, and the other files in the root
-/// are all still perfectly reachable.
+/// The result of one [SyncEngine._downloadAndVerify] attempt: whether the
+/// file ended up correctly in place, and -- when it didn't -- whether the
+/// failure happened at the transport level (vs. a verification mismatch or
+/// an unexpected local filesystem error). Distinguishes "the network
+/// dropped" from "the file that landed is wrong", since only the former
+/// counts toward the 3-consecutive-failures "connection lost" abort. A
+/// corrupted remote manifest entry must never trip that abort: it fails the
+/// same way every retry, forever, and the other files in the root are all
+/// still perfectly reachable.
 class _DownloadOutcome {
   final bool success;
   final bool transportFailure;
@@ -143,9 +145,21 @@ class SyncEngine {
   void cancel() => _cancelled = true;
 
   Future<SyncReport> run() async {
+    // A fresh run always starts un-cancelled -- otherwise an engine that
+    // gets reused (or a stray cancel() called before run() even started)
+    // would report every subsequent root as 'cancelled' forever.
+    _cancelled = false;
     activity.start(ActivityIds.sync, 'Syncing');
     try {
-      if (!await transport.probe()) {
+      bool reachable;
+      try {
+        reachable = await transport.probe();
+      } catch (_) {
+        // A probe that throws is exactly as unreachable as one that
+        // returns false -- never let it escape run() as an exception.
+        reachable = false;
+      }
+      if (!reachable) {
         return SyncReport(
           playlistNotes: const [],
           roots: [
@@ -176,8 +190,8 @@ class SyncEngine {
       if (activeReconciler != null) {
         final notes = await activeReconciler.run();
         playlistNotes.addAll(notes);
-        // Left deliberately unwired until this task: only a reconcile that
-        // actually changed something needs the library to pick it up.
+        // Only a reconcile that actually changed something needs the
+        // library to pick it up.
         if (notes.isNotEmpty) {
           library.reloadPlaylists();
         }
@@ -191,6 +205,11 @@ class SyncEngine {
 
       final results = <RootSyncResult>[];
       for (final rootName in rootNames) {
+        // Once cancelled, a root already in flight finishes aborting itself
+        // (checked between its own files); every root that hasn't STARTED
+        // yet is simply never attempted -- no network round-trip, no
+        // manifest touch -- matching cancel()'s doc above.
+        if (_cancelled) break;
         results.add(await _syncRoot(rootName));
       }
 
@@ -211,234 +230,144 @@ class SyncEngine {
   Future<RootSyncResult> _syncRoot(String rootName) async {
     final localRootDir = Directory('${localHome.path}/$rootName');
 
-    final manifestBytes = await transport.readFile(
-      '$rootName/${core.manifestFileName}',
-    );
-    if (manifestBytes == null) {
-      return _abortedRoot(rootName, 'remote manifest missing');
-    }
-    core.Manifest remoteManifest;
+    // Captured as soon as sync-state has been loaded, so the catch-all
+    // below can still persist whatever succeeded before an unexpected
+    // exception -- an SMB drop mid-listTree, a corrupt local manifest with
+    // no usable .bak, a disk error on the final rename -- turns THIS root
+    // into an abort rather than taking the whole run() down with it.
+    core.SyncState? stateForRecovery;
+    File? stateFileForRecovery;
+
     try {
-      remoteManifest = core.Manifest.fromJson(
-        jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>,
+      final manifestBytes = await transport.readFile(
+        '$rootName/${core.manifestFileName}',
       );
-    } catch (e) {
-      return _abortedRoot(rootName, 'remote manifest unparseable: $e');
-    }
-
-    final rawListing = await transport.listTree(rootName);
-    final prefix = '$rootName/';
-    final remoteListing = <core.RemoteFile>[
-      for (final rf in rawListing)
-        if (rf.relPath.startsWith(prefix))
-          core.RemoteFile(
-            relPath: rf.relPath.substring(prefix.length),
-            size: rf.size,
-            mtimeMs: rf.mtimeMs,
-          ),
-    ];
-    final remoteFileByPath = {for (final rf in remoteListing) rf.relPath: rf};
-    final remotePathToId = <String, String>{};
-    remoteManifest.tracks.forEach((id, entry) {
-      for (final path in entry.paths) {
-        remotePathToId[path] = id;
+      if (manifestBytes == null) {
+        return _abortedRoot(rootName, 'remote manifest missing');
       }
-    });
-
-    final localManifest = core.loadManifest(localRootDir);
-    final localFiles = await _walkLocalAudioFiles(localRootDir);
-    final stateFile = File(
-      '${localRootDir.path}/${core.syncStateFileName}',
-    );
-    final state = core.SyncState.load(stateFile);
-
-    final plan = core.planRootSync(
-      remoteManifest: remoteManifest,
-      remoteListing: remoteListing,
-      localManifest: localManifest,
-      localFiles: localFiles,
-      state: state,
-    );
-
-    final free = await freeSpace(localRootDir.path);
-    if (free < plan.totalBytes) {
-      return RootSyncResult(
-        rootName: rootName,
-        copied: 0,
-        copiedBytes: 0,
-        updated: 0,
-        renamed: 0,
-        deleted: 0,
-        adopted: 0,
-        unindexedLocal: plan.unindexedLocal,
-        failures: const [],
-        aborted: true,
-        abortReason:
-            'insufficient free space: need ${plan.totalBytes} bytes, have $free',
-      );
-    }
-
-    // Adoptions are pure bookkeeping (the file already exists locally with
-    // the right content) -- record them regardless of what happens later in
-    // this root, since they describe already-true state, not new work.
-    var adoptedCount = 0;
-    for (final path in plan.adoptions) {
-      final rf = remoteFileByPath[path];
-      if (rf == null) continue;
-      state.entries[path] = core.SyncStateEntry(
-        mtimeMs: rf.mtimeMs,
-        size: rf.size,
-      );
-      adoptedCount++;
-    }
-
-    await _cleanSyncTmp(localRootDir);
-
-    final failures = <SyncFailure>[];
-    var copiedCount = 0;
-    var copiedBytes = 0;
-    var updatedCount = 0;
-    var renamedCount = 0;
-    var deletedCount = 0;
-    var aborted = false;
-    String? abortReason;
-    var consecutiveTransportFailures = 0;
-    var tmpIndex = 0;
-
-    final totalOps = plan.copies.length +
-        plan.recopies.length +
-        plan.renames.length +
-        plan.deletes.length +
-        plan.sidecarCopies.length;
-    var doneOps = 0;
-    void reportProgress() {
-      activity.progress(
-        ActivityIds.sync,
-        'Syncing $rootName',
-        doneOps,
-        totalOps,
-      );
-    }
-
-    // --- copies + recopies: download, verify (size + content ID), move in.
-    final downloadJobs = <(core.RemoteFile, bool isRecopy)>[
-      for (final rf in plan.copies) (rf, false),
-      for (final rf in plan.recopies) (rf, true),
-    ];
-    for (final job in downloadJobs) {
-      if (_cancelled) {
-        aborted = true;
-        abortReason = 'cancelled';
-        break;
+      core.Manifest remoteManifest;
+      try {
+        remoteManifest = core.Manifest.fromJson(
+          jsonDecode(utf8.decode(manifestBytes)) as Map<String, dynamic>,
+        );
+      } catch (e) {
+        return _abortedRoot(rootName, 'remote manifest unparseable: $e');
       }
-      final (rf, isRecopy) = job;
-      final outcome = await _downloadAndVerify(
-        rootName: rootName,
-        localRootDir: localRootDir,
-        remote: rf,
-        index: tmpIndex++,
-        expectedContentId: remotePathToId[rf.relPath],
-        failures: failures,
+
+      final rawListing = await transport.listTree(rootName);
+      final prefix = '$rootName/';
+      final remoteListing = <core.RemoteFile>[
+        for (final rf in rawListing)
+          if (rf.relPath.startsWith(prefix))
+            core.RemoteFile(
+              relPath: rf.relPath.substring(prefix.length),
+              size: rf.size,
+              mtimeMs: rf.mtimeMs,
+            ),
+      ];
+      final remoteFileByPath = {for (final rf in remoteListing) rf.relPath: rf};
+      final remotePathToId = <String, String>{};
+      remoteManifest.tracks.forEach((id, entry) {
+        for (final path in entry.paths) {
+          remotePathToId[path] = id;
+        }
+      });
+
+      final localManifest = core.loadManifest(localRootDir);
+      final localFiles = await _walkLocalAudioFiles(localRootDir);
+      final stateFile = File(
+        '${localRootDir.path}/${core.syncStateFileName}',
       );
-      doneOps++;
-      reportProgress();
-      if (outcome.success) {
-        consecutiveTransportFailures = 0;
-        state.entries[rf.relPath] = core.SyncStateEntry(
+      final state = core.SyncState.load(stateFile);
+      stateForRecovery = state;
+      stateFileForRecovery = stateFile;
+
+      final plan = core.planRootSync(
+        remoteManifest: remoteManifest,
+        remoteListing: remoteListing,
+        localManifest: localManifest,
+        localFiles: localFiles,
+        state: state,
+      );
+
+      final free = await freeSpace(localRootDir.path);
+      if (free < plan.totalBytes) {
+        return RootSyncResult(
+          rootName: rootName,
+          copied: 0,
+          copiedBytes: 0,
+          updated: 0,
+          renamed: 0,
+          deleted: 0,
+          adopted: 0,
+          unindexedLocal: plan.unindexedLocal,
+          failures: const [],
+          aborted: true,
+          abortReason:
+              'insufficient free space: need ${plan.totalBytes} bytes, have $free',
+        );
+      }
+
+      // Adoptions are pure bookkeeping (the file already exists locally with
+      // the right content) -- record them regardless of what happens later in
+      // this root, since they describe already-true state, not new work.
+      var adoptedCount = 0;
+      for (final path in plan.adoptions) {
+        final rf = remoteFileByPath[path];
+        if (rf == null) continue;
+        state.entries[path] = core.SyncStateEntry(
           mtimeMs: rf.mtimeMs,
           size: rf.size,
         );
-        if (isRecopy) {
-          updatedCount++;
-        } else {
-          copiedCount++;
-          copiedBytes += rf.size;
-        }
-      } else if (outcome.transportFailure) {
-        consecutiveTransportFailures++;
-        if (consecutiveTransportFailures >= 3) {
-          aborted = true;
-          abortReason = 'connection lost';
-          break;
-        }
+        adoptedCount++;
       }
-    }
 
-    // --- renames: local move only, never touches the transport.
-    if (!aborted) {
-      for (final entry in plan.renames.entries) {
+      await _cleanSyncTmp(localRootDir);
+
+      final failures = <SyncFailure>[];
+      var copiedCount = 0;
+      var copiedBytes = 0;
+      var updatedCount = 0;
+      var renamedCount = 0;
+      var deletedCount = 0;
+      var aborted = false;
+      String? abortReason;
+      var consecutiveTransportFailures = 0;
+      var tmpIndex = 0;
+
+      final totalOps = plan.copies.length +
+          plan.recopies.length +
+          plan.renames.length +
+          plan.deletes.length +
+          plan.sidecarCopies.length;
+      var doneOps = 0;
+      void reportProgress() {
+        activity.progress(
+          ActivityIds.sync,
+          'Syncing $rootName',
+          doneOps,
+          totalOps,
+        );
+      }
+
+      // --- copies + recopies: download, verify (size + content ID), move in.
+      final downloadJobs = <(core.RemoteFile, bool isRecopy)>[
+        for (final rf in plan.copies) (rf, false),
+        for (final rf in plan.recopies) (rf, true),
+      ];
+      for (final job in downloadJobs) {
         if (_cancelled) {
           aborted = true;
           abortReason = 'cancelled';
           break;
         }
-        final localRel = entry.key;
-        final remoteRel = entry.value;
-        try {
-          final src = File('${localRootDir.path}/$localRel');
-          final dst = File('${localRootDir.path}/$remoteRel');
-          await dst.parent.create(recursive: true);
-          await _deleteIfExists(dst); // Windows rename won't overwrite
-          await src.rename(dst.path);
-          renamedCount++;
-          state.entries.remove(localRel);
-          // Keyed by the CURRENT remote listing's (mtime, size), not
-          // whatever the old path's entry recorded: the file may well have
-          // picked up a fresh mtime on the NAS as part of being moved, and
-          // carrying the stale value forward would make the very next
-          // planRootSync see a "state doesn't match remote listing"
-          // mismatch and trigger a pointless recopy of a file that just got
-          // here for free.
-          final rf = remoteFileByPath[remoteRel];
-          if (rf != null) {
-            state.entries[remoteRel] = core.SyncStateEntry(
-              mtimeMs: rf.mtimeMs,
-              size: rf.size,
-            );
-          }
-        } catch (e) {
-          failures.add(SyncFailure(relPath: localRel, reason: 'rename failed: $e'));
-        }
-        doneOps++;
-        reportProgress();
-      }
-    }
-
-    // --- deletes: local removal of content that no longer exists remotely.
-    if (!aborted) {
-      for (final lp in plan.deletes) {
-        if (_cancelled) {
-          aborted = true;
-          abortReason = 'cancelled';
-          break;
-        }
-        try {
-          final f = File('${localRootDir.path}/$lp');
-          if (await f.exists()) await f.delete();
-          deletedCount++;
-          state.entries.remove(lp);
-        } catch (e) {
-          failures.add(SyncFailure(relPath: lp, reason: 'delete failed: $e'));
-        }
-        doneOps++;
-        reportProgress();
-      }
-    }
-
-    // --- sidecar copies: same download machinery, size-only verification.
-    if (!aborted) {
-      for (final rf in plan.sidecarCopies) {
-        if (_cancelled) {
-          aborted = true;
-          abortReason = 'cancelled';
-          break;
-        }
+        final (rf, isRecopy) = job;
         final outcome = await _downloadAndVerify(
           rootName: rootName,
           localRootDir: localRootDir,
           remote: rf,
           index: tmpIndex++,
-          expectedContentId: null, // not content-addressed -- size check only
+          expectedContentId: remotePathToId[rf.relPath],
           failures: failures,
         );
         doneOps++;
@@ -449,8 +378,12 @@ class SyncEngine {
             mtimeMs: rf.mtimeMs,
             size: rf.size,
           );
-          copiedCount++;
-          copiedBytes += rf.size;
+          if (isRecopy) {
+            updatedCount++;
+          } else {
+            copiedCount++;
+            copiedBytes += rf.size;
+          }
         } else if (outcome.transportFailure) {
           consecutiveTransportFailures++;
           if (consecutiveTransportFailures >= 3) {
@@ -460,43 +393,184 @@ class SyncEngine {
           }
         }
       }
-    }
 
-    // Sync-state records successes even when the root aborted mid-way, so a
-    // re-run only re-plans what's actually missing.
-    await state.save(stateFile);
-
-    if (!aborted) {
-      final acquired = await _acquireManifestWrite();
-      if (!acquired) {
-        failures.add(
-          SyncFailure(
-            relPath: core.manifestFileName,
-            reason: 'manifest adopt skipped: library busy',
-          ),
-        );
-      } else {
-        try {
-          await core.saveManifest(remoteManifest, localRootDir);
-        } finally {
-          await library.endManifestWrite();
+      // --- renames: local move only, never touches the transport.
+      if (!aborted) {
+        for (final entry in plan.renames.entries) {
+          if (_cancelled) {
+            aborted = true;
+            abortReason = 'cancelled';
+            break;
+          }
+          final localRel = entry.key;
+          final remoteRel = entry.value;
+          try {
+            final src = File('${localRootDir.path}/$localRel');
+            final dst = File('${localRootDir.path}/$remoteRel');
+            await dst.parent.create(recursive: true);
+            await _deleteIfExists(dst); // Windows rename won't overwrite
+            await src.rename(dst.path);
+            renamedCount++;
+            // Carry the REMOVED old path's own recorded entry forward,
+            // falling back to the current listing's (mtime, size) only when
+            // there was none to carry (e.g. a path sync-state never tracked).
+            // Content IDs hash the audio range only (ID3/APE tags excluded
+            // for mp3/flac), so a file can be moved AND retagged in the same
+            // NAS session while still planning as a pure rename here. If we
+            // stamped the new entry from the CURRENT (post-retag) listing,
+            // the state would trivially "match" that listing forever and the
+            // tag divergence would never be noticed by a later run. Carrying
+            // the OLD (pre-retag) entry forward preserves the mismatch, so
+            // the very next planRootSync recopies it once seen. For a PURE
+            // move (no retag), the old entry's (mtime, size) already equal
+            // the new listing's -- rename-only doesn't touch file bytes --
+            // so carrying it forward is exactly as inert as re-deriving it
+            // would have been, with no pointless recopy either way.
+            final oldEntry = state.entries.remove(localRel);
+            if (oldEntry != null) {
+              state.entries[remoteRel] = oldEntry;
+            } else {
+              final rf = remoteFileByPath[remoteRel];
+              if (rf != null) {
+                state.entries[remoteRel] = core.SyncStateEntry(
+                  mtimeMs: rf.mtimeMs,
+                  size: rf.size,
+                );
+              }
+            }
+          } catch (e) {
+            failures.add(
+              SyncFailure(relPath: localRel, reason: 'rename failed: $e'),
+            );
+          }
+          doneOps++;
+          reportProgress();
         }
       }
-    }
 
-    return RootSyncResult(
-      rootName: rootName,
-      copied: copiedCount,
-      copiedBytes: copiedBytes,
-      updated: updatedCount,
-      renamed: renamedCount,
-      deleted: deletedCount,
-      adopted: adoptedCount,
-      unindexedLocal: plan.unindexedLocal,
-      failures: failures,
-      aborted: aborted,
-      abortReason: abortReason,
-    );
+      // --- deletes: local removal of content that no longer exists remotely.
+      if (!aborted) {
+        for (final lp in plan.deletes) {
+          if (_cancelled) {
+            aborted = true;
+            abortReason = 'cancelled';
+            break;
+          }
+          try {
+            final f = File('${localRootDir.path}/$lp');
+            final existed = await f.exists();
+            if (existed) {
+              await f.delete();
+              deletedCount++;
+            }
+            state.entries.remove(lp);
+          } catch (e) {
+            failures.add(SyncFailure(relPath: lp, reason: 'delete failed: $e'));
+          }
+          doneOps++;
+          reportProgress();
+        }
+      }
+
+      // --- sidecar copies: same download machinery, size-only verification.
+      if (!aborted) {
+        for (final rf in plan.sidecarCopies) {
+          if (_cancelled) {
+            aborted = true;
+            abortReason = 'cancelled';
+            break;
+          }
+          final outcome = await _downloadAndVerify(
+            rootName: rootName,
+            localRootDir: localRootDir,
+            remote: rf,
+            index: tmpIndex++,
+            expectedContentId: null, // not content-addressed -- size only
+            failures: failures,
+          );
+          doneOps++;
+          reportProgress();
+          if (outcome.success) {
+            consecutiveTransportFailures = 0;
+            state.entries[rf.relPath] = core.SyncStateEntry(
+              mtimeMs: rf.mtimeMs,
+              size: rf.size,
+            );
+            copiedCount++;
+            copiedBytes += rf.size;
+          } else if (outcome.transportFailure) {
+            consecutiveTransportFailures++;
+            if (consecutiveTransportFailures >= 3) {
+              aborted = true;
+              abortReason = 'connection lost';
+              break;
+            }
+          }
+        }
+      }
+
+      // Sync-state records successes even when the root aborted mid-way, so
+      // a re-run only re-plans what's actually missing.
+      await state.save(stateFile);
+
+      if (!aborted) {
+        final acquired = await _acquireManifestWrite();
+        if (!acquired) {
+          failures.add(
+            SyncFailure(
+              relPath: core.manifestFileName,
+              reason: 'manifest adopt skipped: library busy',
+            ),
+          );
+        } else {
+          try {
+            await core.saveManifest(remoteManifest, localRootDir);
+          } catch (e) {
+            // The file sync work is done; only the manifest replacement
+            // failed -- report it as a failure, not a whole-root abort.
+            failures.add(
+              SyncFailure(
+                relPath: core.manifestFileName,
+                reason: 'manifest adopt failed: $e',
+              ),
+            );
+          } finally {
+            await library.endManifestWrite();
+          }
+        }
+      }
+
+      return RootSyncResult(
+        rootName: rootName,
+        copied: copiedCount,
+        copiedBytes: copiedBytes,
+        updated: updatedCount,
+        renamed: renamedCount,
+        deleted: deletedCount,
+        adopted: adoptedCount,
+        unindexedLocal: plan.unindexedLocal,
+        failures: failures,
+        aborted: aborted,
+        abortReason: abortReason,
+      );
+    } catch (e) {
+      // Last-resort net for anything not already turned into a per-file
+      // SyncFailure or a specific early abort above -- a throwing listTree,
+      // a corrupt local manifest with no usable .bak, an unexpected
+      // filesystem error during planning. This root aborts; the run as a
+      // whole (and any other root in it) does not.
+      final state = stateForRecovery;
+      final stateFile = stateFileForRecovery;
+      if (state != null && stateFile != null) {
+        try {
+          await state.save(stateFile);
+        } catch (_) {
+          // Truly nothing more to do -- the abort result below still
+          // stands.
+        }
+      }
+      return _abortedRoot(rootName, 'unexpected error: $e');
+    }
   }
 
   /// Downloads [remote] (root-relative) to a scratch name under
@@ -537,29 +611,49 @@ class SyncEngine {
         continue;
       }
 
-      final actualSize = await tmpFile.exists() ? await tmpFile.length() : -1;
-      if (actualSize != remote.size) {
-        failReason = 'size mismatch (expected ${remote.size}, got $actualSize)';
-        await _deleteIfExists(tmpFile);
-        continue;
-      }
-
-      if (expectedContentId != null) {
-        final actualId = await core.contentIdForFile(tmpFile);
-        if (actualId != expectedContentId) {
-          failReason = 'content ID mismatch';
+      // Everything past this point is local filesystem work (stat, hash,
+      // create-dir, delete, rename) -- the download itself already
+      // succeeded, so nothing here should ever count toward "connection
+      // lost". A verification mismatch is expected to be caught by the
+      // explicit checks below; an unexpected local I/O error (a locked
+      // file, a race, a disk error mid-rename) is caught here instead of
+      // escaping this method entirely and taking the whole root down with
+      // it -- treated exactly like a verification mismatch: retry once,
+      // then record a per-file failure and move on.
+      try {
+        final actualSize = await tmpFile.exists() ? await tmpFile.length() : -1;
+        if (actualSize != remote.size) {
+          failReason = 'size mismatch (expected ${remote.size}, got $actualSize)';
           await _deleteIfExists(tmpFile);
           continue;
         }
-      }
 
-      await finalFile.parent.create(recursive: true);
-      await _deleteIfExists(finalFile); // Windows rename won't overwrite
-      await tmpFile.rename(finalFile.path);
-      return const _DownloadOutcome(success: true, transportFailure: false);
+        if (expectedContentId != null) {
+          final actualId = await core.contentIdForFile(tmpFile);
+          if (actualId != expectedContentId) {
+            failReason = 'content ID mismatch';
+            await _deleteIfExists(tmpFile);
+            continue;
+          }
+        }
+
+        await finalFile.parent.create(recursive: true);
+        await _deleteIfExists(finalFile); // Windows rename won't overwrite
+        await tmpFile.rename(finalFile.path);
+        return const _DownloadOutcome(success: true, transportFailure: false);
+      } catch (e) {
+        failReason = 'verify/move failed: $e';
+        await _deleteIfExists(tmpFile);
+        continue;
+      }
     }
 
-    await _deleteIfExists(tmpFile);
+    try {
+      await _deleteIfExists(tmpFile);
+    } catch (_) {
+      // Best-effort cleanup only -- a leftover scratch file is swept up by
+      // the next run's .sync_tmp cleanup regardless.
+    }
     failures.add(
       SyncFailure(relPath: remote.relPath, reason: failReason ?? 'unknown failure'),
     );
