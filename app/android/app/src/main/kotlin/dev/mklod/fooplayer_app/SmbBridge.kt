@@ -2,11 +2,15 @@ package dev.mklod.fooplayer_app
 
 // SmbBridge: the Android-only platform side of SmbTransport (Dart:
 // app/lib/sync/smb_transport.dart). SMBJ is a blocking, synchronous client
-// -- every method below runs on [executor], a single background thread,
-// NEVER on the Flutter platform thread the MethodChannel call arrives on.
-// Results (and progress events) are always posted back via [handler] on the
-// main looper, since MethodChannel.Result and EventChannel.EventSink are
-// platform-thread-only APIs.
+// -- every SMB-session-touching method below runs on [executor], a single
+// background thread, NEVER on the Flutter platform thread the MethodChannel
+// call arrives on. `probe`/`cancel`/`close` run on [controlExecutor]
+// instead -- see its doc for why. Results (and progress events) are always
+// posted back via [handler] on the main looper, since MethodChannel.Result
+// and EventChannel.EventSink are platform-thread-only APIs.
+//
+// PROCESS SINGLETON (review round 1, Critical C-1): construct via
+// [SmbBridge.attach], never the constructor directly -- see its doc.
 //
 // CRITICAL SEMANTIC (carried from Task 9's review, pinned by
 // SyncEngine's per-root exception containment -- see smb_transport.dart's
@@ -24,7 +28,7 @@ package dev.mklod.fooplayer_app
 // everything, including malformed arguments, and always resolves to a
 // plain boolean, bounded to ~5s regardless of how the network is failing.
 //
-// Last modified: 2026-07-31--1912
+// Last modified: 2026-07-31--1949
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
@@ -48,38 +52,54 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import javax.net.SocketFactory
 
-class SmbBridge(messenger: BinaryMessenger) {
-    // All real SMB work happens here, one call at a time. SMBJ has no async
-    // API worth using for this app's traffic (small JSON files + occasional
-    // large audio downloads), so a single background thread is enough and
-    // keeps every remote session's calls naturally serialized.
+class SmbBridge private constructor(messenger: BinaryMessenger) {
+    // All real SMB-session work happens here, one call at a time. SMBJ has
+    // no async API worth using for this app's traffic (small JSON files +
+    // occasional large audio downloads), so a single background thread is
+    // enough and keeps every remote session's calls naturally serialized.
     private val executor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "smb-bridge").apply { isDaemon = true }
     }
 
-    // A short-lived pool JUST for probe()'s hard external timeout -- kept
-    // separate from [executor] so probe's own `future.get(5, SECONDS)` call
-    // (issued from an [executor] task) has a different thread to wait on
-    // instead of deadlocking against itself.
-    private val probeExecutor = Executors.newCachedThreadPool { r ->
-        Thread(r, "smb-probe").apply { isDaemon = true }
+    // A separate pool for operations that must NEVER wait behind whatever
+    // is currently running on the serialized [executor] (review I-1, I-2):
+    // - probe's own hard `future.get(5, SECONDS)` bound needs a DIFFERENT
+    //   thread to wait on than the one it's issued from, or it deadlocks
+    //   against itself -- and probe's OUTER dispatch is routed here too
+    //   (not [executor]), so a probe started while a sync is mid-download
+    //   isn't stuck in that same FIFO queue behind it.
+    // - cancel/close only touch concurrent structures (the `cancelled` set,
+    //   the `sessions` map) -- queuing them on [executor] behind an
+    //   in-flight blocking download made the per-chunk `cancelled` check
+    //   dead code, since cancel() could never actually run until the
+    //   download it was meant to interrupt had already finished on its own.
+    private val controlExecutor = Executors.newCachedThreadPool { r ->
+        Thread(r, "smb-control").apply { isDaemon = true }
     }
 
     private val handler = Handler(Looper.getMainLooper())
 
     // One shared client for real (non-probe) sessions -- 30s protocol-level
     // timeouts are generous enough for a slow home NAS mid-transfer without
-    // hanging a whole sync indefinitely on a truly dead connection.
+    // hanging a whole sync indefinitely on a truly dead connection. The
+    // initial TCP connect itself is bounded separately and much tighter --
+    // see [BoundedConnectSocketFactory].
     private val client = SMBClient(
         SmbConfig.builder()
             .withTimeout(SESSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .withSoTimeout(SESSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .withSocketFactory(BoundedConnectSocketFactory(CONNECT_TIMEOUT_MS))
             .build()
     )
 
@@ -87,13 +107,38 @@ class SmbBridge(messenger: BinaryMessenger) {
     private val nextHandle = AtomicInteger(1)
 
     // taskIds a Dart-side cancel() has flagged -- checked once per
-    // downloadToFile chunk. Entries are removed once that download finishes
-    // (success, failure, or cancellation) so this never grows unbounded.
+    // downloadToFile chunk, and removed once THAT download's own
+    // doDownloadToFile call finishes (success, failure, or cancellation).
+    // NOTE: cancel() for a taskId that never starts a download (already
+    // finished, or never existed) leaks its entry here forever -- this is
+    // a real, if low-volume, leak (one short string per stray cancel), not
+    // fixed here since it only matters at a call volume this app never
+    // produces (cancel is a single user tap, not a hot path).
     private val cancelled = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile private var progressSink: EventChannel.EventSink? = null
 
     init {
+        registerHandlers(messenger)
+    }
+
+    /**
+     * (Re-)registers this bridge's channel handlers against [messenger].
+     * Safe to call more than once: [SmbBridge.attach] calls this on every
+     * `configureFlutterEngine` -- which fires on every Activity recreation,
+     * even though `AudioServiceActivity.provideFlutterEngine` returns the
+     * SAME cached engine each time (Back is `moveTaskToBack`, not a real
+     * finish, precisely so the engine and its foreground-service playback
+     * survive). Re-registering the handlers on the (same, in practice)
+     * messenger against THIS SAME instance is a harmless no-op past the
+     * first call; what it replaces is the old bug where MainActivity called
+     * the constructor directly, building a BRAND NEW SmbBridge each time
+     * (fresh executors, fresh SMBClient, an EMPTY sessions map) -- leaking
+     * the old instance's open sockets/threads while orphaning Dart's cached
+     * handle, which pointed at the OLD instance's sessions map and would
+     * fail with "no SMB session for handle N" forever after.
+     */
+    private fun registerHandlers(messenger: BinaryMessenger) {
         MethodChannel(messenger, METHOD_CHANNEL).setMethodCallHandler(::handleCall)
         EventChannel(messenger, EVENT_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -111,22 +156,28 @@ class SmbBridge(messenger: BinaryMessenger) {
     private fun handleCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "connect" -> dispatch(result) { doConnect(call) }
-            "probe" -> dispatch(result) { doProbe(call) }
+            "probe" -> dispatch(result, controlExecutor) { doProbe(call) }
             "listTree" -> dispatch(result) { doListTree(call) }
             "readFile" -> dispatch(result) { doReadFile(call) }
             "writeFile" -> dispatch(result) { doWriteFile(call) }
             "downloadToFile" -> dispatch(result) { doDownloadToFile(call) }
             "deleteRemote" -> dispatch(result) { doDeleteRemote(call) }
-            "cancel" -> dispatch(result) { doCancel(call) }
-            "close" -> dispatch(result) { doClose(call) }
+            "cancel" -> dispatch(result, controlExecutor) { doCancel(call) }
+            "close" -> dispatch(result, controlExecutor) { doClose(call) }
             "freeSpace" -> dispatch(result) { doFreeSpace(call) }
             else -> result.notImplemented()
         }
     }
 
-    /** Runs [block] on [executor], then posts success/error back on the main looper. */
-    private fun <T> dispatch(result: MethodChannel.Result, block: () -> T) {
-        executor.execute {
+    /** Runs [block] on [executor] (or [onExecutor], for probe/cancel/close --
+     * see [controlExecutor]'s doc), then posts success/error back on the
+     * main looper. */
+    private fun <T> dispatch(
+        result: MethodChannel.Result,
+        onExecutor: ExecutorService = executor,
+        block: () -> T,
+    ) {
+        onExecutor.execute {
             runCatching(block).fold(
                 onSuccess = { value -> post { result.success(value) } },
                 onFailure = { e -> post { result.error("smb", e.message ?: e.toString(), null) } },
@@ -166,20 +217,31 @@ class SmbBridge(messenger: BinaryMessenger) {
     /**
      * Never throws -- any failure (bad args, unreachable host, auth
      * rejected, the base dir missing, a hang past [PROBE_TIMEOUT_SECONDS])
-     * resolves to `false`. Uses its own short-lived [SMBClient] with tight
-     * timeouts, run on [probeExecutor] under a hard `Future.get` bound so a
-     * host that silently drops packets (rather than refusing the
-     * connection) can't hang this past ~5s regardless of what SMBJ's own
-     * internal timeouts do with it.
+     * resolves to `false`. This whole method (not just [probeOnce]) runs on
+     * [controlExecutor] (see [handleCall]'s dispatch), and additionally
+     * submits [probeOnce] to that SAME pool under a hard `Future.get`
+     * bound -- since [controlExecutor] is a cached (not single-thread)
+     * pool, this nested submit-and-wait doesn't deadlock, and a host that
+     * silently drops packets (rather than refusing the connection) can't
+     * hang this past ~5s regardless of what SMBJ's own internal timeouts do
+     * with it.
      */
     private fun doProbe(call: MethodCall): Boolean {
         return try {
             val host = call.argument<String>("host") ?: return false
             val shareName = call.argument<String>("share") ?: return false
             val basePath = call.argument<String>("basePath") ?: ""
-            val future = probeExecutor.submit(Callable { probeOnce(host, shareName, basePath) })
+            val future = controlExecutor.submit(Callable { probeOnce(host, shareName, basePath) })
             try {
                 future.get(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (e: InterruptedException) {
+                // This thread was asked to interrupt -- swallowing the
+                // exception without restoring the flag would hide that
+                // request from anything else checking Thread.interrupted()
+                // later (e.g. the executor's own shutdown machinery).
+                Thread.currentThread().interrupt()
+                future.cancel(true)
+                false
             } catch (e: Exception) {
                 future.cancel(true)
                 false
@@ -193,6 +255,7 @@ class SmbBridge(messenger: BinaryMessenger) {
         val probeConfig = SmbConfig.builder()
             .withTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .withSoTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .withSocketFactory(BoundedConnectSocketFactory(CONNECT_TIMEOUT_MS))
             .build()
         return try {
             SMBClient(probeConfig).use { probeClient ->
@@ -380,9 +443,14 @@ class SmbBridge(messenger: BinaryMessenger) {
                             }
                         }
                         output.flush()
-                        // Final call is ALWAYS got == total -- including a
-                        // 0-byte file, where the loop above never runs.
-                        postProgress(taskId, got, total)
+                        // Final call is ALWAYS (total, total) -- UNCONDITIONALLY,
+                        // not the actual `got` count. If the remote file shrinks
+                        // mid-read, `got` could end up permanently short of
+                        // `total`, which would never satisfy the Dart side's
+                        // self-cleanup check (got >= total) -- reporting the
+                        // nominal total here keeps the "final call is always
+                        // got == total" contract exact regardless.
+                        postProgress(taskId, total, total)
                     }
                 }
             }
@@ -519,11 +587,83 @@ class SmbBridge(messenger: BinaryMessenger) {
         }
     }
 
+    /**
+     * SMBJ's `DirectTcpTransport.connect()` calls
+     * `SocketFactory.createSocket(host, port)` -- the plain, UNBOUNDED
+     * overload (verified against the actual resolved 0.13.0 jar's
+     * bytecode, not just the newer `master` source: SMBJ's own default
+     * `SmbConfig.builder()` chain already installs its `ProxySocketFactory`,
+     * which happens to bound this same call to 5s internally -- so this
+     * class doesn't close a live gap so much as make that bound explicit
+     * and OWNED by this file, rather than resting on an unstated library
+     * default that a future SMBJ version could change).
+     * `Socket(host, port)` has no timeout parameter at all; the only way to
+     * bound a TCP connect in java.net is the unconnected-socket-then-
+     * `connect(SocketAddress, timeoutMs)` two-step this class does.
+     */
+    private class BoundedConnectSocketFactory(private val timeoutMs: Int) : SocketFactory() {
+        override fun createSocket(): Socket = Socket()
+
+        override fun createSocket(host: String, port: Int): Socket =
+            Socket().apply { connect(InetSocketAddress(host, port), timeoutMs) }
+
+        override fun createSocket(
+            host: String,
+            port: Int,
+            localAddress: InetAddress,
+            localPort: Int,
+        ): Socket = Socket().apply {
+            bind(InetSocketAddress(localAddress, localPort))
+            connect(InetSocketAddress(host, port), timeoutMs)
+        }
+
+        override fun createSocket(address: InetAddress, port: Int): Socket =
+            Socket().apply { connect(InetSocketAddress(address, port), timeoutMs) }
+
+        override fun createSocket(
+            address: InetAddress,
+            port: Int,
+            localAddress: InetAddress,
+            localPort: Int,
+        ): Socket = Socket().apply {
+            bind(InetSocketAddress(localAddress, localPort))
+            connect(InetSocketAddress(address, port), timeoutMs)
+        }
+    }
+
     companion object {
+        @Volatile private var instance: SmbBridge? = null
+
+        /**
+         * The one SmbBridge for this process (review round 1, Critical
+         * C-1). MainActivity calls this -- never the private constructor --
+         * from `configureFlutterEngine`, which fires on every Activity
+         * recreation even though the underlying engine (and its messenger)
+         * is cached and reused across them. The first call constructs the
+         * real instance; every call after that just re-points the SAME
+         * instance's channel handlers at [messenger] (see
+         * [registerHandlers]'s doc), so sessions/executors/the SMBClient
+         * all survive recreation exactly like the engine itself already
+         * does, instead of a fresh (and instantly orphaned) SmbBridge being
+         * built each time.
+         */
+        @Synchronized
+        fun attach(messenger: BinaryMessenger): SmbBridge {
+            val existing = instance
+            if (existing != null) {
+                existing.registerHandlers(messenger)
+                return existing
+            }
+            val created = SmbBridge(messenger)
+            instance = created
+            return created
+        }
+
         private const val METHOD_CHANNEL = "dev.mklod.fooplayer/smb"
         private const val EVENT_CHANNEL = "dev.mklod.fooplayer/smb-progress"
         private const val PROBE_TIMEOUT_SECONDS = 5L
         private const val SESSION_TIMEOUT_SECONDS = 30L
+        private const val CONNECT_TIMEOUT_MS = 5000
         private const val DOWNLOAD_BUFFER_SIZE = 65536
         private const val PROGRESS_STEP_BYTES = 256L * 1024L
     }

@@ -1,13 +1,16 @@
-// Last modified: 2026-07-31--1912
+// Last modified: 2026-07-31--1949
 //
 // Contract test for SmbTransport against a MOCKED MethodChannel/EventChannel
 // -- no real Kotlin/SMBJ involved. Verifies each SyncTransport method sends
 // the right platform-channel call and maps the result back correctly
-// (including the null/empty/error edge cases the class doc pins down), plus
-// the two things that live only on SmbTransport itself: lazy connect and
-// static freeSpace(). Kotlin-side correctness (SmbBridge.kt) is verified by
-// `flutter build apk --debug` compiling and by live device testing in
-// Task 12 -- this file only pins the Dart-side contract.
+// (including the null/empty/error edge cases the class doc pins down), the
+// stale-handle reconnect-and-retry recovery (review round 1, Critical C-1),
+// the shared/ref-counted progress subscription across instances (review
+// round 1, Important I-3), and the two things that live only on
+// SmbTransport itself: lazy connect and static freeSpace(). Kotlin-side
+// correctness (SmbBridge.kt) is verified by `flutter build apk --debug`
+// compiling and by live device testing in Task 12 -- this file only pins
+// the Dart-side contract.
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -43,7 +46,17 @@ void main() {
     );
   });
 
-  tearDown(() {
+  tearDown(() async {
+    // The progress subscription/ref-count/callback registry are all
+    // process-static (I-3 -- the native EventChannel supports exactly one
+    // listener, so SmbTransport shares that state across every instance).
+    // Every test must release whatever ref it took, or it leaks into the
+    // NEXT test and corrupts that test's progress routing. close() is the
+    // only way to release it, so install a permissive handler first -- a
+    // test's OWN handler (which may `fail()` on anything unexpected) must
+    // never see this teardown-only close() call.
+    messenger.setMockMethodCallHandler(methodChannel, (call) async => null);
+    await transport.close();
     messenger.setMockMethodCallHandler(methodChannel, null);
     messenger.setMockStreamHandler(progressChannel, null);
   });
@@ -141,6 +154,14 @@ void main() {
       expect(await transport.listTree('nope'), isEmpty);
     });
 
+    test('a null platform result is an empty list too', () async {
+      // invokeMethod<List<Object?>> can hand back a bare null (not just an
+      // empty list) for a void-ish/absent platform reply -- both must map
+      // to [], never throw a cast error.
+      setHandler((call) async => call.method == 'connect' ? 1 : null);
+      expect(await transport.listTree(''), isEmpty);
+    });
+
     test('a platform error propagates as PlatformException, not an empty list', () async {
       setHandler((call) async {
         if (call.method == 'connect') return 1;
@@ -189,6 +210,17 @@ void main() {
       expect(args['relPath'], 'deep/f.json');
       expect(args['bytes'], [9, 9, 9]);
     });
+
+    test('a platform error propagates', () async {
+      setHandler((call) async {
+        if (call.method == 'connect') return 1;
+        throw PlatformException(code: 'smb', message: 'write failed');
+      });
+      await expectLater(
+        transport.writeFile('f.json', [1]),
+        throwsA(isA<PlatformException>()),
+      );
+    });
   });
 
   group('deleteRemote', () {
@@ -197,6 +229,17 @@ void main() {
       await transport.deleteRemote('gone.json');
       final call = calls.firstWhere((c) => c.method == 'deleteRemote');
       expect(argsOf(call), {'handle': 1, 'relPath': 'gone.json'});
+    });
+
+    test('a platform error propagates', () async {
+      setHandler((call) async {
+        if (call.method == 'connect') return 1;
+        throw PlatformException(code: 'smb', message: 'delete failed');
+      });
+      await expectLater(
+        transport.deleteRemote('gone.json'),
+        throwsA(isA<PlatformException>()),
+      );
     });
   });
 
@@ -238,6 +281,15 @@ void main() {
           progressSink.success({'taskId': 'someone-elses-task', 'got': 999, 'total': 999});
           progressSink.success({'taskId': taskId, 'got': 500, 'total': 1000});
           progressSink.success({'taskId': taskId, 'got': 1000, 'total': 1000});
+          // Real SmbBridge.kt posts progress events and this call's own
+          // result through the SAME Handler(mainLooper) in that order, so
+          // on a real device the events are always fully delivered before
+          // this method call resolves. Yielding to a macrotask here (which
+          // drains ALL pending microtasks first) reproduces that ordering
+          // for this mock -- without it, downloadToFile's now-unconditional
+          // finally-cleanup (see M-3 fix) can remove the taskId's callback
+          // before these events are actually processed.
+          await Future<void>.delayed(Duration.zero);
           return true;
         }
         fail('unexpected ${call.method}');
@@ -250,11 +302,6 @@ void main() {
         local,
         onProgress: (got, total) => progress.add([got, total]),
       );
-      // The events sent from inside the mocked method-call handler travel
-      // through the EventChannel's own microtask-hop pipeline, which isn't
-      // guaranteed to have fully drained by the moment downloadToFile's own
-      // Future resolves -- flush the queue before asserting.
-      await pumpEventQueue();
 
       expect(progress, [
         [500, 1000],
@@ -272,6 +319,193 @@ void main() {
         transport.downloadToFile('big.bin', local),
         throwsA(isA<PlatformException>()),
       );
+    });
+
+    test('a failed download removes its progress callback -- a late event is a no-op', () async {
+      late MockStreamHandlerEventSink progressSink;
+      messenger.setMockStreamHandler(
+        progressChannel,
+        MockStreamHandler.inline(onListen: (args, events) => progressSink = events),
+      );
+
+      String? capturedTaskId;
+      setHandler((call) async {
+        if (call.method == 'connect') return 1;
+        if (call.method == 'downloadToFile') {
+          capturedTaskId = argsOf(call)['taskId'] as String;
+          throw PlatformException(code: 'smb', message: 'transport dropped');
+        }
+        fail('unexpected ${call.method}');
+      });
+
+      final local = File('${localDir.path}/out.bin');
+      final progress = <List<int>>[];
+      await expectLater(
+        transport.downloadToFile(
+          'big.bin',
+          local,
+          onProgress: (got, total) => progress.add([got, total]),
+        ),
+        throwsA(isA<PlatformException>()),
+      );
+
+      // The callback for capturedTaskId must already be gone -- a late
+      // event arriving after the fact (e.g. a stray platform message) must
+      // not fire onProgress, and must not throw either.
+      progressSink.success({'taskId': capturedTaskId, 'got': 1, 'total': 2});
+      await pumpEventQueue();
+
+      expect(progress, isEmpty);
+    });
+  });
+
+  group('stale handle recovery (C-1)', () {
+    test('a "no SMB session" error triggers exactly one reconnect+retry, then succeeds', () async {
+      var connectCount = 0;
+      var listTreeAttempt = 0;
+      setHandler((call) async {
+        switch (call.method) {
+          case 'connect':
+            connectCount++;
+            return connectCount; // handle 1, then handle 2 after reconnect
+          case 'listTree':
+            listTreeAttempt++;
+            if (listTreeAttempt == 1) {
+              throw PlatformException(code: 'smb', message: 'no SMB session for handle 1');
+            }
+            expect(argsOf(call)['handle'], 2, reason: 'retry must use the FRESH handle');
+            return <Map<String, Object?>>[
+              {'relPath': 'a.mp3', 'size': 1, 'mtimeMs': 1},
+            ];
+          default:
+            fail('unexpected ${call.method}');
+        }
+      });
+
+      final files = await transport.listTree('');
+
+      expect(files, hasLength(1));
+      expect(connectCount, 2, reason: 'reconnected exactly once');
+      expect(listTreeAttempt, 2, reason: 'retried exactly once');
+    });
+
+    test('a second consecutive "no SMB session" error is not retried again', () async {
+      var connectCount = 0;
+      setHandler((call) async {
+        if (call.method == 'connect') {
+          connectCount++;
+          return connectCount;
+        }
+        throw PlatformException(code: 'smb', message: 'no SMB session for handle $connectCount');
+      });
+
+      await expectLater(transport.listTree(''), throwsA(isA<PlatformException>()));
+      // One initial connect + one reconnect -- never a second reconnect
+      // attempt chasing a retry that also failed the same way.
+      expect(connectCount, 2);
+    });
+
+    test('an unrelated PlatformException is never treated as a stale handle', () async {
+      var connectCount = 0;
+      setHandler((call) async {
+        if (call.method == 'connect') {
+          connectCount++;
+          return connectCount;
+        }
+        throw PlatformException(code: 'smb', message: 'connection lost mid-walk');
+      });
+
+      await expectLater(transport.listTree(''), throwsA(isA<PlatformException>()));
+      expect(connectCount, 1, reason: 'no reconnect for a non-stale-handle error');
+    });
+
+    test('recovery is not listTree-specific -- writeFile as a representative '
+        'sample (readFile/deleteRemote/downloadToFile all share the same '
+        '_withSession wrapper)', () async {
+      var connectCount = 0;
+      var writeAttempt = 0;
+      setHandler((call) async {
+        switch (call.method) {
+          case 'connect':
+            connectCount++;
+            return connectCount;
+          case 'writeFile':
+            writeAttempt++;
+            if (writeAttempt == 1) {
+              throw PlatformException(code: 'smb', message: 'no SMB session for handle 1');
+            }
+            return null;
+          default:
+            fail('unexpected ${call.method}');
+        }
+      });
+
+      await transport.writeFile('f.json', [1]);
+      expect(connectCount, 2);
+      expect(writeAttempt, 2);
+    });
+  });
+
+  group('shared progress subscription across instances (I-3)', () {
+    late Directory localDir;
+    setUp(() => localDir = Directory.systemTemp.createTempSync('smb_dl_i3'));
+    tearDown(() {
+      if (localDir.existsSync()) localDir.deleteSync(recursive: true);
+    });
+
+    test('closing one instance does not kill progress for another still-open instance', () async {
+      late MockStreamHandlerEventSink progressSink;
+      messenger.setMockStreamHandler(
+        progressChannel,
+        MockStreamHandler.inline(onListen: (args, events) => progressSink = events),
+      );
+
+      setHandler((call) async {
+        switch (call.method) {
+          case 'connect':
+            return 1;
+          case 'close':
+            return null;
+          case 'downloadToFile':
+            final taskId = argsOf(call)['taskId'];
+            progressSink.success({'taskId': taskId, 'got': 1, 'total': 1});
+            await Future<void>.delayed(Duration.zero);
+            return true;
+          default:
+            fail('unexpected ${call.method}');
+        }
+      });
+
+      final transportA = SmbTransport(
+        host: '192.168.1.12',
+        share: 'drop',
+        basePath: 'PROJECTS/fooplayer-sync',
+      );
+      // A takes a progress ref, then closes -- must not tear down the
+      // SHARED subscription out from under B below.
+      await transportA.downloadToFile(
+        'a.bin',
+        File('${localDir.path}/a.bin'),
+        onProgress: (_, _) {},
+      );
+      await transportA.close();
+
+      final transportB = SmbTransport(
+        host: '192.168.1.12',
+        share: 'drop',
+        basePath: 'PROJECTS/fooplayer-sync',
+      );
+      addTearDown(transportB.close);
+      final bProgress = <List<int>>[];
+      await transportB.downloadToFile(
+        'b.bin',
+        File('${localDir.path}/b.bin'),
+        onProgress: (got, total) => bProgress.add([got, total]),
+      );
+
+      expect(bProgress, [
+        [1, 1],
+      ]);
     });
   });
 

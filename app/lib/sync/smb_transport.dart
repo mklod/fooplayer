@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1912
+// Last modified: 2026-07-31--1949
 //
 // SmbTransport: Android-only SyncTransport over the Kotlin SmbBridge
 // (SMBJ). Every method here crosses a MethodChannel to a background
@@ -18,6 +18,22 @@
 // [probe], which swallows everything (including a MissingPluginException on
 // a non-Android platform) and resolves to false, so callers can cheaply ask
 // "is the NAS there" without a try/catch of their own.
+//
+// STALE-HANDLE RECOVERY (review round 1, Critical C-1): SmbBridge.kt is now
+// a process singleton, so a fresh Kotlin bridge instance should never again
+// orphan a cached Dart handle -- but this class still treats a "no SMB
+// session" platform error as recoverable rather than fatal, as a second
+// line of defense: it drops the stale [_handle], reconnects once, and
+// retries the call once. Any OTHER error still propagates untouched.
+//
+// SHARED PROGRESS STATE (review round 1, Important I-3): the native
+// EventChannel supports exactly ONE active listener -- a second
+// SmbTransport instance calling receiveBroadcastStream() would silently
+// steal the first instance's subscription. taskIds, the stream
+// subscription, and the callback registry are therefore all
+// static/process-global (matching the Kotlin bridge being a singleton
+// too), ref-counted per instance so the LAST instance's [close] is the one
+// that actually tears the subscription down.
 import 'dart:async';
 import 'dart:io';
 
@@ -39,7 +55,8 @@ const EventChannel _progressChannel = EventChannel('dev.mklod.fooplayer/smb-prog
 /// can build one and call [probe] cheaply before deciding whether to do any
 /// real work. The underlying platform `connect` call happens on first use
 /// of any other method, and its handle is reused for the lifetime of this
-/// instance (or until [close]).
+/// instance (or until [close]) -- transparently reconnected once if the
+/// platform ever reports it stale (see the class doc above).
 class SmbTransport implements SyncTransport {
   final String host;
   final String share;
@@ -47,12 +64,39 @@ class SmbTransport implements SyncTransport {
 
   int? _handle;
   Future<int>? _connecting;
-
-  StreamSubscription<dynamic>? _progressSub;
-  final Map<String, void Function(int got, int total)> _progressCallbacks = {};
-  int _nextTaskId = 0;
+  bool _holdsProgressRef = false;
 
   SmbTransport({required this.host, required this.share, required this.basePath});
+
+  // ---- process-global progress state (shared across ALL instances) ----
+  static int _nextTaskId = 0;
+  static int _progressRefCount = 0;
+  static StreamSubscription<dynamic>? _progressSub;
+  static final Map<String, void Function(int got, int total)> _progressCallbacks = {};
+
+  static void _retainProgressSubscription() {
+    _progressRefCount++;
+    if (_progressSub != null) return;
+    _progressSub = _progressChannel.receiveBroadcastStream().listen((event) {
+      final map = Map<Object?, Object?>.from(event as Map);
+      final taskId = map['taskId'] as String;
+      final callback = _progressCallbacks[taskId];
+      if (callback == null) return; // a different (or already-cleaned-up) task
+      callback((map['got'] as num).toInt(), (map['total'] as num).toInt());
+    });
+  }
+
+  /// Only the ref count reaching zero actually cancels the shared
+  /// subscription -- another still-open [SmbTransport] instance may be
+  /// mid-download and relying on it.
+  static void _releaseProgressSubscription() {
+    if (_progressRefCount == 0) return;
+    _progressRefCount--;
+    if (_progressRefCount == 0) {
+      _progressSub?.cancel();
+      _progressSub = null;
+    }
+  }
 
   Map<String, Object?> get _connectArgs => {
     'host': host,
@@ -82,6 +126,30 @@ class SmbTransport implements SyncTransport {
     }
   }
 
+  static bool _isMissingSession(Object error) =>
+      error is PlatformException && (error.message ?? '').contains('no SMB session');
+
+  /// Runs [body] with a connected handle. If the platform reports the
+  /// handle no longer exists (SmbBridge.kt's `sessionFor` throwing "no SMB
+  /// session for handle N") -- which the Kotlin-side process-singleton fix
+  /// should make unreachable in practice, but this is the belt-and-
+  /// suspenders half of that same fix -- drops the stale [_handle],
+  /// reconnects exactly once, and retries [body] exactly once with the
+  /// fresh handle. Any other failure (including a SECOND missing-session
+  /// error on the retry) propagates as-is; this is a single recovery
+  /// attempt, not a retry loop.
+  Future<T> _withSession<T>(Future<T> Function(int handle) body) async {
+    final handle = await _ensureConnected();
+    try {
+      return await body(handle);
+    } catch (e) {
+      if (!_isMissingSession(e)) rethrow;
+      _handle = null;
+      final freshHandle = await _ensureConnected();
+      return body(freshHandle);
+    }
+  }
+
   @override
   Future<bool> probe() async {
     try {
@@ -93,13 +161,14 @@ class SmbTransport implements SyncTransport {
   }
 
   @override
-  Future<List<core.RemoteFile>> listTree(String relDir) async {
-    final handle = await _ensureConnected();
-    final result = await _channel.invokeMethod<List<Object?>>('listTree', {
-      'handle': handle,
-      'relDir': relDir,
+  Future<List<core.RemoteFile>> listTree(String relDir) {
+    return _withSession((handle) async {
+      final result = await _channel.invokeMethod<List<Object?>>('listTree', {
+        'handle': handle,
+        'relDir': relDir,
+      });
+      return [for (final entry in result ?? const []) _remoteFileFromMap(entry)];
     });
-    return [for (final entry in result ?? const []) _remoteFileFromMap(entry)];
   }
 
   core.RemoteFile _remoteFileFromMap(Object? entry) {
@@ -112,22 +181,24 @@ class SmbTransport implements SyncTransport {
   }
 
   @override
-  Future<List<int>?> readFile(String relPath) async {
-    final handle = await _ensureConnected();
-    return _channel.invokeMethod<Uint8List>('readFile', {
-      'handle': handle,
-      'relPath': relPath,
-    });
+  Future<List<int>?> readFile(String relPath) {
+    return _withSession(
+      (handle) => _channel.invokeMethod<Uint8List>('readFile', {
+        'handle': handle,
+        'relPath': relPath,
+      }),
+    );
   }
 
   @override
-  Future<void> writeFile(String relPath, List<int> bytes) async {
-    final handle = await _ensureConnected();
-    await _channel.invokeMethod<void>('writeFile', {
-      'handle': handle,
-      'relPath': relPath,
-      'bytes': Uint8List.fromList(bytes),
-    });
+  Future<void> writeFile(String relPath, List<int> bytes) {
+    return _withSession(
+      (handle) => _channel.invokeMethod<void>('writeFile', {
+        'handle': handle,
+        'relPath': relPath,
+        'bytes': Uint8List.fromList(bytes),
+      }),
+    );
   }
 
   @override
@@ -136,71 +207,69 @@ class SmbTransport implements SyncTransport {
     File local, {
     void Function(int got, int total)? onProgress,
   }) async {
-    final handle = await _ensureConnected();
     // Parent-dir creation is dart:io work done here rather than left to the
     // Kotlin side, matching every other SyncTransport implementation's
     // "creates parent dirs" contract regardless of what the platform side
     // does with the local path.
     await local.parent.create(recursive: true);
 
-    final taskId = (_nextTaskId++).toString();
-    if (onProgress != null) {
-      _ensureProgressSubscription();
-      _progressCallbacks[taskId] = onProgress;
-    }
-    try {
-      await _channel.invokeMethod<bool>('downloadToFile', {
-        'handle': handle,
-        'relPath': relPath,
-        'localPath': local.path,
-        'taskId': taskId,
-      });
-      // Deliberately NOT removed here on success: the platform side sends
-      // the final (got == total) progress event as a SEPARATE message from
-      // this call's own result, and nothing guarantees it has already been
-      // delivered to the listener below by the moment this future resolves
-      // (progress travels over the EventChannel, the result over this
-      // MethodChannel -- two independent message hops). Removing eagerly
-      // here raced that event and silently dropped it. The listener cleans
-      // up its own entry once it actually sees got >= total.
-    } catch (e) {
-      // On failure/cancellation the platform side never reaches its final
-      // postProgress call, so nothing will ever self-clean this entry --
-      // remove it here instead, or it leaks for the life of this instance.
-      _progressCallbacks.remove(taskId);
-      rethrow;
-    }
+    await _withSession((handle) async {
+      final taskId = (_nextTaskId++).toString();
+      if (onProgress != null) {
+        _ensureProgressSubscription();
+        _progressCallbacks[taskId] = onProgress;
+      }
+      try {
+        await _channel.invokeMethod<bool>('downloadToFile', {
+          'handle': handle,
+          'relPath': relPath,
+          'localPath': local.path,
+          'taskId': taskId,
+        });
+      } finally {
+        // Removed here UNCONDITIONALLY (success or failure) rather than
+        // relying solely on a got>=total self-removal in the listener --
+        // guards against a leaked entry if the final progress event is
+        // ever lost for any reason (SmbBridge.kt now always sends
+        // (total, total) unconditionally for the final call, but this
+        // class shouldn't have to trust that as the ONLY cleanup path).
+        // Safe to remove even before the corresponding event has been
+        // processed: SmbBridge.kt posts the final progress event and this
+        // call's own result through the SAME Handler(mainLooper) in that
+        // order, so on a real device the event is always fully delivered
+        // before this future resolves.
+        _progressCallbacks.remove(taskId);
+      }
+    });
   }
 
   void _ensureProgressSubscription() {
-    if (_progressSub != null) return;
-    _progressSub = _progressChannel.receiveBroadcastStream().listen((event) {
-      final map = Map<Object?, Object?>.from(event as Map);
-      final taskId = map['taskId'] as String;
-      final callback = _progressCallbacks[taskId];
-      if (callback == null) return; // a different (or already-cleaned-up) task
-      final got = (map['got'] as num).toInt();
-      final total = (map['total'] as num).toInt();
-      callback(got, total);
-      if (got >= total) _progressCallbacks.remove(taskId);
-    });
+    if (_holdsProgressRef) return;
+    _holdsProgressRef = true;
+    _retainProgressSubscription();
   }
 
   @override
-  Future<void> deleteRemote(String relPath) async {
-    final handle = await _ensureConnected();
-    await _channel.invokeMethod<void>('deleteRemote', {
-      'handle': handle,
-      'relPath': relPath,
-    });
+  Future<void> deleteRemote(String relPath) {
+    return _withSession(
+      (handle) => _channel.invokeMethod<void>('deleteRemote', {
+        'handle': handle,
+        'relPath': relPath,
+      }),
+    );
   }
 
   @override
   Future<void> close() async {
-    final sub = _progressSub;
-    _progressSub = null;
-    await sub?.cancel();
-    _progressCallbacks.clear();
+    if (_holdsProgressRef) {
+      _holdsProgressRef = false;
+      _releaseProgressSubscription();
+    }
+    // NOT clearing _progressCallbacks here: it's shared across every
+    // SmbTransport instance in the process, so wiping it on THIS
+    // instance's close() would drop another still-open instance's
+    // in-flight callbacks. Entries this instance registered are already
+    // self-cleaning (see downloadToFile's finally above).
 
     final handle = _handle;
     _handle = null;

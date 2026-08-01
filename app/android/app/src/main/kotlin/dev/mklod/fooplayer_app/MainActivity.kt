@@ -13,8 +13,12 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : AudioServiceActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        // Task 10: LAN sync's SMBJ bridge -- see SmbBridge.kt.
-        SmbBridge(flutterEngine.dartExecutor.binaryMessenger)
+        // Task 10: LAN sync's SMBJ bridge -- see SmbBridge.kt. `.attach`,
+        // NOT the constructor: this runs on every Activity recreation while
+        // the (cached, shared) engine survives it, so a fresh SmbBridge
+        // here every time would leak the old one's open sessions and orphan
+        // Dart's cached handle -- see SmbBridge.attach's doc.
+        SmbBridge.attach(flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
