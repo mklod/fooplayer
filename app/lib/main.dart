@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1619
+// Last modified: 2026-07-31--1743
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -23,6 +23,7 @@ import 'platform_paths.dart';
 import 'model/track.dart';
 import 'player/audio_handler.dart';
 import 'player/player_service.dart';
+import 'sync/playlist_reconciler.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
 import 'ui/home_screen.dart';
@@ -229,6 +230,15 @@ void main() async {
   // 3) -- config `deviceName` if set, else the OS hostname.
   final device = deviceLabel(config);
 
+  // Android-only playlist sync scheduler (Plan 3 Task 8) -- probe-gated,
+  // debounced auto-cadence over [PlaylistReconciler]. Real construction
+  // (`Platform.isAndroid` + configured `SyncSettings` + `SmbTransport`)
+  // lands in Task 9 (SyncEngine) and Task 11 (settings UI); until then this
+  // stays null so every hook wired below compiles and is completely inert
+  // -- PlaylistStore.onMutated, the periodic-rescan tick, and the
+  // post-first-load app-start hook all just no-op via `?.`.
+  final PlaylistSyncScheduler? syncScheduler = null; // wired fully in Task 9/11
+
   // Where `.playlists/` lives: the deepest common parent of every
   // configured root, or the `libraryHome` config override verbatim.
   // Recomputed on every [reloadLibrary] (roots can change via Settings);
@@ -354,6 +364,10 @@ void main() async {
           tracks: () => library.allTracks,
         ),
       );
+      // First (and only) load of this app run has settled -- this is the
+      // scheduler's "app start" trigger (a no-op while [syncScheduler] is
+      // null, see its declaration above).
+      syncScheduler?.onAppStart();
     }
     // Background best-guess pass, queued once load() has fully settled
     // (feed rendered AND tag enrichment finished -- artist/album tags are
@@ -377,12 +391,12 @@ void main() async {
   // albums this tick discovers get an automatic artwork pass too -- without
   // it, only the very first load() ever queued a backfill and everything
   // found afterward sat un-arted until the app restarted.
-  final rescanTimer = Timer.periodic(
-    _rescanInterval,
-    (_) => unawaited(
-      periodicRescanTick(library, artworkBackfill),
-    ),
-  );
+  final rescanTimer = Timer.periodic(_rescanInterval, (_) {
+    unawaited(periodicRescanTick(library, artworkBackfill));
+    // Same 5-minute tick doubles as the sync scheduler's periodic trigger
+    // (a no-op while [syncScheduler] is null).
+    syncScheduler?.onPeriodicTick();
+  });
 
   _LifecycleFlusher(
     layoutPrefs,
@@ -447,6 +461,7 @@ void main() async {
       artworkStores: artwork.stores,
       artworkBackfill: artworkBackfill,
       activity: activity,
+      syncScheduler: syncScheduler,
     ),
   );
 }
@@ -487,6 +502,13 @@ class FooPlayerApp extends StatelessWidget {
   /// without the artwork feature wired rely on.
   final ArtworkBackfill? artworkBackfill;
 
+  /// The Plan 3 auto-sync cadence (Task 8) -- null until Task 9/11 wire real
+  /// construction (Android + configured `SyncSettings` + `SmbTransport`).
+  /// [PlaylistStore.onMutated] points at [PlaylistSyncScheduler.onPlaylistMutated]
+  /// through this field, so it's inert (every call is `?.`) as long as it
+  /// stays null.
+  final PlaylistSyncScheduler? syncScheduler;
+
   const FooPlayerApp({
     super.key,
     required this.library,
@@ -499,6 +521,7 @@ class FooPlayerApp extends StatelessWidget {
     this.artworkStores,
     this.artworkBackfill,
     this.activity,
+    this.syncScheduler,
   });
 
   @override
@@ -515,12 +538,14 @@ class FooPlayerApp extends StatelessWidget {
         builder: (context) {
           // Shared by both branches below -- a stateless facade over
           // [library], so one instance per build is as good as one per
-          // branch. `onMutated` is null for now; Task 8 wires the sync
-          // scheduler's "something changed" hook here.
+          // branch. `onMutated` points at the sync scheduler's "something
+          // changed" hook -- inert (a no-op `?.call()`) while
+          // [syncScheduler] is null, i.e. until Task 9/11 construct a real
+          // one.
           final store = PlaylistStore(
             library: library,
             device: device,
-            onMutated: null,
+            onMutated: () => syncScheduler?.onPlaylistMutated(),
           );
           if (!usePhoneShell(context)) {
             return HomeScreen(
