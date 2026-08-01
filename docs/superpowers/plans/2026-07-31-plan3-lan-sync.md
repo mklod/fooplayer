@@ -1243,7 +1243,9 @@ abstract class SyncTransport {
 - [ ] **Step 4: Run to verify pass** — full `flutter test`.
 - [ ] **Step 5: Commit** — `git commit -m "feat(sync): playlist reconciler over transport + probe-gated auto scheduler"` + push.
 
----### Task 9: SyncEngine — plan → execute → verify → adopt → rescan → report
+---
+
+### Task 9: SyncEngine — plan → execute → verify → adopt → rescan → report
 
 **Files:**
 - Create: `app/lib/sync/sync_settings.dart`, `app/lib/sync/sync_engine.dart`
