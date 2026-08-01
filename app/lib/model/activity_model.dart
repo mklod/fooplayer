@@ -10,7 +10,7 @@
 // Everything long-running registers here instead, and the UI shows a
 // persistent bar for as long as anything is registered.
 //
-// Last modified: 2026-07-28--1730
+// Last modified: 2026-07-31--1805
 
 import 'package:flutter/foundation.dart';
 
@@ -115,4 +115,5 @@ abstract final class ActivityIds {
   static const artworkLookup = 'artwork-lookup';
   static const artworkEmbed = 'artwork-embed';
   static const tagWrite = 'tag-write';
+  static const sync = 'sync';
 }

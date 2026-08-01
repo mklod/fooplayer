@@ -261,6 +261,66 @@ void main() {
       expect(notes, isEmpty);
     });
 
+    test(
+      'unrelated tombstones on both sides survive a run that merges two '
+      "different ids' tombstones in opposite directions (Plan 3 Task 8 "
+      'carried finding)',
+      () async {
+        // p_a: tombstoned locally only -> must flow TO remote.
+        // p_b: tombstoned remotely only -> must flow TO local.
+        // p_c: already tombstoned identically on BOTH sides -> no action at
+        // all, and its entry must come through the merge untouched on
+        // both sides (proves the read-modify-write doesn't clobber
+        // unrelated ids while a DIFFERENT id's tombstone is being merged
+        // in the opposite direction in the same run).
+        final sharedDeleted = DateTime.parse('2026-06-01T00:00:00Z');
+        await core.saveTombstones(localHome, {
+          'p_a': core.PlaylistTombstone(
+            deleted: DateTime.parse('2026-07-31T09:00:00Z'),
+            name: 'local-only',
+          ),
+          'p_c': core.PlaylistTombstone(deleted: sharedDeleted, name: 'shared dead'),
+        });
+        await core.saveTombstones(nasHome, {
+          'p_b': core.PlaylistTombstone(
+            deleted: DateTime.parse('2026-07-31T09:00:00Z'),
+            name: 'remote-only',
+          ),
+          'p_c': core.PlaylistTombstone(deleted: sharedDeleted, name: 'shared dead'),
+        });
+
+        final reconciler = PlaylistReconciler(
+          localHome: localHome,
+          transport: transport,
+          localLabel: 'tablet',
+        );
+        await reconciler.run();
+
+        final localTombs = core.loadPlaylistsDir(localHome).tombstones;
+        final remoteBytes = await transport.readFile(
+          '${core.playlistsDirName}/${core.playlistTombstonesFileName}',
+        );
+        final remoteTombsJson =
+            jsonDecode(utf8.decode(remoteBytes!)) as Map<String, dynamic>;
+        final remoteTombs = (remoteTombsJson['tombstones'] as Map<String, dynamic>);
+
+        // p_a flowed local -> remote.
+        expect(remoteTombs.containsKey('p_a'), isTrue);
+        expect(remoteTombs['p_a']['name'], 'local-only');
+
+        // p_b flowed remote -> local.
+        expect(localTombs.containsKey('p_b'), isTrue);
+        expect(localTombs['p_b']!.name, 'remote-only');
+
+        // p_c, untouched by any action this run, still made it through the
+        // merge unchanged on BOTH sides.
+        expect(localTombs['p_c']!.deleted, sharedDeleted);
+        expect(localTombs['p_c']!.name, 'shared dead');
+        expect(remoteTombs.containsKey('p_c'), isTrue);
+        expect(remoteTombs['p_c']['name'], 'shared dead');
+      },
+    );
+
     test('backup stamps use the injected clock, not wall-clock time', () async {
       final oldLocal = _pf('p_1', 'n', ['a'], '2026-07-31T11:00:00Z');
       final newRemote = _pf('p_1', 'n', ['a', 'b'], '2026-07-31T12:00:00Z');
