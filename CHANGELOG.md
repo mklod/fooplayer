@@ -15,6 +15,11 @@
 >   conflict resolution between two offline edits) are scoped in
 >   [WORKPLAN.md](WORKPLAN.md)'s Next section, to be folded into Plan 3
 >   (phone library sync) design work.
+> - **APK downloads page on Cloudflare, a la flana's dist page** (raised
+>   2026-07-31): fresh Android builds get uploaded to an R2-backed page so
+>   Mike can tap the latest build and install it from the phone when away
+>   from the desktop — remote development without adb. IN PROGRESS this
+>   session, alongside Plan 3.
 > - **Inline metadata editing in the track list** (raised 2026-07-31):
 >   edit a track's artist/title/album/etc. directly in its row, like an
 >   Excel spreadsheet cell — click into the field, type, commit — instead
