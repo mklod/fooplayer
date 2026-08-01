@@ -88,6 +88,12 @@ class _SyncViewState extends State<SyncView> {
 
   bool _syncing = false;
 
+  // Non-null exception text from the last failed [_runSync] -- cleared at
+  // the START of every new attempt (not just on success), so a second Sync
+  // now click always gives the error a chance to go away rather than
+  // leaving a stale message next to a dialog that just opened.
+  String? _syncError;
+
   @override
   void initState() {
     super.initState();
@@ -200,17 +206,30 @@ class _SyncViewState extends State<SyncView> {
   }
 
   Future<void> _runSync() async {
-    setState(() => _syncing = true);
-    SyncReport report;
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
+    // No runZonedGuarded/FlutterError.onError exists above this widget, so
+    // an uncaught exception from widget.runSync() would otherwise become an
+    // invisible unhandled-Future error on-device: the button would simply
+    // re-enable with no dialog and no message, indistinguishable from
+    // "nothing happened" even when files genuinely copied before the
+    // failure. Catching it here and surfacing [_syncError] is the only
+    // thing standing between a real failure and total silence.
+    SyncReport? report;
     try {
       report = await widget.runSync();
+    } catch (e) {
+      if (mounted) setState(() => _syncError = e.toString());
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
+    if (report == null) return; // failed -- _syncError above says why
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (_) => SyncReportDialog(report: report),
+      builder: (_) => SyncReportDialog(report: report!),
     );
   }
 
@@ -325,6 +344,15 @@ class _SyncViewState extends State<SyncView> {
                 )
               : const Text('Sync now'),
         ),
+        if (_syncError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Sync failed: $_syncError',
+              key: const Key('sync-error-line'),
+              style: const TextStyle(fontSize: 12, color: Color(0xFFD70015)),
+            ),
+          ),
       ],
     );
   }

@@ -296,7 +296,13 @@ void main() async {
       withManifest.sort();
       return withManifest;
     } finally {
-      await transport.close();
+      // A thrown exception inside a `finally` REPLACES whatever the `try`
+      // was about to return/throw -- so a close()-time failure here would
+      // silently discard the discovered root list. close() failing is never
+      // more important than the result it's cleaning up after; swallow it.
+      try {
+        await transport.close();
+      } catch (_) {}
     }
   }
 
@@ -310,7 +316,10 @@ void main() async {
     try {
       return await transport.probe();
     } finally {
-      await transport.close();
+      // See discoverSyncRoots' comment above -- same reasoning.
+      try {
+        await transport.close();
+      } catch (_) {}
     }
   }
 
@@ -353,7 +362,16 @@ void main() async {
       }
       return report;
     } finally {
-      await transport.close();
+      // Most important of the four: this is the one whose `try` most often
+      // completes with real, hard-won work (a computed SyncReport) to
+      // return -- and a half-dead SMB session (e.g. exactly the kind that
+      // just made a root abort with "connection lost") is also exactly the
+      // kind most likely to throw on close(). Losing that report to a
+      // close()-time PlatformException would make files that genuinely
+      // copied look like nothing happened at all.
+      try {
+        await transport.close();
+      } catch (_) {}
     }
   }
 
@@ -384,7 +402,10 @@ void main() async {
       }
       return notes;
     } finally {
-      await transport.close();
+      // See discoverSyncRoots' comment above -- same reasoning.
+      try {
+        await transport.close();
+      } catch (_) {}
     }
   }
 

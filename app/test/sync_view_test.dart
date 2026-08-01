@@ -173,6 +173,68 @@ void main() {
   });
 
   testWidgets(
+    'a throwing runSync re-enables the button and shows a visible inline '
+    'error, with no report dialog',
+    (tester) async {
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () async => throw Exception('NAS session dropped'),
+      );
+
+      expect(find.byKey(const Key('sync-error-line')), findsNothing);
+
+      FilledButton syncButton() =>
+          tester.widget<FilledButton>(find.byKey(const Key('sync-now')));
+
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pumpAndSettle();
+
+      // Re-enabled, not left permanently disabled by the failure.
+      expect(syncButton().onPressed, isNotNull);
+      // The error is visible, not an invisible unhandled-Future error --
+      // this app has no runZonedGuarded/FlutterError.onError above this
+      // widget, so without this catch a thrown runSync would otherwise look
+      // exactly like "nothing happened".
+      final errorText = tester.widget<Text>(
+        find.byKey(const Key('sync-error-line')),
+      );
+      expect(errorText.data, contains('NAS session dropped'));
+      // Never a report dialog for a run that never produced a report.
+      expect(find.byKey(const Key('sync-report-dialog')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a successful runSync after a failed one clears the error line and '
+    'opens the report dialog',
+    (tester) async {
+      var shouldFail = true;
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () async {
+          if (shouldFail) throw Exception('NAS session dropped');
+          return _emptyReport();
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('sync-error-line')), findsOneWidget);
+
+      shouldFail = false;
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sync-error-line')), findsNothing);
+      expect(find.byKey(const Key('sync-report-dialog')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'report dialog shows per-root lines and failures, and requires an '
     'explicit dismissal',
     (tester) async {
