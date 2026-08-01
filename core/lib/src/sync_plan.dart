@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1705
+// Last modified: 2026-07-31--1719
 //
 // Pure per-root sync planner: diffs a remote root's manifest + directory
 // listing against the local mirror's files + manifest + sync-state to
@@ -55,6 +55,11 @@ class SyncState {
   final Map<String, SyncStateEntry> entries;
   SyncState(this.entries);
 
+  /// Tolerance is per-entry as well as whole-file: an unparseable individual
+  /// entry (wrong shape, non-numeric fields) is dropped silently and its
+  /// well-formed siblings are still returned, rather than one bad entry
+  /// discarding the entire state -- intentional, since a single corrupt
+  /// record shouldn't force every other file back through a full recopy.
   static SyncState load(File f) {
     if (!f.existsSync()) return SyncState({});
     try {
@@ -238,6 +243,14 @@ SyncPlan planRootSync({
   final renames = <String, String>{};
   final adoptions = <String>[];
 
+  // A local rename source can only satisfy ONE remote target. When duplicate
+  // content sits at multiple remote-truth paths (same ID, both absent
+  // locally), only the first (by remoteListing order) claims the shared
+  // local file as its rename source; every later remote path with the same
+  // ID falls through to a fresh copy instead of silently vanishing from the
+  // plan.
+  final claimedRenameSources = <String>{};
+
   for (final path in remoteTruthPaths) {
     final id = remotePathToId[path]!;
     final remote = remoteFileByPath[path]!;
@@ -265,7 +278,9 @@ SyncPlan planRootSync({
     final localPathsForId = localManifest.tracks[id]?.paths;
     if (localPathsForId != null) {
       for (final lp in localPathsForId) {
-        if (localFiles.contains(lp) && !remoteAudioPaths.contains(lp)) {
+        if (localFiles.contains(lp) &&
+            !remoteAudioPaths.contains(lp) &&
+            !claimedRenameSources.contains(lp)) {
           renameSource = lp;
           break;
         }
@@ -273,6 +288,7 @@ SyncPlan planRootSync({
     }
     if (renameSource != null) {
       renames[renameSource] = path;
+      claimedRenameSources.add(renameSource);
     } else {
       copies.add(remote);
     }

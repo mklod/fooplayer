@@ -1,4 +1,5 @@
-// Last modified: 2026-07-31--1705
+// Last modified: 2026-07-31--1719
+import 'dart:convert';
 import 'dart:io';
 import 'package:fooplayer_core/fooplayer_core.dart';
 import 'package:test/test.dart';
@@ -110,6 +111,50 @@ void main() {
       );
       expect(plan.renames, {'old/a.mp3': 'new/a.mp3'});
       expect(plan.copies, isEmpty);
+      expect(plan.deletes, isEmpty);
+    });
+
+    test('a shared rename source is claimed by only one of two duplicate '
+        'remote targets; the other falls through to a copy, never dropped', () {
+      final plan = planRootSync(
+        remoteManifest: mf({'idX': ['new/a.mp3', 'new/a_dup.mp3']}),
+        remoteListing: [rf('new/a.mp3'), rf('new/a_dup.mp3')],
+        localManifest: mf({'idX': ['old/a.mp3']}),
+        localFiles: {'old/a.mp3'},
+        state: SyncState({'old/a.mp3': SyncStateEntry(mtimeMs: 1000, size: 100)}),
+      );
+      // Exactly one rename, keyed off the sole local source.
+      expect(plan.renames.length, 1);
+      expect(plan.renames.keys, ['old/a.mp3']);
+      // Exactly one copy, for whichever remote path didn't win the rename.
+      expect(plan.copies.length, 1);
+      // Together, the rename's target and the copy's path cover both remote
+      // paths -- neither one silently vanished from the plan.
+      final covered = {...plan.renames.values, ...plan.copies.map((f) => f.relPath)};
+      expect(covered, {'new/a.mp3', 'new/a_dup.mp3'});
+      expect(plan.deletes, isEmpty);
+    });
+
+    test('three-way duplicate: one rename source, three remote targets '
+        '-> one rename + two copies, all three remote paths covered', () {
+      final plan = planRootSync(
+        remoteManifest: mf({
+          'idX': ['new/a.mp3', 'new/a_dup1.mp3', 'new/a_dup2.mp3']
+        }),
+        remoteListing: [
+          rf('new/a.mp3'),
+          rf('new/a_dup1.mp3'),
+          rf('new/a_dup2.mp3'),
+        ],
+        localManifest: mf({'idX': ['old/a.mp3']}),
+        localFiles: {'old/a.mp3'},
+        state: SyncState({'old/a.mp3': SyncStateEntry(mtimeMs: 1000, size: 100)}),
+      );
+      expect(plan.renames.length, 1);
+      expect(plan.renames.keys, ['old/a.mp3']);
+      expect(plan.copies.length, 2);
+      final covered = {...plan.renames.values, ...plan.copies.map((f) => f.relPath)};
+      expect(covered, {'new/a.mp3', 'new/a_dup1.mp3', 'new/a_dup2.mp3'});
       expect(plan.deletes, isEmpty);
     });
 
@@ -352,6 +397,24 @@ void main() {
       f.writeAsStringSync('{"schema": 1, "entries": "nope"}');
       final loaded = SyncState.load(f);
       expect(loaded.entries, isEmpty);
+    });
+
+    test('a malformed individual entry is dropped; well-formed siblings '
+        'still load (per-entry tolerance, not whole-file)', () {
+      final f = File('${dir.path}/$syncStateFileName');
+      f.writeAsStringSync(jsonEncode({
+        'schema': 1,
+        'entries': {
+          'good.mp3': {'mtimeMs': 1000, 'size': 100},
+          'bad_shape.mp3': {'mtimeMs': 'not a number', 'size': 100},
+          'bad_type.mp3': 'not even a map',
+          'also_good.mp3': {'mtimeMs': 2000, 'size': 200},
+        },
+      }));
+      final loaded = SyncState.load(f);
+      expect(loaded.entries.keys, unorderedEquals(['good.mp3', 'also_good.mp3']));
+      expect(loaded.entries['good.mp3']!.mtimeMs, 1000);
+      expect(loaded.entries['also_good.mp3']!.size, 200);
     });
 
     test('save is atomic: no .tmp file left behind, second save replaces', () async {
