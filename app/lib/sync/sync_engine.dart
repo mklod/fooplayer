@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1833
+// Last modified: 2026-07-31--1846
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -511,32 +511,63 @@ class SyncEngine {
 
       // Sync-state records successes even when the root aborted mid-way, so
       // a re-run only re-plans what's actually missing.
-      await state.save(stateFile);
+      //
+      // From here on, a failure is recorded as a SyncFailure rather than
+      // left to reach the outer catch-all below: every counter above this
+      // point reflects real, already-completed file-level work, and an
+      // outer catch has no way to recover those values (it only knows how
+      // to build a zeroed abort) -- so a bookkeeping error here (a full
+      // disk on the state-file write, endManifestWrite() throwing while
+      // draining a queued load()) must not discard a root that actually
+      // succeeded into a false "aborted, nothing happened" report.
+      try {
+        await state.save(stateFile);
+      } on Exception catch (e) {
+        failures.add(
+          SyncFailure(
+            relPath: core.syncStateFileName,
+            reason: 'state save failed: $e',
+          ),
+        );
+      }
 
       if (!aborted) {
-        final acquired = await _acquireManifestWrite();
-        if (!acquired) {
-          failures.add(
-            SyncFailure(
-              relPath: core.manifestFileName,
-              reason: 'manifest adopt skipped: library busy',
-            ),
-          );
-        } else {
-          try {
-            await core.saveManifest(remoteManifest, localRootDir);
-          } catch (e) {
-            // The file sync work is done; only the manifest replacement
-            // failed -- report it as a failure, not a whole-root abort.
+        try {
+          final acquired = await _acquireManifestWrite();
+          if (!acquired) {
             failures.add(
               SyncFailure(
                 relPath: core.manifestFileName,
-                reason: 'manifest adopt failed: $e',
+                reason: 'manifest adopt skipped: library busy',
               ),
             );
-          } finally {
-            await library.endManifestWrite();
+          } else {
+            try {
+              await core.saveManifest(remoteManifest, localRootDir);
+            } on Exception catch (e) {
+              // The file sync work is done; only the manifest replacement
+              // failed -- report it as a failure, not a whole-root abort.
+              failures.add(
+                SyncFailure(
+                  relPath: core.manifestFileName,
+                  reason: 'manifest adopt failed: $e',
+                ),
+              );
+            } finally {
+              await library.endManifestWrite();
+            }
           }
+        } on Exception catch (e) {
+          // Covers _acquireManifestWrite() itself throwing, or
+          // endManifestWrite() throwing from the finally above (reachable
+          // if it drains a queued load() that fails) -- either way, the
+          // real sync counts below must survive.
+          failures.add(
+            SyncFailure(
+              relPath: core.manifestFileName,
+              reason: 'manifest adopt failed: $e',
+            ),
+          );
         }
       }
 
@@ -553,18 +584,25 @@ class SyncEngine {
         aborted: aborted,
         abortReason: abortReason,
       );
-    } catch (e) {
+    } on Exception catch (e) {
       // Last-resort net for anything not already turned into a per-file
       // SyncFailure or a specific early abort above -- a throwing listTree,
       // a corrupt local manifest with no usable .bak, an unexpected
       // filesystem error during planning. This root aborts; the run as a
       // whole (and any other root in it) does not.
+      //
+      // Deliberately `on Exception`, not a bare `catch`: an `Error`
+      // (TypeError, a null check, RangeError -- a genuine bug, not an
+      // environmental failure like a dropped connection or a corrupt file)
+      // must never be silently reported as just another "sync failed,
+      // try again" abort. Letting it propagate is what makes it visible
+      // enough to actually get fixed.
       final state = stateForRecovery;
       final stateFile = stateFileForRecovery;
       if (state != null && stateFile != null) {
         try {
           await state.save(stateFile);
-        } catch (_) {
+        } on Exception catch (_) {
           // Truly nothing more to do -- the abort result below still
           // stands.
         }

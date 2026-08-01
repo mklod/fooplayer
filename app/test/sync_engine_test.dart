@@ -229,6 +229,17 @@ class _RecordingLibraryModel extends LibraryModel {
   }
 }
 
+/// `tryBeginManifestWrite` behaves normally (so the engine's adopt attempt
+/// actually reaches `saveManifest`), but `endManifestWrite` always throws --
+/// reproduces `_runPendingLoad` draining a queued `load()` that fails, a
+/// real path since `endManifestWrite` always calls it.
+class _ThrowingEndManifestWriteLibraryModel extends LibraryModel {
+  @override
+  Future<void> endManifestWrite() async {
+    throw Exception('simulated endManifestWrite failure');
+  }
+}
+
 void main() {
   late Directory nasHome;
   late Directory localHome;
@@ -957,6 +968,34 @@ void main() {
         );
       },
       timeout: const Timeout(Duration(seconds: 15)),
+    );
+
+    test(
+      'endManifestWrite() throwing after a successful copy reports the REAL '
+      'counts, not a zeroed false abort',
+      () async {
+        final idA = await writeNasTrack('RootA', 'a.wav', 1);
+        await writeNasManifest('RootA', {
+          idA: ['a.wav'],
+        });
+
+        final library = _ThrowingEndManifestWriteLibraryModel();
+        final result = (await buildEngine(
+          rootNames: ['RootA'],
+          library: library,
+        ).run()).roots.single;
+
+        // The real file-level work already succeeded and must be reported
+        // as such -- NOT discarded into a zeroed abort just because the
+        // manifest-adopt bookkeeping tail threw.
+        expect(result.copied, 1);
+        expect(result.aborted, isFalse);
+        expect(
+          result.failures.any((f) => f.reason.contains('manifest adopt failed')),
+          isTrue,
+        );
+        expect(File('${localHome.path}/RootA/a.wav').existsSync(), isTrue);
+      },
     );
 
     test(
