@@ -10,3 +10,4 @@ export 'src/seed/seed_migration.dart';
 export 'src/seed/playlist_import.dart';
 export 'src/playlist_sidecar.dart';
 export 'src/playlist_reconcile.dart';
+export 'src/sync_plan.dart';
