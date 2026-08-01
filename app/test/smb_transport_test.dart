@@ -18,6 +18,19 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/sync/smb_transport.dart';
 
+/// Polls [condition] every 5ms until it's true, bounded at ~2s -- the
+/// deterministic replacement for a flat `Future<void>.delayed(Duration.zero)`
+/// wherever a test needs to wait for a mocked platform call to actually
+/// land (see the `cancelInFlight` tests below for why a zero-duration timer
+/// isn't reliable there: real IO-isolate work can outlast it).
+Future<void> _waitFor(bool Function() condition) async {
+  for (var i = 0; i < 400; i++) {
+    if (condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+  }
+  fail('condition never became true within the bounded wait');
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -388,9 +401,18 @@ void main() {
 
         final local = File('${localDir.path}/out.bin');
         final downloadFuture = transport.downloadToFile('big.bin', local);
-        // Let the invokeMethod call actually reach the mock handler (and
-        // register the taskId as in-flight) before cancelling it.
-        await Future<void>.delayed(Duration.zero);
+        // Wait deterministically for the 'downloadToFile' call to actually
+        // reach the mock handler (and therefore for its taskId to be
+        // registered as in-flight) before cancelling it. A flat
+        // `Future<void>.delayed(Duration.zero)` is NOT enough here:
+        // downloadToFile awaits real IO-isolate work (creating the local
+        // parent dir) before it even mints the taskId, and when that
+        // outlasts a zero-duration timer, cancelInFlight sees an empty
+        // in-flight set and `calls.firstWhere` below throws "Bad state: No
+        // element" -- intermittently, since it depends on isolate
+        // scheduling (whole-branch re-review: failed 2 of 3 isolated runs
+        // with the old delay).
+        await _waitFor(() => calls.any((c) => c.method == 'downloadToFile'));
 
         await transport.cancelInFlight();
 
@@ -436,7 +458,12 @@ void main() {
 
         final local = File('${localDir.path}/out.bin');
         final downloadFuture = transport.downloadToFile('big.bin', local);
-        await Future<void>.delayed(Duration.zero);
+        // Same deterministic wait as the test above -- without it, this
+        // test could race ahead of the taskId even being registered, call
+        // cancelInFlight() against an empty in-flight set, and vacuously
+        // pass without ever actually exercising the swallow-the-
+        // PlatformException path it's meant to cover.
+        await _waitFor(() => calls.any((c) => c.method == 'downloadToFile'));
 
         await expectLater(transport.cancelInFlight(), completes);
 
