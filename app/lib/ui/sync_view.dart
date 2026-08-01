@@ -8,7 +8,7 @@
 // injected seams below; this widget never touches `dart:io` or a
 // `SyncTransport` directly, which is what makes it testable with fakes.
 //
-// Last modified: 2026-07-31--2013
+// Last modified: 2026-07-31--2123
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -36,12 +36,21 @@ class SyncUiSeams {
   final Future<bool> Function() probe;
   final Future<List<String>> Function() discoverRoots;
 
+  /// Cancels the in-flight [runSync] call (whole-branch review, Finding
+  /// I-1) -- main.dart wires this to the currently-running SyncEngine's
+  /// `cancel()`. A no-op if nothing is running (SyncView only ever surfaces
+  /// its Cancel button while `_syncing` is true, so in practice this is
+  /// only ever called mid-run), so callers don't need to guard the call
+  /// themselves.
+  final Future<void> Function() cancelSync;
+
   const SyncUiSeams({
     required this.currentSettings,
     required this.onSave,
     required this.runSync,
     required this.probe,
     required this.discoverRoots,
+    required this.cancelSync,
   });
 }
 
@@ -54,6 +63,9 @@ class SyncView extends StatefulWidget {
   final Future<bool> Function() probe;
   final Future<List<String>> Function() discoverRoots;
 
+  /// See [SyncUiSeams.cancelSync]'s doc.
+  final Future<void> Function() cancelSync;
+
   const SyncView({
     super.key,
     required this.settings,
@@ -61,6 +73,7 @@ class SyncView extends StatefulWidget {
     required this.runSync,
     required this.probe,
     required this.discoverRoots,
+    required this.cancelSync,
   });
 
   @override
@@ -330,19 +343,40 @@ class _SyncViewState extends State<SyncView> {
               onChanged: (v) => _toggleRoot(name, v),
             ),
         const SizedBox(height: 16),
-        FilledButton(
-          key: const Key('sync-now'),
-          onPressed: _syncing ? null : _runSync,
-          child: _syncing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Text('Sync now'),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton(
+              key: const Key('sync-now'),
+              onPressed: _syncing ? null : _runSync,
+              child: _syncing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text('Sync now'),
+            ),
+            // Only while a run is actually in flight -- cancelling an idle
+            // engine is meaningless, and widget.cancelSync's own doc leans
+            // on this widget being the thing that keeps that call a no-op
+            // in practice. Tapping it does NOT flip any local state here:
+            // the run completes normally through the engine (the current
+            // root aborts as 'cancelled', already-checked roots still run),
+            // and _runSync's own finally clause is what re-enables Sync now
+            // and opens the report dialog -- no special cancelled-UI path.
+            if (_syncing) ...[
+              const SizedBox(width: 12),
+              TextButton(
+                key: const Key('sync-cancel'),
+                onPressed: widget.cancelSync,
+                child: const Text('Cancel'),
+              ),
+            ],
+          ],
         ),
         if (_syncError != null)
           Padding(

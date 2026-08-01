@@ -7,7 +7,7 @@
 // a fake -- no real SmbTransport, no platform channel, anywhere in this
 // file.
 //
-// Last modified: 2026-07-31--2013
+// Last modified: 2026-07-31--2123
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -30,6 +30,7 @@ Future<void> _pumpSyncView(
   Future<SyncReport> Function()? runSync,
   Future<bool> Function()? probe,
   Future<List<String>> Function()? discoverRoots,
+  Future<void> Function()? cancelSync,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -41,6 +42,7 @@ Future<void> _pumpSyncView(
             runSync: runSync ?? () async => _emptyReport(),
             probe: probe ?? () async => true,
             discoverRoots: discoverRoots ?? () async => const [],
+            cancelSync: cancelSync ?? () async {},
           ),
         ),
       ),
@@ -171,6 +173,47 @@ void main() {
 
     expect(syncButton().onPressed, isNotNull);
   });
+
+  testWidgets(
+    'Cancel button is absent while idle, appears while syncing, and tapping '
+    'it invokes the cancelSync seam',
+    (tester) async {
+      final completer = Completer<SyncReport>();
+      var cancelCalls = 0;
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () => completer.future,
+        cancelSync: () async {
+          cancelCalls++;
+        },
+      );
+
+      // Idle: no Cancel button at all.
+      expect(find.byKey(const Key('sync-cancel')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pump();
+
+      // Syncing: Cancel button appears.
+      expect(find.byKey(const Key('sync-cancel')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('sync-cancel')));
+      await tester.pump();
+      expect(cancelCalls, 1);
+
+      // The run still completes normally through the engine (no special
+      // cancelled-UI path) -- finishing it clears the Cancel button again
+      // and opens the report dialog exactly as any other completed run
+      // would.
+      completer.complete(_emptyReport());
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sync-cancel')), findsNothing);
+      expect(find.byKey(const Key('sync-report-dialog')), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'a throwing runSync re-enables the button and shows a visible inline '

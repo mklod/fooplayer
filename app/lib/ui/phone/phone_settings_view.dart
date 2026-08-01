@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--2013
+// Last modified: 2026-07-31--2123
 //
 // Phone-shell Settings view (Plan 2b): the drawer's Settings destination.
 // Per the plan spec it "reuses existing SettingsDialog content as a page":
@@ -67,6 +67,7 @@ class PhoneSettingsView extends StatelessWidget {
               runSync: seams.runSync,
               probe: seams.probe,
               discoverRoots: seams.discoverRoots,
+              cancelSync: seams.cancelSync,
             ),
           ),
         ),

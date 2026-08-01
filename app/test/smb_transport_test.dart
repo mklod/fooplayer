@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1949
+// Last modified: 2026-07-31--2123
 //
 // Contract test for SmbTransport against a MOCKED MethodChannel/EventChannel
 // -- no real Kotlin/SMBJ involved. Verifies each SyncTransport method sends
@@ -11,6 +11,7 @@
 // correctness (SmbBridge.kt) is verified by `flutter build apk --debug`
 // compiling and by live device testing in Task 12 -- this file only pins
 // the Dart-side contract.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -357,6 +358,92 @@ void main() {
 
       expect(progress, isEmpty);
     });
+  });
+
+  group('cancelInFlight', () {
+    late Directory localDir;
+    setUp(() => localDir = Directory.systemTemp.createTempSync('smb_cancel'));
+    tearDown(() {
+      if (localDir.existsSync()) localDir.deleteSync(recursive: true);
+    });
+
+    test(
+      'sends cancel with the right taskId for an in-flight download',
+      () async {
+        final downloadCompleter = Completer<bool>();
+        String? capturedTaskId;
+        setHandler((call) async {
+          switch (call.method) {
+            case 'connect':
+              return 1;
+            case 'downloadToFile':
+              capturedTaskId = argsOf(call)['taskId'] as String;
+              return downloadCompleter.future;
+            case 'cancel':
+              return null;
+            default:
+              fail('unexpected ${call.method}');
+          }
+        });
+
+        final local = File('${localDir.path}/out.bin');
+        final downloadFuture = transport.downloadToFile('big.bin', local);
+        // Let the invokeMethod call actually reach the mock handler (and
+        // register the taskId as in-flight) before cancelling it.
+        await Future<void>.delayed(Duration.zero);
+
+        await transport.cancelInFlight();
+
+        final cancelCall = calls.firstWhere((c) => c.method == 'cancel');
+        expect(argsOf(cancelCall), {'taskId': capturedTaskId});
+
+        downloadCompleter.complete(true);
+        await downloadFuture;
+      },
+    );
+
+    test(
+      'after normal completion the in-flight set is empty -- cancelInFlight '
+      'sends nothing',
+      () async {
+        setHandler((call) async => call.method == 'connect' ? 1 : true);
+        final local = File('${localDir.path}/out.bin');
+        await transport.downloadToFile('big.bin', local);
+
+        await transport.cancelInFlight();
+
+        expect(calls.any((c) => c.method == 'cancel'), isFalse);
+      },
+    );
+
+    test(
+      'a PlatformException from an individual cancel call is swallowed -- '
+      'racing the download\'s own completion is normal',
+      () async {
+        final downloadCompleter = Completer<bool>();
+        setHandler((call) async {
+          switch (call.method) {
+            case 'connect':
+              return 1;
+            case 'downloadToFile':
+              return downloadCompleter.future;
+            case 'cancel':
+              throw PlatformException(code: 'smb', message: 'already finished');
+            default:
+              fail('unexpected ${call.method}');
+          }
+        });
+
+        final local = File('${localDir.path}/out.bin');
+        final downloadFuture = transport.downloadToFile('big.bin', local);
+        await Future<void>.delayed(Duration.zero);
+
+        await expectLater(transport.cancelInFlight(), completes);
+
+        downloadCompleter.complete(true);
+        await downloadFuture;
+      },
+    );
   });
 
   group('stale handle recovery (C-1)', () {

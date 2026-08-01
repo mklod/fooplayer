@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--2013
+// Last modified: 2026-07-31--2123
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -323,6 +323,13 @@ void main() async {
     }
   }
 
+  // Holds whatever SyncEngine [runSyncNow] currently has in flight -- the
+  // seam [cancelSync] below needs to reach it. Null whenever no sync is
+  // running (including between the two: a stray cancelSync() call while
+  // idle is simply a no-op, which is exactly right since SyncView only
+  // ever surfaces its Cancel button while a run is actually in progress).
+  SyncEngine? runningSyncEngine;
+
   Future<SyncReport> runSyncNow() async {
     final s = syncSettings;
     final localHomePath = syncLocalHomePath();
@@ -344,7 +351,12 @@ void main() async {
           transport: transport,
           localLabel: device,
         ),
+        // Whole-branch review, Finding I-1: lets SyncEngine.cancel()
+        // interrupt whatever chunk this transport is mid-download on RIGHT
+        // NOW, instead of only stopping the loop between files.
+        onCancelTransport: () => transport.cancelInFlight(),
       );
+      runningSyncEngine = engine;
       final report = await engine.run();
       // A checked root's local folder is only worth adopting once a sync
       // that could have created it has actually run -- never for the bare
@@ -362,6 +374,10 @@ void main() async {
       }
       return report;
     } finally {
+      // Cleared before close() below -- once this engine is done (success,
+      // failure, or aborted), cancelSync() must go back to being a no-op
+      // rather than reaching a finished engine's now-meaningless cancel().
+      runningSyncEngine = null;
       // Most important of the four: this is the one whose `try` most often
       // completes with real, hard-won work (a computed SyncReport) to
       // return -- and a half-dead SMB session (e.g. exactly the kind that
@@ -373,6 +389,13 @@ void main() async {
         await transport.close();
       } catch (_) {}
     }
+  }
+
+  // The Cancel button's seam (SyncView -> SyncUiSeams.cancelSync):
+  // interrupts whatever [runSyncNow] currently has in flight. A no-op when
+  // nothing is running -- see [runningSyncEngine]'s doc.
+  Future<void> cancelSync() async {
+    runningSyncEngine?.cancel();
   }
 
   // Standalone playlist reconcile, for the scheduler's own cadence (app
@@ -409,7 +432,7 @@ void main() async {
     }
   }
 
-  // The five SyncView seams, bundled for the UI to thread through (see
+  // The six SyncView seams, bundled for the UI to thread through (see
   // SyncUiSeams' doc) -- Android only, since there is no SMB bridge
   // implementation anywhere else. Null hides every sync entry point
   // (SettingsDialog's "Sync…" button, PhoneSettingsView's "Sync" tile)
@@ -421,6 +444,7 @@ void main() async {
           runSync: runSyncNow,
           probe: probeSyncNow,
           discoverRoots: discoverSyncRoots,
+          cancelSync: cancelSync,
         )
       : null;
 

@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1853
+// Last modified: 2026-07-31--2123
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -17,6 +17,7 @@
 // explicit [cancel]; either way, whatever already landed stays landed and
 // sync-state is still saved, so the next run picks up exactly where this one
 // stopped.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -121,6 +122,16 @@ class SyncEngine {
   final ActivityModel activity;
   final Future<int> Function(String path) freeSpace;
   final PlaylistReconciler? reconciler;
+
+  /// Fired (fire-and-forget) by [cancel] to interrupt whatever download the
+  /// transport is mid-stream on RIGHT NOW -- e.g. `SmbTransport.cancelInFlight`.
+  /// Optional: a transport with nothing to interrupt (LocalDirTransport in
+  /// every test, or a platform with no cancellable in-flight concept) simply
+  /// leaves this null, and [cancel] still works exactly as before (the
+  /// _cancelled flag alone is what every existing test observes -- the
+  /// in-flight file finishes, then the between-files check stops the root).
+  final Future<void> Function()? onCancelTransport;
+
   final DateTime Function() _now;
 
   bool _cancelled = false;
@@ -133,6 +144,7 @@ class SyncEngine {
     required this.activity,
     required this.freeSpace,
     this.reconciler,
+    this.onCancelTransport,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -142,7 +154,18 @@ class SyncEngine {
   /// `aborted: true, abortReason: 'cancelled'`, keeping whatever already
   /// landed; any root not yet started is simply never attempted (the caller
   /// gets back a report covering only what ran).
-  void cancel() => _cancelled = true;
+  ///
+  /// Also fires [onCancelTransport], deliberately NOT awaited: the file this
+  /// root is mid-download on is already being awaited by the run loop
+  /// itself (inside `_downloadAndVerify`'s `transport.downloadToFile` call),
+  /// and that's what actually unblocks the cancelled root -- `cancel()`
+  /// callers (the sync UI's Cancel button) need this call to return
+  /// immediately, not wait on a network round-trip to the NAS.
+  void cancel() {
+    _cancelled = true;
+    final hook = onCancelTransport;
+    if (hook != null) unawaited(hook());
+  }
 
   Future<SyncReport> run() async {
     // A fresh run always starts un-cancelled -- otherwise an engine that
@@ -356,10 +379,46 @@ class SyncEngine {
           plan.deletes.length +
           plan.sidecarCopies.length;
       var doneOps = 0;
+
+      // Bytes actually landed so far this root, across every download kind
+      // (copies, recopies, sidecar files) -- folded I-1's byte-level
+      // progress plumbing (M-1) into the SAME file-count `activity.progress`
+      // call `doneOps`/`totalOps` already made: the done/total pair keeps
+      // its existing file-count semantics (nothing downstream of
+      // [ActivityModel] needs to change), and the running byte total rides
+      // along in the label text instead.
+      var transferredBytes = 0;
+      // Whole-MB threshold last actually reported, so a torrent of
+      // sub-megabyte progress callbacks doesn't churn [activity] (which
+      // already de-dupes identical (label, done, total) triples, but a
+      // byte-exact label would never repeat, defeating that de-dupe).
+      var lastReportedMb = -1;
+
       void reportProgress() {
+        lastReportedMb = transferredBytes ~/ (1024 * 1024);
         activity.progress(
           ActivityIds.sync,
-          'Syncing $rootName',
+          'Syncing $rootName — ${_prettyBytes(transferredBytes)}',
+          doneOps,
+          totalOps,
+        );
+      }
+
+      // Passed as [onProgress] to every download this root makes -- reports
+      // bytes landed so far for the file CURRENTLY in flight, on top of
+      // [transferredBytes] already banked from files that fully completed
+      // earlier in this root. A retried attempt's `got` naturally restarts
+      // at 0 (the previous attempt's bytes were never banked, since only a
+      // SUCCESSFUL completion adds to [transferredBytes]) -- an acceptable,
+      // rare cosmetic dip in an otherwise-monotonic label, not worth extra
+      // bookkeeping for a display-only counter.
+      void reportBytesProgress(int got, int total) {
+        final soFarMb = (transferredBytes + got) ~/ (1024 * 1024);
+        if (soFarMb == lastReportedMb) return;
+        lastReportedMb = soFarMb;
+        activity.progress(
+          ActivityIds.sync,
+          'Syncing $rootName — ${_prettyBytes(transferredBytes + got)}',
           doneOps,
           totalOps,
         );
@@ -384,8 +443,10 @@ class SyncEngine {
           index: tmpIndex++,
           expectedContentId: remotePathToId[rf.relPath],
           failures: failures,
+          onProgress: reportBytesProgress,
         );
         doneOps++;
+        if (outcome.success) transferredBytes += rf.size;
         reportProgress();
         if (outcome.success) {
           consecutiveTransportFailures = 0;
@@ -502,8 +563,10 @@ class SyncEngine {
             index: tmpIndex++,
             expectedContentId: null, // not content-addressed -- size only
             failures: failures,
+            onProgress: reportBytesProgress,
           );
           doneOps++;
+          if (outcome.success) transferredBytes += rf.size;
           reportProgress();
           if (outcome.success) {
             consecutiveTransportFailures = 0;
@@ -658,6 +721,7 @@ class SyncEngine {
     required int index,
     required String? expectedContentId,
     required List<SyncFailure> failures,
+    void Function(int got, int total)? onProgress,
   }) async {
     final remoteRelPath = '$rootName/${remote.relPath}';
     final tmpFile = File(
@@ -671,7 +735,11 @@ class SyncEngine {
       transportFailure = false;
       failReason = null;
       try {
-        await transport.downloadToFile(remoteRelPath, tmpFile);
+        await transport.downloadToFile(
+          remoteRelPath,
+          tmpFile,
+          onProgress: onProgress,
+        );
       } catch (e) {
         transportFailure = true;
         failReason = 'transport error: $e';
@@ -792,4 +860,21 @@ class SyncEngine {
   static Future<void> _deleteIfExists(File f) async {
     if (await f.exists()) await f.delete();
   }
+}
+
+/// Pretty-prints [bytes] as GB/MB/KB/B with one decimal, for the live
+/// `"Syncing <root> — <so far>"` activity label. Deliberately a small
+/// standalone copy rather than shared with [SyncReportDialog]'s own
+/// `_humanBytes` (ui/sync_view.dart): that one formats a FINISHED root's
+/// final byte total for a report the user reads once; this one formats a
+/// live, constantly-changing in-progress figure -- different call site,
+/// same trivial formatting, not worth coupling the two files over one line.
+String _prettyBytes(int bytes) {
+  const kb = 1024;
+  const mb = kb * 1024;
+  const gb = mb * 1024;
+  if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+  if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(1)} MB';
+  if (bytes >= kb) return '${(bytes / kb).toStringAsFixed(1)} KB';
+  return '$bytes B';
 }

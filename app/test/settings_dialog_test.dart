@@ -6,7 +6,7 @@ import 'package:fooplayer_app/ui/adaptive.dart';
 import 'package:fooplayer_app/ui/settings_dialog.dart';
 import 'package:fooplayer_app/ui/sync_view.dart';
 
-/// A [SyncUiSeams] whose five closures are all harmless no-op fakes -- the
+/// A [SyncUiSeams] whose six closures are all harmless no-op fakes -- the
 /// button-forwarding tests below only need the dialog to OPEN, never a real
 /// sync to run.
 SyncUiSeams _fakeSyncUi() => SyncUiSeams(
@@ -19,6 +19,7 @@ SyncUiSeams _fakeSyncUi() => SyncUiSeams(
   ),
   probe: () async => true,
   discoverRoots: () async => const [],
+  cancelSync: () async {},
 );
 
 /// Pumps a [SettingsDialog] wrapped in a small [StatefulWidget] harness that

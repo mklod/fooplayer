@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1811
+// Last modified: 2026-07-31--2123
 //
 // SyncEngine integration tests: two real temp directories ("NAS" and
 // "phone"), a real LocalDirTransport between them, and real small files
@@ -1197,6 +1197,61 @@ void main() {
         expect(result.abortReason, 'cancelled');
         expect(result.copied, 1);
         expect(downloadsSeen, 1);
+      },
+    );
+
+    test(
+      'cancel() fires the onCancelTransport hook -- the seam SmbTransport.'
+      'cancelInFlight is wired through in production (main.dart)',
+      () async {
+        var hookCalls = 0;
+        final engine = SyncEngine(
+          transport: LocalDirTransport(nasHome),
+          localHome: localHome,
+          settings: SyncSettings(roots: {}),
+          library: LibraryModel(),
+          activity: ActivityModel(),
+          freeSpace: (_) async => 1 << 40,
+          onCancelTransport: () async {
+            hookCalls++;
+          },
+        );
+
+        engine.cancel();
+        // The hook is fired unawaited -- give its microtask a chance to run
+        // before asserting.
+        await Future<void>.delayed(Duration.zero);
+
+        expect(hookCalls, 1);
+      },
+    );
+
+    test(
+      'cancel() with no onCancelTransport hook still sets the cancelled '
+      'flag normally -- the hook is optional',
+      () async {
+        final idA = await writeNasTrack('RootA', 'a.wav', 1);
+        final idB = await writeNasTrack('RootA', 'b.wav', 2);
+        await writeNasManifest('RootA', {
+          idA: ['a.wav'],
+          idB: ['b.wav'],
+        });
+
+        late SyncEngine engine;
+        var downloadsSeen = 0;
+        final transport = _CountingTransport(
+          LocalDirTransport(nasHome),
+          onDownload: (_) {
+            downloadsSeen++;
+            if (downloadsSeen == 1) engine.cancel();
+          },
+        );
+        engine = buildEngine(rootNames: ['RootA'], transport: transport);
+
+        final result = (await engine.run()).roots.single;
+
+        expect(result.aborted, isTrue);
+        expect(result.abortReason, 'cancelled');
       },
     );
   });

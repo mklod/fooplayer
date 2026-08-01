@@ -27,7 +27,7 @@ LibraryModel fixtureLibrary() {
   return m;
 }
 
-/// A [SyncUiSeams] whose five closures are all harmless no-op fakes -- the
+/// A [SyncUiSeams] whose six closures are all harmless no-op fakes -- the
 /// "Sync" entry test below only needs the page to OPEN, never a real sync
 /// to run.
 SyncUiSeams fakeSyncUi() => SyncUiSeams(
@@ -40,6 +40,7 @@ SyncUiSeams fakeSyncUi() => SyncUiSeams(
   ),
   probe: () async => true,
   discoverRoots: () async => const [],
+  cancelSync: () async {},
 );
 
 Future<void> pumpSettings(

@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1949
+// Last modified: 2026-07-31--2123
 //
 // SmbTransport: Android-only SyncTransport over the Kotlin SmbBridge
 // (SMBJ). Every method here crosses a MethodChannel to a background
@@ -34,6 +34,17 @@
 // static/process-global (matching the Kotlin bridge being a singleton
 // too), ref-counted per instance so the LAST instance's [close] is the one
 // that actually tears the subscription down.
+//
+// CANCEL (whole-branch review, Finding I-1): unlike the progress state
+// above, in-flight taskIds are tracked PER INSTANCE, not process-global --
+// [cancelInFlight] only needs to reach downloads THIS instance started.
+// SmbBridge.kt's `cancelled` set is keyed on taskId alone and checked only
+// between chunks (see its class doc), so cancelling a taskId that has
+// already finished (or never existed) is a harmless, self-cleaning no-op
+// on the platform side -- which is exactly why every per-call
+// PlatformException from the 'cancel' method is swallowed here rather than
+// surfaced: a cancel racing the download's own completion is the normal
+// case, not an error.
 import 'dart:async';
 import 'dart:io';
 
@@ -65,6 +76,11 @@ class SmbTransport implements SyncTransport {
   int? _handle;
   Future<int>? _connecting;
   bool _holdsProgressRef = false;
+
+  /// TaskIds for downloads THIS instance currently has in flight -- fuels
+  /// [cancelInFlight]. Per-instance, unlike the progress state below (see
+  /// the CANCEL note in this file's header doc for why).
+  final Set<String> _inFlightTaskIds = {};
 
   SmbTransport({required this.host, required this.share, required this.basePath});
 
@@ -215,6 +231,11 @@ class SmbTransport implements SyncTransport {
 
     await _withSession((handle) async {
       final taskId = (_nextTaskId++).toString();
+      // Added before the platform call is even sent (not after it
+      // succeeds) -- cancelInFlight must be able to reach a download that's
+      // still connecting/starting on the platform side, not just one
+      // already mid-transfer.
+      _inFlightTaskIds.add(taskId);
       if (onProgress != null) {
         _ensureProgressSubscription();
         _progressCallbacks[taskId] = onProgress;
@@ -239,8 +260,30 @@ class SmbTransport implements SyncTransport {
         // order, so on a real device the event is always fully delivered
         // before this future resolves.
         _progressCallbacks.remove(taskId);
+        _inFlightTaskIds.remove(taskId);
       }
     });
+  }
+
+  /// Cancels every download THIS instance currently has in flight, by
+  /// sending the platform 'cancel' method for each in-flight taskId. Fires
+  /// them all rather than stopping at the first: this is a whole-sync
+  /// cancel (SyncEngine.cancel), not a single-download cancel, and every
+  /// in-flight taskId here is a candidate. Each call's own PlatformException
+  /// is swallowed -- see the CANCEL note in this file's header doc for why
+  /// that's the correct behavior, not a hidden failure.
+  Future<void> cancelInFlight() async {
+    final taskIds = List<String>.of(_inFlightTaskIds);
+    await Future.wait([for (final taskId in taskIds) _sendCancel(taskId)]);
+  }
+
+  Future<void> _sendCancel(String taskId) async {
+    try {
+      await _channel.invokeMethod<void>('cancel', {'taskId': taskId});
+    } on PlatformException {
+      // Racing the download's own completion is the normal case -- see
+      // cancelInFlight's doc.
+    }
   }
 
   void _ensureProgressSubscription() {
