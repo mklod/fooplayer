@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-01--1946
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -19,6 +19,7 @@ import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
 import 'model/playlist_migration.dart';
 import 'model/playlist_store.dart';
+import 'model/set_up_root.dart';
 import 'platform_paths.dart';
 import 'model/track.dart';
 import 'player/audio_handler.dart';
@@ -589,6 +590,21 @@ void main() async {
     unawaited(artworkBackfill.run(artworkBackfillRequests(library.allTracks)));
   }
 
+  // The Settings "Set up" action (permission request -> seed -> reload) --
+  // see model/set_up_root.dart's doc for the silent-no-op bug this replaces
+  // (every outcome of tapping "Set up" for a manifest-less root used to
+  // look like nothing happened: a denied permission bailed silently, a
+  // successful seed never refreshed rootsMissingManifest since that only
+  // updates inside load(), and a seed failure was equally quiet). Built
+  // once, here, so PhoneSettingsView and HomeScreen's Settings dialog share
+  // one instance rather than each closing over the model separately.
+  final setUpRoot = makeSetUpRootAction(
+    requestAccess: requestFullStorageAccess,
+    seed: (root) => library.seedRoot(Directory(root)),
+    reloadLibrary: reloadLibrary,
+    libraryStatus: () => library.status,
+  );
+
   // Settings-dialog add/remove calls writer() above then notifies -- react
   // by reloading so the merged feed/playlists reflect the new root set.
   libraryRootsPrefs.addListener(reloadLibrary);
@@ -675,6 +691,7 @@ void main() async {
       activity: activity,
       syncScheduler: syncScheduler,
       syncUi: syncUi,
+      onSetUpRootAction: setUpRoot,
     ),
   );
 }
@@ -729,6 +746,13 @@ class FooPlayerApp extends StatelessWidget {
   /// themselves, so a null here is belt-and-suspenders, not the only guard.
   final SyncUiSeams? syncUi;
 
+  /// The Set-up action (permission request -> seed -> reload), built once in
+  /// main() by `makeSetUpRootAction` and forwarded to both shells' Settings
+  /// surfaces (HomeScreen's dialog, PhoneSettingsView's page). Null keeps
+  /// the "Set up" affordance hidden -- see `PhoneSettingsView
+  /// .onSetUpRootAction`'s doc; production always supplies a real one.
+  final SetUpRootAction? onSetUpRootAction;
+
   const FooPlayerApp({
     super.key,
     required this.library,
@@ -743,6 +767,7 @@ class FooPlayerApp extends StatelessWidget {
     this.activity,
     this.syncScheduler,
     this.syncUi,
+    this.onSetUpRootAction,
   });
 
   @override
@@ -785,6 +810,7 @@ class FooPlayerApp extends StatelessWidget {
               // independent limiters would quietly break it.
               tagSearch: searchMusicBrainzRecordings,
               syncUi: syncUi,
+              onSetUpRootAction: onSetUpRootAction,
             );
           }
           // Phone integration wiring (Plan 2b merge): P2's MiniPlayer fills
@@ -839,6 +865,7 @@ class FooPlayerApp extends StatelessWidget {
                 library: library,
                 libraryRootsPrefs: libraryRootsPrefs,
                 syncUi: syncUi,
+                onSetUpRootAction: onSetUpRootAction,
               ),
             },
           );

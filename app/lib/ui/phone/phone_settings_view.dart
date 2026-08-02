@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-01--1946
 //
 // Phone-shell Settings view (Plan 2b): the drawer's Settings destination.
 // Per the plan spec it "reuses existing SettingsDialog content as a page":
@@ -9,14 +9,22 @@
 // "Sync" entry (Plan 3 Task 11) is the phone-shell equivalent of
 // SettingsDialog's "Sync…" button: same [SyncUiSeams], same Android-only
 // gate, pushed as a page instead of nested in another dialog.
-import 'dart:io';
-
+//
+// BUG FIX (silent "Set up" no-op, reported on first phone install): every
+// outcome of tapping "Set up" for a manifest-less root used to look like
+// nothing happened -- a denied permission bailed silently, a successful
+// seed never refreshed rootsMissingManifest so the row/button just sat
+// there until a restart or the 5-minute tick, and a seed failure was
+// equally quiet. [onSetUpRootAction] (built once in main.dart via
+// `makeSetUpRootAction`, see model/set_up_root.dart) narrates all three
+// outcomes as a SnackBar instead.
 import 'package:flutter/material.dart';
 
 import 'storage_access.dart';
 
 import '../../model/library_model.dart';
 import '../../model/library_roots_prefs.dart';
+import '../../model/set_up_root.dart';
 import '../adaptive.dart';
 import '../app_theme.dart';
 import '../settings_dialog.dart';
@@ -43,13 +51,51 @@ class PhoneSettingsView extends StatelessWidget {
   /// entirely, same as [settings_dialog.SettingsDialog.syncUi].
   final SyncUiSeams? syncUi;
 
+  /// The Set-up action (permission request -> seed -> reload), built once
+  /// in main.dart by `makeSetUpRootAction`. Null keeps the affordance
+  /// hidden entirely (`onSetUpRoot: null` below) rather than falling back
+  /// to the old silent inline closure -- production always supplies a real
+  /// one; only fixtures that don't care about Set-up leave this null.
+  final SetUpRootAction? onSetUpRootAction;
+
   const PhoneSettingsView({
     super.key,
     required this.library,
     required this.libraryRootsPrefs,
     this.pickDirectory = defaultPickDirectory,
     this.syncUi,
+    this.onSetUpRootAction,
   });
+
+  Future<void> _setUpRoot(BuildContext context, String root) async {
+    final action = onSetUpRootAction;
+    if (action == null) return; // no wiring; onSetUpRoot is null below
+    final result = await action(root);
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    switch (result) {
+      case SetUpRootDenied():
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'fooplayer needs "All files access" to read music folders',
+            ),
+            action: SnackBarAction(
+              label: 'Open settings',
+              onPressed: () => openStorageSettings(),
+            ),
+          ),
+        );
+      case SetUpRootFailed(status: final status):
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not set up — $status')),
+        );
+      case SetUpRootDone(tracks: final tracks):
+        messenger.showSnackBar(
+          SnackBar(content: Text('Set up complete — $tracks tracks found')),
+        );
+    }
+  }
 
   void _openSync(BuildContext context) {
     final seams = syncUi;
@@ -103,11 +149,12 @@ class PhoneSettingsView extends StatelessWidget {
               onAddRoot: libraryRootsPrefs.addRoot,
               onRemoveRoot: libraryRootsPrefs.removeRoot,
               // Android has no foolib to seed a folder with, so setting one
-              // up has to be something the app itself can do.
-              onSetUpRoot: (root) async {
-                if (!await requestFullStorageAccess()) return;
-                await library.seedRoot(Directory(root));
-              },
+              // up has to be something the app itself can do. Null hides
+              // the button entirely rather than falling back to a silent
+              // no-op -- see [onSetUpRootAction]'s doc.
+              onSetUpRoot: onSetUpRootAction == null
+                  ? null
+                  : (root) => _setUpRoot(context, root),
             ),
             if (isAndroidPlatform() && syncUi != null) ...[
               const SizedBox(height: 24),

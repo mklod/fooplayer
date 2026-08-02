@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
+import 'package:fooplayer_app/model/set_up_root.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/sync/sync_engine.dart';
 import 'package:fooplayer_app/sync/sync_settings.dart';
@@ -49,6 +50,7 @@ Future<void> pumpSettings(
   required LibraryRootsPrefs prefs,
   Future<String?> Function()? pickDirectory,
   SyncUiSeams? syncUi,
+  SetUpRootAction? onSetUpRootAction,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -59,6 +61,7 @@ Future<void> pumpSettings(
           libraryRootsPrefs: prefs,
           pickDirectory: pickDirectory ?? () async => null,
           syncUi: syncUi,
+          onSetUpRootAction: onSetUpRootAction,
         ),
       ),
     ),
@@ -132,7 +135,14 @@ void main() {
       roots: [r'C:\music', r'C:\new drop'],
       writer: (_) {},
     );
-    await pumpSettings(tester, library: library, prefs: prefs);
+    // The button is only offered once Set-up is actually wired -- see the
+    // "gives feedback" group below for what onSetUpRootAction == null does.
+    await pumpSettings(
+      tester,
+      library: library,
+      prefs: prefs,
+      onSetUpRootAction: (_) async => SetUpRootDenied(),
+    );
 
     // "seed with foolib" was a dead end on a phone: there is no CLI to run,
     // so adding a music folder just showed nothing, forever.
@@ -231,5 +241,92 @@ void main() {
 
       expect(find.byKey(const Key('phone-sync-entry')), findsNothing);
     });
+  });
+
+  // Regression coverage: "Set up" used to look like it did nothing in every
+  // outcome -- a denied permission bailed silently, a successful seed never
+  // refreshed rootsMissingManifest (so the row and button just sat there),
+  // and a failed seed was equally quiet. onSetUpRootAction narrates every
+  // outcome as a SnackBar; these fakes exercise the wiring end to end
+  // without touching the real permission/seed/reload seams (that logic is
+  // covered on its own in set_up_root_test.dart).
+  group('Set up gives feedback (silent no-op fix)', () {
+    Future<void> pumpNewDrop(
+      WidgetTester tester, {
+      required SetUpRootAction onSetUpRootAction,
+    }) {
+      final library = fixtureLibrary();
+      library.rootsMissingManifest = [r'C:\new drop'];
+      final prefs = LibraryRootsPrefs(
+        roots: [r'C:\new drop'],
+        writer: (_) {},
+      );
+      return pumpSettings(
+        tester,
+        library: library,
+        prefs: prefs,
+        onSetUpRootAction: onSetUpRootAction,
+      );
+    }
+
+    testWidgets(
+      'denied access shows a SnackBar naming All files access, with an '
+      'Open settings action',
+      (tester) async {
+        await pumpNewDrop(
+          tester,
+          onSetUpRootAction: (_) async => SetUpRootDenied(),
+        );
+
+        await tester.tap(find.byKey(const Key('setup-root-C:\\new drop')));
+        await tester.pump(); // SnackBar entrance animation start
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(
+          find.text('fooplayer needs "All files access" to read music folders'),
+          findsOneWidget,
+        );
+        expect(
+          find.widgetWithText(SnackBarAction, 'Open settings'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a seed failure shows a SnackBar naming the library status',
+      (tester) async {
+        await pumpNewDrop(
+          tester,
+          onSetUpRootAction: (_) async =>
+              SetUpRootFailed('could not read new drop: timed out'),
+        );
+
+        await tester.tap(find.byKey(const Key('setup-root-C:\\new drop')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(
+          find.text('Could not set up — could not read new drop: timed out'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a completed set up shows a SnackBar with the track count',
+      (tester) async {
+        await pumpNewDrop(
+          tester,
+          onSetUpRootAction: (_) async => SetUpRootDone(2),
+        );
+
+        await tester.tap(find.byKey(const Key('setup-root-C:\\new drop')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(find.text('Set up complete — 2 tracks found'), findsOneWidget);
+      },
+    );
   });
 }

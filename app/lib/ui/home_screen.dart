@@ -1,3 +1,4 @@
+// Last modified: 2026-08-01--1946
 import 'dart:async';
 import 'dart:io';
 
@@ -18,6 +19,7 @@ import '../model/library_model.dart';
 import '../model/library_roots_prefs.dart';
 import '../model/manifest_io.dart';
 import '../model/playlist_store.dart';
+import '../model/set_up_root.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
 import 'drag_divider.dart';
@@ -91,6 +93,13 @@ class HomeScreen extends StatelessWidget {
   /// an Android tablet, which runs this layout too, ever has both true).
   final SyncUiSeams? syncUi;
 
+  /// The Set-up action (permission request -> seed -> reload), built once
+  /// in main.dart by `makeSetUpRootAction` and forwarded to the sidebar's
+  /// Settings dialog. Null keeps the affordance hidden -- see
+  /// `PhoneSettingsView.onSetUpRootAction`'s doc for why (production always
+  /// supplies a real one).
+  final SetUpRootAction? onSetUpRootAction;
+
   const HomeScreen({
     super.key,
     required this.library,
@@ -105,6 +114,7 @@ class HomeScreen extends StatelessWidget {
     this.activity,
     this.tagSearch,
     this.syncUi,
+    this.onSetUpRootAction,
   });
 
   @override
@@ -154,6 +164,7 @@ class HomeScreen extends StatelessWidget {
                             activity: activity ?? _idleActivity,
                             layoutPrefs: layoutPrefs,
                             syncUi: syncUi,
+                            onSetUpRootAction: onSetUpRootAction,
                           ),
                         ),
                       ),
@@ -426,6 +437,10 @@ class _Sidebar extends StatefulWidget {
   /// sidebar opens -- see [HomeScreen.syncUi]'s doc.
   final SyncUiSeams? syncUi;
 
+  /// Forwarded straight through to the Settings dialog -- see
+  /// [HomeScreen.onSetUpRootAction]'s doc.
+  final SetUpRootAction? onSetUpRootAction;
+
   const _Sidebar({
     required this.layoutPrefs,
     required this.library,
@@ -438,6 +453,7 @@ class _Sidebar extends StatefulWidget {
     this.artworkServices,
     required this.activity,
     this.syncUi,
+    this.onSetUpRootAction,
   });
 
   @override
@@ -462,6 +478,7 @@ class _SidebarState extends State<_Sidebar> {
   ArtworkServices? get artworkServices => widget.artworkServices;
   ActivityModel get activity => widget.activity;
   SyncUiSeams? get syncUi => widget.syncUi;
+  SetUpRootAction? get onSetUpRootAction => widget.onSetUpRootAction;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -645,6 +662,39 @@ class _SidebarState extends State<_Sidebar> {
     );
   }
 
+  /// Runs [onSetUpRootAction] and narrates the outcome via SnackBar -- see
+  /// `PhoneSettingsView._setUpRoot`'s doc for the bug this fixes (every
+  /// outcome of the old inline closure looked like nothing happened).
+  Future<void> _setUpRoot(BuildContext context, String root) async {
+    final action = onSetUpRootAction;
+    if (action == null) return; // no wiring; onSetUpRoot is null below
+    final result = await action(root);
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    switch (result) {
+      case SetUpRootDenied():
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'fooplayer needs "All files access" to read music folders',
+            ),
+            action: SnackBarAction(
+              label: 'Open settings',
+              onPressed: () => openStorageSettings(),
+            ),
+          ),
+        );
+      case SetUpRootFailed(status: final status):
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not set up — $status')),
+        );
+      case SetUpRootDone(tracks: final tracks):
+        messenger.showSnackBar(
+          SnackBar(content: Text('Set up complete — $tracks tracks found')),
+        );
+    }
+  }
+
   void _openSettings(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -658,11 +708,11 @@ class _SidebarState extends State<_Sidebar> {
           onRemoveRoot: libraryRootsPrefs.removeRoot,
           // Same as the phone page's: the panel layout runs on a tablet
           // now, where seeding cannot read a byte without all-files access
-          // (the manifest is not a media file). No-op off Android.
-          onSetUpRoot: (root) async {
-            if (!await requestFullStorageAccess()) return;
-            await library.seedRoot(Directory(root));
-          },
+          // (the manifest is not a media file). Null (no wiring) hides the
+          // button entirely -- see [onSetUpRootAction]'s doc.
+          onSetUpRoot: onSetUpRootAction == null
+              ? null
+              : (root) => _setUpRoot(context, root),
           syncUi: syncUi,
         ),
       ),
