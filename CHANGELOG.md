@@ -12,6 +12,10 @@
 >   of the substring match; post-sync rescan retry when the periodic tick
 >   holds the flag; connect timeout 3s < probe 5s; sidecar deletions not
 >   mirrored; assorted test-coverage and doc nits from per-task reviews.
+> - **Playlist `modified_by` shows "localhost" on Android** (found
+>   2026-08-02): `Platform.localHostname` is useless there — use a real
+>   device label (Build.MODEL via a channel, or default the config
+>   `deviceName` per platform).
 > - **Inline metadata editing in the track list** (raised 2026-07-31):
 >   edit a track's artist/title/album/etc. directly in its row, like an
 >   Excel spreadsheet cell — click into the field, type, commit — instead
@@ -36,6 +40,35 @@
 >   penalise a release credited to Various Artists, and reward a release date
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
+
+## Build 2026-08-02--0034
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tablet already updated over USB)
+
+### Changes
+
+- **First real-hardware pass on the Tab S9+ — two release-only bugs found
+  live and fixed.** (1) The sync probe reported "NAS unreachable" on a
+  perfectly reachable NAS: SMBJ's session teardown races Samba's logoff,
+  the second logoff throws STATUS_USER_SESSION_DELETED — from inside the
+  probe's `.use{}` chain, AFTER the actual check had already succeeded.
+  Release-build timing hit it deterministically; debug and the emulator's
+  NAT latency dodged it. Cleanup now runs in a `finally` and can never
+  veto the answer. (2) Root discovery walked the ENTIRE share (~15k files
+  over Wi-Fi — minutes) to derive five folder names; the roots list looked
+  permanently stuck. New shallow `listDir` bridge call: one round trip,
+  all five roots in seconds.
+- The SMB bridge now logs probe/discovery steps (`fooplayer.smb` tag) —
+  the silent catch-everything probe is what made this take hours to find.
+- **versionCode discipline**: `--split-per-abi` mints versionCode
+  1000×abi+N (arm64 release = 2001), which then BLOCKS any plain build
+  (code 1) from installing. pubspec is now `1.0.0+3`; bump the build
+  number every release.
+- Verified end-state on the tablet: probe Connected, five roots discovered
+  in seconds, and the tablet's real playlists ("alt", "summer") were
+  auto-pushed to the NAS `.playlists/` by the scheduler — the first real
+  cross-device playlist sync. Desktop picks them up when it gets the new
+  build.
 
 ## Build 2026-08-01--2005
 

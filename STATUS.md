@@ -4,11 +4,15 @@
 
 ## Next session starts here
 
-**Plan 3 SHIPPED and merged (2026-08-01).** What remains is rollout, not
-code: (1) **tablet pass** — install the new build from
-https://dist.flana.app/fooplayer/index.html and walk the CHANGELOG
-2026-08-01--1930 testing checklist (NAS host must be typed as
-`192.168.1.16`); (2) **desktop rollout** — rebuild the daily driver from
+**Plan 3 SHIPPED; tablet rollout DONE (2026-08-02).** The Tab S9+ runs the
+release build with sync configured (host 192.168.1.16): probe Connected,
+five roots discovered, and its playlists ("alt", "summer") auto-pushed to
+the NAS `.playlists/` — first real cross-device playlist sync. The
+hardware pass caught and fixed two release-only bugs (probe teardown
+race; full-share-walk discovery — see CHANGELOG 2026-08-02--0034).
+Remaining: (1) Mike checks roots + Sync now on the tablet when he wants
+mirrors (checklist items: big pull, mid-transfer Wi-Fi kill, cancel);
+(2) **desktop rollout** — rebuild the daily driver from
 current `main` (worktree `C:\dev\foobar-app` needs its branch updated) —
 its FIRST run migrates the real library's playlists into
 `L:\music (original structure)\.playlists\` and empties the manifest
