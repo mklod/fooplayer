@@ -29,7 +29,8 @@ import 'package:fooplayer_app/ui/track_list.dart';
 /// Records batch calls (never the singular per-track ones) so tests can
 /// assert a whole multi-select action writes the manifest exactly once.
 class SpyPlaylistStore extends PlaylistStore {
-  SpyPlaylistStore(LibraryModel library) : super(library: library);
+  SpyPlaylistStore(LibraryModel library)
+    : super(library: library, device: 'test');
 
   final created = <String>[];
   final addTracksCalls = <(String, List<String>)>[];
@@ -93,7 +94,8 @@ Future<void> pumpTrackList(
         player: player,
         onPlayTrack: onPlayTrack,
         launchExplorer: launchExplorer ?? (_) {},
-        playlistStore: playlistStore,
+        playlistStore:
+            playlistStore ?? PlaylistStore(library: lib, device: 'test'),
       ),
     ),
   ),

@@ -217,11 +217,16 @@ void main() {
   });
 
   test('a playlist write gets through while a rescan is scanning', () async {
-    // The regression this pins: the manifest lock used to be held across the
-    // whole per-root scan -- a walk-and-hash of every file, minutes over SMB
-    // on the real library. PlaylistStore waits five seconds before giving
-    // up, so for most of every rescan "New playlist" failed with "the
-    // library is busy". Only the manifest read-modify-write needs the lock.
+    // The regression this originally pinned: the manifest lock used to be
+    // held across the whole per-root scan -- a walk-and-hash of every file,
+    // minutes over SMB on the real library -- and playlists lived in that
+    // same `.library.json`, so PlaylistStore's five-second retry mostly
+    // lost that race and "New playlist" failed with "the library is busy".
+    // Playlists now live in the shared `.playlists/` sidecar (a different
+    // directory PlaylistStore never takes LibraryModel's manifest lock
+    // for), so this is no longer a close-run race -- but it's still worth
+    // pinning that a playlist write and a rescan can be in flight together
+    // and both land cleanly.
     final root = await Directory('${tmp.path}/lib').create();
     for (var i = 0; i < 40; i++) {
       await File('${root.path}/song$i.mp3')
@@ -229,17 +234,21 @@ void main() {
     }
     await saveManifest(Manifest.empty(), root);
 
+    final home = await Directory('${tmp.path}/home').create();
     final cacheFile = File('${tmp.path}/meta_cache.json');
     final model = LibraryModel();
     await model
-        .load(libraryRoots: [root], cacheFile: cacheFile)
+        .load(
+          libraryRoots: [root],
+          cacheFile: cacheFile,
+          libraryHome: home.path,
+        )
         .timeout(const Duration(seconds: 60));
 
-    final store = PlaylistStore(library: model);
+    final store = PlaylistStore(library: model, device: 'desktop');
     final rescan = model.rescan();
 
-    // Straight away, with the scan still in flight. Before the fix the lock
-    // was already taken here and this threw after its five-second wait.
+    // Straight away, with the scan still in flight.
     await store.createPlaylist('made during a scan');
     await rescan.timeout(const Duration(seconds: 60));
 
@@ -247,9 +256,12 @@ void main() {
       model.playlists.map((p) => p.name),
       contains('made during a scan'),
     );
+    // ...on disk, in the sidecar...
+    expect(
+      loadPlaylistsDir(home).playlists.values.map((p) => p.name),
+      contains('made during a scan'),
+    );
     // ...and the rescan's own work still landed.
-    expect(loadManifest(root).playlists.map((p) => p.name),
-        contains('made during a scan'));
     expect(model.allTracks, hasLength(40));
   });
 }

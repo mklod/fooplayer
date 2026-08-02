@@ -40,6 +40,13 @@ kotlin {
     }
 }
 
+dependencies {
+    // Task 10: LAN sync's SmbBridge -- guest-auth SMB2/3 client for the
+    // NAS. 0.13.0 is current stable as of 2026-07-31 (resolves clean from
+    // mavenCentral, already declared in settings.gradle.kts).
+    implementation("com.hierynomus:smbj:0.13.0")
+}
+
 flutter {
     source = "../.."
 }

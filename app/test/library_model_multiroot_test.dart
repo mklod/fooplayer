@@ -1,14 +1,16 @@
 // Multi-root library loading/merging (Plan 2a.2 Task 4): each configured
 // root keeps its own `.library.json`; LibraryModel.load merges them --
-// tracks dedupe by contentId (first root in the list wins), playlists are
-// concatenated with same-name collisions suffixed " (2)", " (3)", ..., and
-// a root with no manifest yet is skipped (not fatal) and reported via
-// rootsMissingManifest.
+// tracks dedupe by contentId (first root in the list wins), and a root with
+// no manifest yet is skipped (not fatal) and reported via
+// rootsMissingManifest. Playlists are a separate merge (Plan 3 Task 5): they
+// come from the single shared `.playlists/` sidecar, not per-root
+// manifests, with same-name collisions suffixed " (2)", " (3)", ....
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_core/fooplayer_core.dart' as core;
 
 Future<Directory> _root(Directory tmp, String name) =>
     Directory('${tmp.path}/$name').create();
@@ -83,34 +85,58 @@ void main() {
     expect(onlyB.rootPath, rootB.path);
   });
 
-  test('merges playlists from both roots, suffixing a same-named playlist '
-      'from the second root with " (2)"', () async {
+  test('merges playlists from the shared sidecar, suffixing a same-named '
+      'playlist created later with " (2)"', () async {
+    // Playlists no longer live in per-root manifests (Plan 3 Task 5) -- they
+    // live in one shared `.playlists/` sidecar under a resolved library
+    // home, read fresh on every load via LibraryModel._sidecarPlaylists.
+    // This test now pins that merge (name-collision suffixing, oldest
+    // `created` first) against sidecar fixtures instead of manifest arrays;
+    // the multi-root TRACK merge above is unaffected and still per-root.
     final rootA = await _root(tmp, 'rootA');
     final rootB = await _root(tmp, 'rootB');
-
     await _writeManifest(
       rootA,
       tracks: {'a1': _trackJson('a1.mp3', '2024-01-01T00:00:00Z')},
-      playlists: [
-        {
-          'name': 'mix',
-          'track_ids': ['a1'],
-        },
-      ],
     );
     await _writeManifest(
       rootB,
       tracks: {'b1': _trackJson('b1.mp3', '2024-01-02T00:00:00Z')},
-      playlists: [
-        {
-          'name': 'mix',
-          'track_ids': ['b1'],
-        }, // collides with rootA's "mix"
-        {
-          'name': 'unique',
-          'track_ids': ['b1'],
-        },
-      ],
+    );
+
+    final home = await Directory('${tmp.path}/home').create();
+    await core.savePlaylistFile(
+      home,
+      core.PlaylistFile(
+        id: 'p_mix1',
+        name: 'mix',
+        trackIds: const ['a1'],
+        created: DateTime.utc(2024, 1, 1),
+        modified: DateTime.utc(2024, 1, 1),
+        modifiedBy: 'seed',
+      ),
+    );
+    await core.savePlaylistFile(
+      home,
+      core.PlaylistFile(
+        id: 'p_mix2',
+        name: 'mix', // collides with the first "mix", created later
+        trackIds: const ['b1'],
+        created: DateTime.utc(2024, 1, 2),
+        modified: DateTime.utc(2024, 1, 2),
+        modifiedBy: 'seed',
+      ),
+    );
+    await core.savePlaylistFile(
+      home,
+      core.PlaylistFile(
+        id: 'p_unique',
+        name: 'unique',
+        trackIds: const ['b1'],
+        created: DateTime.utc(2024, 1, 3),
+        modified: DateTime.utc(2024, 1, 3),
+        modifiedBy: 'seed',
+      ),
     );
 
     final model = LibraryModel();
@@ -118,6 +144,7 @@ void main() {
         .load(
           libraryRoots: [rootA, rootB],
           cacheFile: File('${tmp.path}/meta_cache.json'),
+          libraryHome: home.path,
         )
         .timeout(const Duration(seconds: 30));
 

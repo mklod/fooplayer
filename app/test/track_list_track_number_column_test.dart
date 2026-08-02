@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -52,7 +53,11 @@ Future<void> pumpTrackList(
   MaterialApp(
     theme: buildAppTheme(),
     home: Scaffold(
-      body: TrackListView(library: lib, player: player),
+      body: TrackListView(
+        library: lib,
+        player: player,
+        playlistStore: PlaylistStore(library: lib, device: 'test'),
+      ),
     ),
   ),
 );

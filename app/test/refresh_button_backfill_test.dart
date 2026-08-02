@@ -23,6 +23,7 @@ import 'package:fooplayer_app/artwork/artwork_resolver.dart';
 import 'package:fooplayer_app/artwork/artwork_store.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/library_roots_prefs.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -92,6 +93,7 @@ void main() {
           player: PlayerService(),
           layoutPrefs: LayoutPrefs(),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+          playlistStore: PlaylistStore(library: library, device: 'test'),
           artworkBackfill: backfill,
         ),
       ),
@@ -145,6 +147,7 @@ void main() {
             player: PlayerService(),
             layoutPrefs: LayoutPrefs(),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+            playlistStore: PlaylistStore(library: library, device: 'test'),
           ),
         ),
       );

@@ -1,9 +1,7 @@
-// Last modified: 2026-07-24
-import 'dart:async';
+// Last modified: 2026-07-31--1619
 import 'dart:io';
 
 import 'package:fooplayer_core/fooplayer_core.dart' as core;
-import 'package:path/path.dart' as p;
 
 import 'library_model.dart';
 import 'manifest_io.dart';
@@ -18,144 +16,144 @@ class PlaylistStoreException implements Exception {
   String toString() => message;
 }
 
-/// Playlist CRUD over the configured library roots' `.library.json` files.
+/// Playlist CRUD over the shared `.playlists/` sidecar (see
+/// `package:fooplayer_core`'s `playlist_sidecar.dart`) -- one JSON file per
+/// playlist under [LibraryModel.libraryHome], instead of the old per-root
+/// `.library.json` `playlists` arrays.
 ///
-/// Write path: every mutation loads the relevant root's manifest FRESH from
-/// disk (`fooplayer_core`'s [core.loadManifest] -- never a cached copy, so a
-/// rescan's own manifest save that landed since the app's last load is
-/// preserved), mutates only the `playlists` section, saves via
-/// [core.saveManifest] (atomic .tmp-rename with a `.bak` of the previous
-/// version), then asks [LibraryModel.reloadPlaylists] for a lightweight
-/// merged-playlist refresh -- no full library reload.
+/// Write path: every mutation resolves the target playlist's id from
+/// [LibraryModel.playlists] (the last merged/display state), then loads
+/// its sidecar file FRESH from disk -- never a cached copy, so an edit that
+/// landed since the last [LibraryModel.reloadPlaylists] (another device's
+/// sync, this app's own previous mutation, ...) is never clobbered --
+/// mutates it, saves it back via [core.savePlaylistFile] (atomic
+/// .tmp-then-rename), then asks [LibraryModel.reloadPlaylists] for a
+/// lightweight merged-playlist refresh, and finally calls [onMutated] (the
+/// Task 8 sync scheduler's "something changed, consider syncing soon"
+/// hook).
 ///
-/// Rescan-writer guard -- documented choice: **brief retry, not a queue.**
-/// [LibraryModel.rescan] saves a manifest file from inside an isolate while
-/// holding [LibraryModel.busy]; a store write interleaving with that save
-/// would lose one side's changes. Each mutation therefore acquires the
-/// model's busy flag via [LibraryModel.tryBeginManifestWrite], retrying
-/// every [busyRetryEvery] for up to [busyRetryFor] before giving up with a
-/// clear "library is busy" [PlaylistStoreException]. A retry keeps the
-/// failure mode explicit and bounded (the user re-clicks a second later)
-/// instead of a silent queue that might apply a mutation long after the
-/// click, against a library state the user no longer sees.
-///
-/// Ownership: LibraryModel merges playlists from every root, suffixing name
-/// collisions (" (2)", ...) and stamping each merged entry with the root it
-/// actually lives in ([ManifestPlaylist.rootPath]). **Edits go to the
-/// owning root**: [addTrack]/[addTracks]/[removeTrack]/[removeTracks]/
-/// [deletePlaylist] resolve that root (via [LibraryModel.rootWithPath]) and
-/// load-mutate-save ITS manifest -- a playlist living in the third of four
-/// configured roots is edited exactly as readily as one in the first.
-/// [createPlaylist] is the one exception: a brand-new playlist has no
-/// existing owner, so it always lands in the FIRST configured root (see its
-/// own doc).
-///
-/// Caveat worth knowing (not a bug, just a consequence of per-root
-/// manifests): a playlist in root D can end up referencing track IDs whose
-/// files live under a DIFFERENT root -- e.g. the user adds a track from
-/// root A to a playlist stored in root D. The merged in-app library (every
-/// root's tracks combined) resolves that fine, but root D's `.library.json`
-/// read in isolation is not a complete description of that playlist's
-/// tracks -- another tool reading just that one file, or a future version
-/// that drops multi-root merging, would see the playlist reference IDs it
-/// can't find. No safeguard against this today; flagged here so it isn't a
-/// surprise later.
+/// Unlike the old per-root design, there is no "owning root" to route a
+/// mutation to and no manifest busy-lock to acquire: the sidecar is a
+/// single shared directory, and [core.savePlaylistFile] is itself a cheap,
+/// atomic local write, so nothing here contends with [LibraryModel.rescan]
+/// or [LibraryModel.persistDurationsToManifests] the way manifest writes
+/// used to.
 class PlaylistStore {
   final LibraryModel library;
 
-  /// See the class doc's rescan-writer guard. Overridable so tests don't
-  /// wait wall-clock seconds.
-  final Duration busyRetryEvery;
-  final Duration busyRetryFor;
+  /// Who signs `modified_by` on every playlist file this store writes --
+  /// see `library_home.dart`'s `deviceLabel`. Also what a future sync
+  /// report ("kept tablet's version") reads back out of a playlist's
+  /// `modified_by`.
+  final String device;
 
-  PlaylistStore({
-    required this.library,
-    this.busyRetryEvery = const Duration(milliseconds: 100),
-    this.busyRetryFor = const Duration(seconds: 5),
-  });
+  /// Called after every mutation that actually wrote to disk (create,
+  /// delete, add/remove track(s)) -- the Task 8 sync scheduler's hook to
+  /// consider syncing soon. Null (the default) is a legitimate choice for
+  /// any caller that doesn't need it yet.
+  final void Function()? onMutated;
 
-  /// Creates an empty playlist named [name] (trimmed) in the FIRST
-  /// configured root's manifest (see the class doc: unlike every other
-  /// mutation here, a brand-new playlist has no existing owning root to
-  /// route to). Throws [PlaylistStoreException] if the name is empty or
+  PlaylistStore({required this.library, required this.device, this.onMutated});
+
+  /// Creates an empty playlist named [name] (trimmed) in the shared
+  /// sidecar. Throws [PlaylistStoreException] if the name is empty or
   /// collides with ANY merged playlist name -- including a suffixed one
-  /// like "mix (2)" that only exists as a merge artifact, since creating
-  /// it on disk would collide with that display name on the next merge.
+  /// like "mix (2)" that only exists as a merge artifact, since creating it
+  /// for real would collide with that display name on the next merge -- or
+  /// if [LibraryModel.libraryHome] is null (no library roots configured
+  /// yet, so there's nowhere to put `.playlists/`).
   Future<void> createPlaylist(String name) async {
     final trimmed = name.trim();
     validateNewPlaylistName(trimmed);
-    final first = library.firstRoot;
-    if (first == null) {
-      throw PlaylistStoreException('No library roots configured.');
+    final home = library.libraryHome;
+    if (home == null) {
+      throw PlaylistStoreException(
+        'No library home for playlists — configure library roots first.',
+      );
     }
-    await _withManifest(first, (manifest) {
-      if (manifest.playlists.any((pl) => pl.name == trimmed)) {
-        // Model state was stale (e.g. another process wrote the manifest);
-        // re-check against the fresh manifest so we never write a dupe.
-        throw PlaylistStoreException(
-          'A playlist named "$trimmed" already exists.',
-        );
-      }
-      manifest.playlists.add(core.Playlist(name: trimmed, trackIds: []));
-    });
+    final now = DateTime.now().toUtc();
+    final file = core.PlaylistFile(
+      id: core.newPlaylistId(),
+      name: trimmed,
+      trackIds: [],
+      created: now,
+      modified: now,
+      modifiedBy: device,
+    );
+    await core.savePlaylistFile(Directory(home), file);
+    library.reloadPlaylists();
+    onMutated?.call();
   }
 
-  /// Deletes the playlist shown as [name] -- from whichever root actually
-  /// owns it (see the class doc's ownership note).
+  /// Deletes the playlist shown as [name]: backs up its current content
+  /// (see [core.backupPlaylistFile]), records a tombstone (what tells
+  /// another device's sync "this was deleted, not just never seen" rather
+  /// than resurrecting it), then removes the sidecar file itself.
   Future<void> deletePlaylist(String name) async {
     final entry = _resolveEntry(name);
-    final root = _ownedRoot(entry);
-    await _withManifest(root, (manifest) {
-      manifest.playlists.removeAt(_manifestIndexOf(manifest, entry));
-    });
+    final home = library.libraryHome;
+    if (home == null) {
+      throw PlaylistStoreException(
+        'No library home for playlists — configure library roots first.',
+      );
+    }
+    final homeDir = Directory(home);
+    final state = core.loadPlaylistsDir(homeDir);
+    final id = entry.id;
+    final p = id == null ? null : state.playlists[id];
+    if (p == null) {
+      throw PlaylistStoreException(
+        'Playlist "$name" is no longer present — it may have been '
+        'changed outside the app.',
+      );
+    }
+    final now = DateTime.now().toUtc();
+    await core.backupPlaylistFile(homeDir, p, now);
+    final tombstones = Map<String, core.PlaylistTombstone>.of(
+      state.tombstones,
+    );
+    tombstones[p.id] = core.PlaylistTombstone(deleted: now, name: p.name);
+    await core.saveTombstones(homeDir, tombstones);
+    await core.removePlaylistFile(homeDir, p.id);
+    library.reloadPlaylists();
+    onMutated?.call();
   }
 
   /// Appends [contentId] to the playlist shown as [name] (no-op write if
   /// the track is already in it -- playlists here are sets-in-order, not
-  /// multisets), writing to whichever root owns that playlist -- see the
-  /// class doc's ownership note.
+  /// multisets).
   Future<void> addTrack(String name, String contentId) async {
-    final entry = _resolveEntry(name);
-    final root = _ownedRoot(entry);
-    await _withManifest(root, (manifest) {
-      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
-      if (!pl.trackIds.contains(contentId)) {
-        pl.trackIds.add(contentId);
+    await _withPlaylist(name, (p) {
+      if (!p.trackIds.contains(contentId)) {
+        p.trackIds.add(contentId);
       }
     });
   }
 
   /// Removes every occurrence of [contentId] from the playlist shown as
-  /// [name]. Same owning-root routing as [addTrack].
+  /// [name].
   Future<void> removeTrack(String name, String contentId) async {
-    final entry = _resolveEntry(name);
-    final root = _ownedRoot(entry);
-    await _withManifest(root, (manifest) {
-      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
-      pl.trackIds.removeWhere((id) => id == contentId);
+    await _withPlaylist(name, (p) {
+      p.trackIds.removeWhere((id) => id == contentId);
     });
   }
 
   /// Batch form of [addTrack]: appends every id in [contentIds] to the
   /// playlist shown as [name] (skipping any already present -- same
-  /// set-in-order semantics as [addTrack]), writing the manifest ONCE for
-  /// the whole batch rather than once per track -- what the track list's
-  /// multi-select "Add to playlist" context-menu action uses so selecting
-  /// N tracks costs one disk write, not N. Returns the number of tracks
-  /// actually appended (excludes ones already present), so the caller can
-  /// report an accurate count. No-ops (no manifest write, no busy
-  /// acquisition) when [contentIds] is empty. Same owning-root routing as
-  /// [addTrack].
+  /// set-in-order semantics as [addTrack]), writing the sidecar file ONCE
+  /// for the whole batch rather than once per track -- what the track
+  /// list's multi-select "Add to playlist" context-menu action uses so
+  /// selecting N tracks costs one disk write, not N. Returns the number of
+  /// tracks actually appended (excludes ones already present), so the
+  /// caller can report an accurate count. No-ops (no write, no reload) when
+  /// [contentIds] is empty.
   Future<int> addTracks(String name, List<String> contentIds) async {
     if (contentIds.isEmpty) return 0;
-    final entry = _resolveEntry(name);
-    final root = _ownedRoot(entry);
     var added = 0;
-    await _withManifest(root, (manifest) {
-      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
+    await _withPlaylist(name, (p) {
       for (final id in contentIds) {
-        if (!pl.trackIds.contains(id)) {
-          pl.trackIds.add(id);
+        if (!p.trackIds.contains(id)) {
+          p.trackIds.add(id);
           added++;
         }
       }
@@ -164,22 +162,18 @@ class PlaylistStore {
   }
 
   /// Batch form of [removeTrack]: removes every occurrence of every id in
-  /// [contentIds] from the playlist shown as [name], writing the manifest
-  /// ONCE for the whole batch -- the multi-select "Remove from playlist"
-  /// counterpart to [addTracks]. Returns the number of playlist entries
-  /// actually removed. No-ops when [contentIds] is empty. Same owning-root
-  /// routing as [removeTrack].
+  /// [contentIds] from the playlist shown as [name], writing the sidecar
+  /// file ONCE for the whole batch -- the multi-select "Remove from
+  /// playlist" counterpart to [addTracks]. Returns the number of playlist
+  /// entries actually removed. No-ops when [contentIds] is empty.
   Future<int> removeTracks(String name, List<String> contentIds) async {
     if (contentIds.isEmpty) return 0;
-    final entry = _resolveEntry(name);
-    final root = _ownedRoot(entry);
     var removed = 0;
-    await _withManifest(root, (manifest) {
-      final pl = manifest.playlists[_manifestIndexOf(manifest, entry)];
+    await _withPlaylist(name, (p) {
       final idSet = contentIds.toSet();
-      final before = pl.trackIds.length;
-      pl.trackIds.removeWhere((id) => idSet.contains(id));
-      removed = before - pl.trackIds.length;
+      final before = p.trackIds.length;
+      p.trackIds.removeWhere((id) => idSet.contains(id));
+      removed = before - p.trackIds.length;
     });
     return removed;
   }
@@ -200,9 +194,7 @@ class PlaylistStore {
     }
   }
 
-  /// Resolves the merged playlist entry for display-name [name]. No
-  /// ownership decisions here -- see [_ownedRoot] for where a mutation's
-  /// target root is actually chosen.
+  /// Resolves the merged playlist entry for display-name [name].
   ManifestPlaylist _resolveEntry(String name) {
     final matches = library.playlists.where((pl) => pl.name == name);
     if (matches.isEmpty) {
@@ -211,99 +203,61 @@ class PlaylistStore {
     return matches.first;
   }
 
-  /// The [Directory] a mutation against [entry] must load-mutate-save --
-  /// [ManifestPlaylist.rootPath] (LibraryModel's merge-time ownership stamp)
-  /// resolved back to a currently-configured root via
-  /// [LibraryModel.rootWithPath]. Null [rootPath] only happens for
-  /// hand-built fixtures that skipped the merge (tests); those fall back to
-  /// the first root, matching this store's historical behavior for them. A
-  /// non-null [rootPath] that no longer matches any configured root (the
-  /// roots were edited in Settings since the merge ran) is a clear refusal,
-  /// not a silent fallback to the wrong root.
-  Directory _ownedRoot(ManifestPlaylist entry) {
-    final path = entry.rootPath;
-    if (path == null) {
-      final first = library.firstRoot;
-      if (first == null) {
-        throw PlaylistStoreException('No library roots configured.');
-      }
-      return first;
-    }
-    final root = library.rootWithPath(path);
-    if (root == null) {
-      throw PlaylistStoreException(
-        'Playlist "${entry.name}" lives in a root ($path) that is no '
-        'longer configured.',
-      );
-    }
-    return root;
-  }
-
-  /// Finds [entry]'s index in the freshly-loaded [manifest]'s playlists:
-  /// prefer the merge-time [ManifestPlaylist.sourceIndex] when the name at
-  /// that position still matches (this is what disambiguates two
-  /// same-named playlists within one manifest), otherwise fall back to the
-  /// first name match; throws if the playlist vanished from the manifest
-  /// since the merge (e.g. an external edit).
-  int _manifestIndexOf(core.Manifest manifest, ManifestPlaylist entry) {
-    final sourceName = entry.sourceName ?? entry.name;
-    final si = entry.sourceIndex;
-    if (si != null &&
-        si >= 0 &&
-        si < manifest.playlists.length &&
-        manifest.playlists[si].name == sourceName) {
-      return si;
-    }
-    final i = manifest.playlists.indexWhere((pl) => pl.name == sourceName);
-    if (i < 0) {
-      throw PlaylistStoreException(
-        'Playlist "${entry.name}" is no longer present in the library '
-        'manifest -- it may have been changed outside the app.',
-      );
-    }
-    return i;
-  }
-
-  /// The shared load-mutate-save-refresh cycle every mutation runs through
-  /// (see the class doc for the write path and the busy-flag retry) against
-  /// [root] -- the first root for [createPlaylist], the resolved owning
-  /// root (see [_ownedRoot]) for everything else. [mutate] may throw a
+  /// The shared load-mutate-save-refresh cycle every track-membership
+  /// mutation runs through: resolves [displayName] to its sidecar id, loads
+  /// that playlist's file FRESH (never a cached copy -- so a change that
+  /// landed since the last reload, from another device's sync or this
+  /// app's own previous mutation, is never overwritten), applies [mutate],
+  /// and -- ONLY if [mutate] actually changed the name or membership --
+  /// stamps `modified`/`modifiedBy`, saves, refreshes
+  /// [LibraryModel.playlists], and calls [onMutated]. [mutate] may throw a
   /// [PlaylistStoreException] to abort -- nothing is saved in that case.
-  Future<void> _withManifest(
-    Directory root,
-    FutureOr<void> Function(core.Manifest manifest) mutate,
+  ///
+  /// The no-op check matters beyond "why write nothing": [addTrack] of an
+  /// id already present, or [removeTrack]/[removeTracks] of one that was
+  /// never there, leaves [core.PlaylistFile.trackIds] byte-for-byte
+  /// unchanged. Stamping `modified` anyway would still be a NEWER
+  /// timestamp than a real edit another device made to the same playlist,
+  /// so the Task 2 reconciler's last-write-wins would wrongly prefer this
+  /// no-op touch over that real edit -- or, worse, a no-op bump could
+  /// out-date and resurrect a playlist another device just tombstoned.
+  Future<void> _withPlaylist(
+    String displayName,
+    void Function(core.PlaylistFile p) mutate,
   ) async {
-    final manifestFile = File(p.join(root.path, core.manifestFileName));
-    if (!manifestFile.existsSync()) {
-      // Refuse rather than letting loadManifest hand back Manifest.empty()
-      // and saveManifest materialize a zero-track manifest: that would
-      // make an unseeded root look seeded (and stop the settings dialog
-      // reporting it as missing).
+    final entry = _resolveEntry(displayName);
+    final id = entry.id;
+    final home = library.libraryHome;
+    if (home == null) {
       throw PlaylistStoreException(
-        'The library root (${root.path}) has no .library.json yet -- '
-        'seed it with foolib first.',
+        'No library home for playlists — configure library roots first.',
       );
     }
-    await _acquireBusy();
-    try {
-      final manifest = core.loadManifest(root);
-      await mutate(manifest);
-      await core.saveManifest(manifest, root);
-      library.reloadPlaylists();
-    } finally {
-      await library.endManifestWrite();
+    final homeDir = Directory(home);
+    final state = core.loadPlaylistsDir(homeDir);
+    final p = id == null ? null : state.playlists[id];
+    if (p == null) {
+      throw PlaylistStoreException(
+        'Playlist "$displayName" is no longer present — it may have been '
+        'changed outside the app.',
+      );
     }
-  }
-
-  Future<void> _acquireBusy() async {
-    final deadline = DateTime.now().add(busyRetryFor);
-    while (!library.tryBeginManifestWrite()) {
-      if (DateTime.now().isAfter(deadline)) {
-        throw PlaylistStoreException(
-          'The library is busy (scanning) -- try again in a moment.',
-        );
-      }
-      await Future<void>.delayed(busyRetryEvery);
+    final before = core.PlaylistFile(
+      id: p.id,
+      name: p.name,
+      trackIds: List<String>.of(p.trackIds),
+      created: p.created,
+      modified: p.modified,
+      modifiedBy: p.modifiedBy,
+    );
+    mutate(p);
+    if (p.sameContentAs(before)) {
+      return;
     }
+    p.modified = DateTime.now().toUtc();
+    p.modifiedBy = device;
+    await core.savePlaylistFile(homeDir, p);
+    library.reloadPlaylists();
+    onMutated?.call();
   }
 }

@@ -23,7 +23,8 @@ import 'package:fooplayer_app/ui/phone/browse_views.dart';
 import 'package:fooplayer_app/ui/phone/track_list_page.dart';
 
 class SpyPlaylistStore extends PlaylistStore {
-  SpyPlaylistStore(LibraryModel library) : super(library: library);
+  SpyPlaylistStore(LibraryModel library)
+    : super(library: library, device: 'test');
 
   final created = <String>[];
   final deleted = <String>[];

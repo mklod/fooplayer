@@ -30,6 +30,7 @@ import 'phone/storage_access.dart';
 import 'playlist_dialogs.dart';
 import 'queue_view.dart';
 import 'settings_dialog.dart';
+import 'sync_view.dart';
 import 'track_list.dart';
 
 /// Stand-in for widget tests that build a screen without wiring background
@@ -43,9 +44,12 @@ class HomeScreen extends StatelessWidget {
   final LibraryRootsPrefs libraryRootsPrefs;
 
   /// Playlist CRUD service the sidebar and track-list context menus write
-  /// through. Defaults to a real [PlaylistStore] over [library]; injectable
-  /// so widget tests can substitute a spy that never touches disk.
-  final PlaylistStore? playlistStore;
+  /// through. `main.dart` always constructs and injects a real one (it
+  /// needs the real device label -- see `PlaylistStore.device` -- which
+  /// this widget has no way to know on its own); tests substitute a spy
+  /// that never touches disk, or a plain `PlaylistStore` with a throwaway
+  /// device label.
+  final PlaylistStore playlistStore;
 
   /// Artwork resolution chain (Plan 4), forwarded to [NowPlayingBar]. Null
   /// keeps the pre-Plan-4 embedded-art-only behavior, which is what widget
@@ -79,24 +83,33 @@ class HomeScreen extends StatelessWidget {
   /// through; they get a throwaway that nothing renders.
   final ActivityModel? activity;
 
+  /// LAN-sync seams (Plan 3 Task 11), forwarded to the sidebar's Settings
+  /// dialog. Null hides its "Sync…" action -- see
+  /// `SettingsDialog.syncUi`'s doc for why (also gated on
+  /// [isAndroidPlatform], since a Windows/macOS/Linux desktop running this
+  /// same panel layout has no SMB bridge implementation to sync with; only
+  /// an Android tablet, which runs this layout too, ever has both true).
+  final SyncUiSeams? syncUi;
+
   const HomeScreen({
     super.key,
     required this.library,
     required this.player,
     required this.layoutPrefs,
     required this.libraryRootsPrefs,
-    this.playlistStore,
+    required this.playlistStore,
     this.artworkResolver,
     this.artworkServices,
     this.artworkStores,
     this.artworkBackfill,
     this.activity,
     this.tagSearch,
+    this.syncUi,
   });
 
   @override
   Widget build(BuildContext context) {
-    final store = playlistStore ?? PlaylistStore(library: library);
+    final store = playlistStore;
     return Scaffold(
       // The panel layout was written for a window with a title bar, so it
       // painted from pixel zero. On a tablet that put the Android status bar
@@ -140,6 +153,7 @@ class HomeScreen extends StatelessWidget {
                             artworkServices: artworkServices,
                             activity: activity ?? _idleActivity,
                             layoutPrefs: layoutPrefs,
+                            syncUi: syncUi,
                           ),
                         ),
                       ),
@@ -408,6 +422,10 @@ class _Sidebar extends StatefulWidget {
   /// Where the sidebar's long-running actions report progress.
   final ActivityModel activity;
 
+  /// LAN-sync seams, forwarded straight through to the Settings dialog this
+  /// sidebar opens -- see [HomeScreen.syncUi]'s doc.
+  final SyncUiSeams? syncUi;
+
   const _Sidebar({
     required this.layoutPrefs,
     required this.library,
@@ -419,6 +437,7 @@ class _Sidebar extends StatefulWidget {
     this.artworkResolver,
     this.artworkServices,
     required this.activity,
+    this.syncUi,
   });
 
   @override
@@ -442,6 +461,7 @@ class _SidebarState extends State<_Sidebar> {
   ArtworkStoreRegistry? get artworkStores => widget.artworkStores;
   ArtworkServices? get artworkServices => widget.artworkServices;
   ActivityModel get activity => widget.activity;
+  SyncUiSeams? get syncUi => widget.syncUi;
 
   Future<void> _createPlaylist(BuildContext context) async {
     // Captured before the name dialog opens -- see showPlaylistError's doc.
@@ -643,6 +663,7 @@ class _SidebarState extends State<_Sidebar> {
             if (!await requestFullStorageAccess()) return;
             await library.seedRoot(Directory(root));
           },
+          syncUi: syncUi,
         ),
       ),
     );

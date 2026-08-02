@@ -1,6 +1,9 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-07-31--2123
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'package:flutter/material.dart';
+
+import 'adaptive.dart';
+import 'sync_view.dart';
 
 /// Production folder picker: file_selector's native OS directory dialog.
 /// Injected as [SettingsDialog.pickDirectory]'s default so tests can supply
@@ -140,6 +143,13 @@ class SettingsDialog extends StatelessWidget {
 
   final Future<void> Function(String root)? onSetUpRoot;
 
+  /// LAN-sync seams (Plan 3 Task 11) -- null on any platform/test that
+  /// doesn't wire sync, which hides the "Sync…" action entirely regardless
+  /// of [isAndroidPlatform]. Real wiring (main.dart) always supplies this on
+  /// Android; there is no SMB bridge implementation anywhere else, which is
+  /// what [isAndroidPlatform] actually gates.
+  final SyncUiSeams? syncUi;
+
   const SettingsDialog({
     super.key,
     required this.roots,
@@ -149,7 +159,45 @@ class SettingsDialog extends StatelessWidget {
     required this.onAddRoot,
     required this.onRemoveRoot,
     this.onSetUpRoot,
+    this.syncUi,
   });
+
+  void _openSync(BuildContext context) {
+    final seams = syncUi;
+    if (seams == null) return;
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Sync'),
+        content: SizedBox(
+          width: 480,
+          // SyncView's content (three fields, the connection check, the
+          // roots list, Sync now) is taller than an AlertDialog's default
+          // content area on a short window -- scroll it rather than
+          // overflow, same as the report dialogs already do.
+          child: SingleChildScrollView(
+            child: SyncView(
+              // Re-read at open time, not captured once at app startup, so
+              // a second visit in the same session sees whatever the first
+              // visit's edits already saved.
+              settings: seams.currentSettings(),
+              onSave: seams.onSave,
+              runSync: seams.runSync,
+              probe: seams.probe,
+              discoverRoots: seams.discoverRoots,
+              cancelSync: seams.cancelSync,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -164,9 +212,25 @@ class SettingsDialog extends StatelessWidget {
           pickDirectory: pickDirectory,
           onAddRoot: onAddRoot,
           onRemoveRoot: onRemoveRoot,
+          // BUG FIX: this dialog used to build LibraryRootsEditor without
+          // forwarding its own onSetUpRoot at all, so a tablet (which runs
+          // this same panel-layout dialog, not the phone Settings page --
+          // see adaptive.dart's useDesktopLayout) never saw the "Set up"
+          // affordance for a freshly-added, not-yet-scanned root, however
+          // many callers passed one in.
+          onSetUpRoot: onSetUpRoot,
         ),
       ),
       actions: [
+        // Android only -- there is no SMB bridge implementation on desktop.
+        // [syncUi] being null (any platform/test that hasn't wired sync)
+        // hides this regardless of the platform check.
+        if (isAndroidPlatform() && syncUi != null)
+          TextButton(
+            key: const Key('open-sync-view'),
+            onPressed: () => _openSync(context),
+            child: const Text('Sync…'),
+          ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),

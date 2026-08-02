@@ -38,6 +38,7 @@ Widget app(LibraryModel lib) => FooPlayerApp(
   player: PlayerService(),
   layoutPrefs: LayoutPrefs(),
   libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
+  device: 'test',
 );
 
 void main() {

@@ -1,11 +1,14 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-07-31--2123
 //
 // Phone-shell Settings view (Plan 2b): the drawer's Settings destination.
 // Per the plan spec it "reuses existing SettingsDialog content as a page":
 // the shared [LibraryRootsEditor] (the exact widget the desktop dialog
 // wraps) rendered as the shell body, live against the same sources the
 // desktop dialog listens to -- [LibraryRootsPrefs] for the configured
-// roots and [LibraryModel] for the per-root manifest health notes.
+// roots and [LibraryModel] for the per-root manifest health notes. The
+// "Sync" entry (Plan 3 Task 11) is the phone-shell equivalent of
+// SettingsDialog's "Sync…" button: same [SyncUiSeams], same Android-only
+// gate, pushed as a page instead of nested in another dialog.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,8 +17,10 @@ import 'storage_access.dart';
 
 import '../../model/library_model.dart';
 import '../../model/library_roots_prefs.dart';
+import '../adaptive.dart';
 import '../app_theme.dart';
 import '../settings_dialog.dart';
+import '../sync_view.dart';
 
 /// The phone Settings page body. PhoneShell supplies the chrome (AppBar
 /// titled "Settings"); this widget is just the content, mounted via
@@ -34,12 +39,41 @@ class PhoneSettingsView extends StatelessWidget {
   /// fake (native platform dialogs can't run under `flutter test`).
   final Future<String?> Function() pickDirectory;
 
+  /// LAN-sync seams (Plan 3 Task 11) -- null hides the "Sync" entry
+  /// entirely, same as [settings_dialog.SettingsDialog.syncUi].
+  final SyncUiSeams? syncUi;
+
   const PhoneSettingsView({
     super.key,
     required this.library,
     required this.libraryRootsPrefs,
     this.pickDirectory = defaultPickDirectory,
+    this.syncUi,
   });
+
+  void _openSync(BuildContext context) {
+    final seams = syncUi;
+    if (seams == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Sync')),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            // Re-read at open time -- see SettingsDialog._openSync's doc.
+            child: SyncView(
+              settings: seams.currentSettings(),
+              onSave: seams.onSave,
+              runSync: seams.runSync,
+              probe: seams.probe,
+              discoverRoots: seams.discoverRoots,
+              cancelSync: seams.cancelSync,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +109,25 @@ class PhoneSettingsView extends StatelessWidget {
                 await library.seedRoot(Directory(root));
               },
             ),
+            if (isAndroidPlatform() && syncUi != null) ...[
+              const SizedBox(height: 24),
+              const Text(
+                'LAN sync',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ListTile(
+                key: const Key('phone-sync-entry'),
+                dense: true,
+                title: const Text('Sync'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _openSync(context),
+              ),
+            ],
           ],
         ),
       ),
