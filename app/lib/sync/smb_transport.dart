@@ -176,6 +176,20 @@ class SmbTransport implements SyncTransport {
     }
   }
 
+  /// Immediate child directory NAMES of [relDir] — one SMB round trip, no
+  /// recursion. Not part of [SyncTransport]: only root discovery needs it,
+  /// and only the SMB implementation can answer it cheaply (the LocalDir
+  /// fake has no discovery use). Missing dir → empty list.
+  Future<List<String>> listDirNames(String relDir) {
+    return _withSession((handle) async {
+      final result = await _channel.invokeMethod<List<Object?>>('listDir', {
+        'handle': handle,
+        'relDir': relDir,
+      });
+      return [for (final name in result ?? const []) name as String];
+    });
+  }
+
   @override
   Future<List<core.RemoteFile>> listTree(String relDir) {
     return _withSession((handle) async {

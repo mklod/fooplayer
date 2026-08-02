@@ -30,6 +30,7 @@ package dev.mklod.fooplayer_app
 //
 // Last modified: 2026-07-31--1949
 import android.os.Handler
+import android.util.Log
 import android.os.Looper
 import android.os.StatFs
 import com.hierynomus.mserref.NtStatus
@@ -158,6 +159,7 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
             "connect" -> dispatch(result) { doConnect(call) }
             "probe" -> dispatch(result, controlExecutor) { doProbe(call) }
             "listTree" -> dispatch(result) { doListTree(call) }
+            "listDir" -> dispatch(result) { doListDir(call) }
             "readFile" -> dispatch(result) { doReadFile(call) }
             "writeFile" -> dispatch(result) { doWriteFile(call) }
             "downloadToFile" -> dispatch(result) { doDownloadToFile(call) }
@@ -192,6 +194,7 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
     // --- connect / probe -----------------------------------------------
 
     private fun doConnect(call: MethodCall): Int {
+        Log.i(TAG, "doConnect: entered")
         val host = call.argument<String>("host")
             ?: throw IllegalArgumentException("connect: host required")
         val shareName = call.argument<String>("share")
@@ -227,6 +230,7 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
      * with it.
      */
     private fun doProbe(call: MethodCall): Boolean {
+        Log.i(TAG, "doProbe: entered, args=${call.arguments}")
         return try {
             val host = call.argument<String>("host") ?: return false
             val shareName = call.argument<String>("share") ?: return false
@@ -234,6 +238,10 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
             val future = controlExecutor.submit(Callable { probeOnce(host, shareName, basePath) })
             try {
                 future.get(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            } catch (e: java.util.concurrent.TimeoutException) {
+                Log.w(TAG, "doProbe: outer probe bound expired")
+                future.cancel(true)
+                false
             } catch (e: InterruptedException) {
                 // This thread was asked to interrupt -- swallowing the
                 // exception without restoring the flag would hide that
@@ -257,30 +265,43 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
             .withSoTimeout(PROBE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .withSocketFactory(BoundedConnectSocketFactory(CONNECT_TIMEOUT_MS))
             .build()
+        Log.i(TAG, "probeOnce: host=$host share=$shareName base='$basePath'")
+        // Cleanup failures must NEVER veto the answer: on a live Samba the
+        // explicit session close races the connection close's own logoff,
+        // and the second logoff comes back STATUS_USER_SESSION_DELETED --
+        // thrown from close(), AFTER folderExists already succeeded. With
+        // the closes inside the try (the old .use{} chains), that harmless
+        // teardown race read as "NAS unreachable" -- release builds hit it
+        // deterministically on real hardware (R8-fast teardown), debug and
+        // the emulator's NAT latency happened to dodge it. Compute the
+        // answer first; close everything quietly afterwards.
+        var client: SMBClient? = null
+        var connection: com.hierynomus.smbj.connection.Connection? = null
+        var session: com.hierynomus.smbj.session.Session? = null
+        var share: DiskShare? = null
         return try {
-            SMBClient(probeConfig).use { probeClient ->
-                probeClient.connect(host).use { connection ->
-                    val session = connection.authenticate(AuthenticationContext.guest())
-                    try {
-                        val share = session.connectShare(shareName) as DiskShare
-                        try {
-                            share.folderExists(toSmbPath(basePath))
-                        } finally {
-                            closeQuietly(share)
-                        }
-                    } finally {
-                        closeQuietly(session)
-                    }
-                }
-            }
+            client = SMBClient(probeConfig)
+            connection = client.connect(host)
+            session = connection.authenticate(AuthenticationContext.guest())
+            share = session.connectShare(shareName) as DiskShare
+            val exists = share.folderExists(toSmbPath(basePath))
+            Log.i(TAG, "probeOnce: folderExists = " + exists)
+            exists
         } catch (e: Exception) {
+            Log.w(TAG, "probeOnce failed: ${e.javaClass.simpleName}: ${e.message}", e)
             false
+        } finally {
+            closeQuietly(share)
+            closeQuietly(session)
+            try { connection?.close() } catch (_: Exception) {}
+            try { client?.close() } catch (_: Exception) {}
         }
     }
 
     // --- listTree ---------------------------------------------------------
 
     private fun doListTree(call: MethodCall): List<Map<String, Any>> {
+        Log.i(TAG, "doListTree: entered")
         val handleId = call.argument<Int>("handle")
             ?: throw IllegalArgumentException("listTree: handle required")
         val relDir = call.argument<String>("relDir") ?: ""
@@ -295,6 +316,27 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
         val out = mutableListOf<Map<String, Any>>()
         walkDir(s.share, startPath, s.basePath, out)
         return out
+    }
+
+    /// Immediate child DIRECTORY names of [relDir] -- one SMB query, no
+    /// recursion. Root discovery uses this instead of walking the whole
+    /// share (a ~15k-file walk over Wi-Fi took minutes; five folder names
+    /// need one round trip). Missing dir -> empty, same as listTree.
+    private fun doListDir(call: MethodCall): List<String> {
+        val handleId = call.argument<Int>("handle")
+            ?: throw IllegalArgumentException("listDir: handle required")
+        val relDir = call.argument<String>("relDir") ?: ""
+        val s = sessionFor(handleId)
+        val startPath = joinBase(s.basePath, relDir)
+        if (!s.share.folderExists(startPath)) return emptyList()
+        val out = mutableListOf<String>()
+        for (info in s.share.list(startPath)) {
+            val name = info.fileName
+            if (name == "." || name == "..") continue
+            val isDir = (info.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L
+            if (isDir) out.add(name)
+        }
+        return out.sorted()
     }
 
     private fun walkDir(
@@ -661,6 +703,7 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
 
         private const val METHOD_CHANNEL = "dev.mklod.fooplayer/smb"
         private const val EVENT_CHANNEL = "dev.mklod.fooplayer/smb-progress"
+        private const val TAG = "fooplayer.smb"
         private const val PROBE_TIMEOUT_SECONDS = 5L
         private const val SESSION_TIMEOUT_SECONDS = 30L
         private const val CONNECT_TIMEOUT_MS = 5000

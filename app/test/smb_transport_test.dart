@@ -194,6 +194,26 @@ void main() {
     });
   });
 
+  group('listDirNames', () {
+    test('sends listDir with handle+relDir and maps names', () async {
+      setHandler((call) async {
+        switch (call.method) {
+          case 'connect':
+            return 7;
+          case 'listDir':
+            return <Object?>['albums', 'monthly'];
+          default:
+            fail('unexpected method ${call.method}');
+        }
+      });
+      final names = await transport.listDirNames('');
+      expect(names, ['albums', 'monthly']);
+      final call = calls.firstWhere((c) => c.method == 'listDir');
+      expect(argsOf(call)['handle'], 7);
+      expect(argsOf(call)['relDir'], '');
+    });
+  });
+
   group('readFile', () {
     test('returns bytes when present', () async {
       setHandler((call) async => call.method == 'connect' ? 1 : Uint8List.fromList([1, 2, 3]));

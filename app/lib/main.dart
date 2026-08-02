@@ -277,16 +277,11 @@ void main() async {
       basePath: s.basePath,
     );
     try {
-      // listTree('') is a full recursive listing, not just top-level dirs --
-      // derive the top-level folder names from it, then keep only the ones
-      // that actually look like a synced root (their own manifest present).
-      final entries = await transport.listTree('');
-      final topLevel = <String>{};
-      for (final rf in entries) {
-        final slash = rf.relPath.indexOf('/');
-        if (slash <= 0) continue; // a stray file at the base, not a folder
-        topLevel.add(rf.relPath.substring(0, slash));
-      }
+      // One shallow SMB listing of the base -- the old listTree('') walked
+      // the ENTIRE share (~15k files) just to derive five folder names,
+      // which took minutes over real Wi-Fi and made the roots list look
+      // permanently stuck (found live on the Tab S9+, 2026-08-02).
+      final topLevel = await transport.listDirNames('');
       final withManifest = <String>[];
       for (final name in topLevel) {
         final bytes = await transport.readFile(
