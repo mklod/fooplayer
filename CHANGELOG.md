@@ -37,6 +37,44 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-01--2005
+
+APK: https://dist.flana.app/fooplayer/fooplayer-2026-08-01--2005-release.apk (26 MB — first RELEASE build)
+
+### Changes
+
+- **Fixed: "Set up" looked like it did nothing** (reported live from
+  Mike's phone, first real phone install, within the hour of release —
+  reproduced and root-caused on the emulator). Two silent failures
+  stacked: a denied/backed-out All-files permission bailed with no
+  feedback, and a SUCCESSFUL seed never refreshed anything —
+  `rootsMissingManifest` only updates inside `load()`, so the row kept
+  saying "not set up yet" and the library stayed empty until an app
+  restart or the 5-minute tick. Now every outcome speaks:
+  denied → SnackBar with an "Open settings" action; failure → the
+  library's status line; success → "Set up complete — N tracks found"
+  AND an immediate library reload (row refreshes, feed populates).
+  Verified end-to-end on the emulator in release mode, both paths.
+- **The dist page now serves RELEASE builds — 26 MB instead of 200.**
+  The debug APKs carried the Dart JIT runtime, debug symbols, and four
+  CPU architectures. First release build surfaced the R8/SMBJ issue
+  Task 10's review predicted: `-dontwarn` rules added for SMBJ's
+  Kerberos/EL corners (dead code on Android; guest auth only). Release
+  verified live: Set-up flow, tag reading, SMB probe + five-root
+  discovery against the real NAS.
+- Known papercut (pre-existing, queued): the launch-time All-files
+  request can background the app right after the audio-permission
+  dialog on a fresh install — the contextual Set-up/sync requests are
+  the reliable path now; consider dropping the launch-time request.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] On the phone: install the release build, add your music folder, tap Set up → grant All files access → expect "Set up complete — N tracks found" and the library populating immediately
+>   - Notes:
+> - [ ] Deny the permission instead → expect the "needs All files access" SnackBar with Open settings
+>   - Notes:
+
 ## Build 2026-08-01--1930
 
 APK: https://dist.flana.app/fooplayer/fooplayer-2026-08-01--1918-app-debug.apk
