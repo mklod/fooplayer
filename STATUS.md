@@ -4,11 +4,17 @@
 
 ## Next session starts here
 
-**Plan 3 — phone/LAN library sync** (see [WORKPLAN.md](WORKPLAN.md)'s Next
-section for the full writeup). Fold in the newly-scoped **persistent,
-synced playlists** requirement while designing it — same no-account,
-same-shared-folder mechanism as the rest of the library, detailed in
-WORKPLAN and in CHANGELOG's TODO tip.
+**Plan 3 SHIPPED and merged (2026-08-01).** What remains is rollout, not
+code: (1) **tablet pass** — install the new build from
+https://dist.flana.app/fooplayer/index.html and walk the CHANGELOG
+2026-08-01--1930 testing checklist (NAS host must be typed as
+`192.168.1.16`); (2) **desktop rollout** — rebuild the daily driver from
+current `main` (worktree `C:\dev\foobar-app` needs its branch updated) —
+its FIRST run migrates the real library's playlists into
+`L:\music (original structure)\.playlists\` and empties the manifest
+arrays, after which pre-Plan-3 builds stop seeing playlists, so upgrade
+desktop and tablet the same day; (3) the small **post-merge cleanup**
+list queued in CHANGELOG's TODO.
 
 **Parked, not forgotten:** a UI reskin (moving/restyling existing
 controls) is deliberately punted until Mike runs a dedicated Claude-design
@@ -35,7 +41,9 @@ visual tweaks into unrelated functional work before that pass happens.
 | Background audio (Plan 2c) | ✅ **Done 2026-07-29.** Foreground service + media session: lock screen, notification, headset and Bluetooth transport. Audio focus handled separately because libmpv never requests it — a call pauses and hands back, a permanent takeover pauses for good, navigation ducks, headphones out pauses and never self-resumes. Verified on the Pixel 7 emulator: still PLAYING after HOME, media keys driving it |
 | Tag editing | ✅ **Done 2026-07-29.** Edit one track or a selection; MP3 via ID3v2, FLAC via Vorbis comments. "Find correct tags…" proposes MusicBrainz matches with a confidence bar and never writes on its own. Same guarantees as the cover embedding: content ID unmoved, dates restored and read back |
 | Queue | ✅ **Reworked 2026-07-30, three follow-up bugs found and fixed live on the Galaxy Tab S9+ the same day.** Two things share the playback mechanism and are kept visibly distinct: a normal play still continues through whatever list it was clicked from (the "faux queue" — ordinary, unmet, needs no panel), while the first "Play next" / "Add to queue" discards that continuation down to just the current track and starts a real, small, user-built scratch playlist — current track + whatever gets added, nothing inherited from browsing. That's the only thing the **Queue** view shows: a sidebar destination now (not a popup), appearing right under Library once there is one to show, disappearing again once emptied back down. Rows now use the exact same #/Song/Album/Time grid the playlist view uses (shared widgets, not a look-alike copy) with a cover thumbnail per row; the # column carries a play/drag icon instead of a position number, and a remove button sits past Time. Drag to reorder, tap to jump, remove, clear; the playing track cannot be removed out from under itself. "Play next" is offered for a single track only — a selection of ten gets "Add to queue". Fixed along the way: the sidebar tile was showing on every normal play (now requires the explicit-queue flag, not just "anything queued up next"); the window footer said "2,548 tracks" while viewing a 2-song queue (now counts the queue itself); the rows didn't visually match a playlist's rows at all (no #/Album/Time/header) |
-| Phone library sync (Plan 3) | ⛔ Not started — LAN pull of files + manifests to the phone |
+| Phone library sync (Plan 3) | ✅ **Shipped 2026-08-01.** NAS-direct SMB on Android (Kotlin/SMBJ bridge, guest auth): per-root opt-in mirror with verified downloads (size + content ID in `.sync_tmp`), retag/move/delete propagation, resume-from-state after interruption, free-space check, cancel, file+bytes progress, report dialog. Emulator-verified live against the real NAS: 92/92 + 685/685 dates exact, connection-kill → 'connection lost' with real counts → clean convergence. Tablet hardware pass pending (checklist in CHANGELOG 2026-08-01--1930) |
+| Synced playlists (`.playlists/` sidecar) | ✅ **Shipped 2026-08-01.** One shared sidecar dir at the library home (per-playlist JSON, stable ids, content-ID membership), LWW + backup + tombstones + resurrect-on-edit, auto-reconcile on Android (start/edit-debounce/5-min tick, probe-gated). Live-verified round-trip incl. deletion propagation and NAS-side backups. Real-library migration happens on the desktop's first new-build run — NOT yet done (see Next section) |
+| APK distribution | ✅ dist.flana.app/fooplayer/index.html (R2, `fooplayer/` prefix in flana-dist, `dist/upload-r2.sh`) — newest build pinned on top, tap to install |
 | File-dates fix (foobar2000/Explorer sorting) | ✅ **Fully resolved 2026-07-28, and independently verified** — 5,553 of 5,553 files match their manifest `date_added` (checked by reading the manifests directly, not by trusting any pass's self-report). The last 66 were duplicate paths: the stamping tool iterated `paths[0]` only, so where one content ID names two files, the twin kept its copy-event date. Every root accounted for: `monthly` folder-derived (canon), `alternative times` split into its two acquisitions, `albums` placed album-by-album (13 individually, 2 on recovered evidence). Zero files disagree with their manifest date. Details: [docs/albums-date-recovery.md](docs/albums-date-recovery.md). Was: **Resolved 2026-07-28** — option 1 applied: every track's filesystem date stamped from its manifest `date_added` (5,483 tracks, 1,724 re-stamped, 0 failures). This share reports creation time as equal to modified time, so both Explorer columns and foobar2000's sort are now correct; no NAS config change needed. Reversible via the logged previous values |
 
 ## Where things run
@@ -48,7 +56,43 @@ visual tweaks into unrelated functional work before that pass happens.
 
 *Worktrees must live on `C:` — the NAS share can't host Flutter's plugin symlinks. The `foobar-app` folder name is legacy; the path is stale, its branch and contents are current.*
 
-## Last session (2026-07-30)
+## Last session (2026-07-31 → 2026-08-01)
+
+- **Plan 3 built end-to-end and merged** (`2309289` on main): brainstorm →
+  approved spec → 12-task implementation plan → subagent-driven execution
+  with a fresh implementer + adversarial reviewer per task. The review
+  loop caught 18 Critical/Important defects before merge — highlights: a
+  no-op playlist write that stamped `modified` and could out-vote a real
+  edit under LWW (or resurrect a deletion), a planner rename-collision
+  that silently dropped a remote file from the plan for a cycle, the
+  migration re-running on every launch pre-frame, an Android
+  Activity-recreation bug that orphaned the SMB bridge (sync dead until
+  process restart + leaked sockets), a head-of-line-blocked cancel, and
+  a `finally`-block `close()` that could replace a successful sync's
+  report with an invisible error.
+- **Live verification on the emulator against the real NAS** (tablet
+  hardware pass still pending): fresh mirrors of two roots with
+  byte-exact dates/durations, no-op re-sync, Wi-Fi killed mid-transfer →
+  per-root 'connection lost' abort with true counts and per-file
+  reasons, `.sync_tmp` clean, no manifest adopted → network back →
+  re-run converged without re-downloading the 46 files that had landed.
+  Playlists: created on-device → auto-pushed to the NAS in ~15s;
+  NAS-side edit pulled on app start; a future-dated edit correctly
+  RESURRECTED a locally-deleted playlist (LWW doing its job); re-delete
+  after the clock passed → NAS file removed, tombstone + backup written
+  remotely.
+- **Side quest (user request): APK downloads page** — `dist/upload-r2.sh`
+  clones flana's R2 pattern under the flana-dist `fooplayer/` prefix
+  (decision: reuse bucket+token, zero new infra; S3 ListObjectsV2 for the
+  index because the NAS bearer token 403s on the REST list). Bookmark:
+  https://dist.flana.app/fooplayer/index.html
+- Also fixed in passing: `SettingsDialog` dropping `onSetUpRoot` (tablets
+  never saw the root "Set up" button).
+- Suites: 1097 app + 100 core tests green; `flutter analyze` clean (3
+  pre-existing infos). Plan worktree removed; `plan3-sync` branch deleted
+  after merge.
+
+## Earlier session (2026-07-30)
 
 - **Two more Queue bugs reported live, with a screenshot comparison, right
   after the art-thumbnail build shipped**: "I'm in a queue of two songs,

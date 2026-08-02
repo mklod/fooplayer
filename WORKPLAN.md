@@ -61,8 +61,17 @@
 
 ## Next — starting point for the next session
 
-1. **Plan 3 — phone library sync.** The last big one, and where the next
-   session starts. One-button LAN pull of new files + manifests from the NAS.
+0. **Plan 3 rollout** (the code is DONE and merged 2026-08-01 — see
+   STATUS): tablet hardware pass off the CHANGELOG checklist; desktop
+   daily-driver rebuild from `main` (first run migrates the real
+   library's playlists to `.playlists/` — upgrade both devices the same
+   day); then the post-merge cleanup list in CHANGELOG's TODO.
+
+1. ~~**Plan 3 — phone library sync.**~~ **DONE 2026-08-01** — shipped
+   with synced playlists folded in, exactly as scoped below; spec at
+   `docs/superpowers/specs/2026-07-31-plan3-sync-design.md`, emulator
+   live-verification against the real NAS complete. Original scoping
+   kept for the record: One-button LAN pull of new files + manifests from the NAS.
    Content IDs make the diff trivial; the hard parts are Android storage scope
    and transfer resilience. There is now a hand-rolled eight-file precedent:
    the tablet was seeded with tracks whose content IDs and download dates were
@@ -143,7 +152,7 @@ go-ahead and a re-run of enrich → harvest → embed afterwards.
 
 1. ~~**Real-device pass**~~ — done 2026-07-29 on a Galaxy Tab S9+ rather than the Pixel: installed, seeded with eight tracks carrying their real content IDs and download dates, played, media session confirmed. The Pixel itself is still unplugged.
 2. ~~**Plan 2c — background audio**~~ — done 2026-07-29.
-3. **Plan 3 — phone library sync**: one-button LAN pull of new files + manifests from the NAS to the phone. Manifests make the diff trivial (content IDs already identify what's missing); the hard parts are Android storage scope (app-private vs. shared media) and transfer resilience. **The last big one.**
+3. ~~**Plan 3 — phone library sync**~~ — **done 2026-08-01**, NAS-direct SMB rather than the originally-sketched desktop-serves-HTTP; synced playlists shipped with it. Tablet hardware pass + desktop rollout pending (STATUS's Next section).
 4. **Artwork polish (optional)**: batch "fix all missing artwork" view, artist images/fanart types, opt-in `folder.jpg` writing beside albums.
 
 ## Reference — strip the stray cover-image files (done 2026-07-28)
