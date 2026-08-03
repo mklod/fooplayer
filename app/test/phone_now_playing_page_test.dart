@@ -1,14 +1,16 @@
-// Last modified: 2026-07-24--1835
+// Last modified: 2026-08-02--2327
 //
-// Plan 2b / P2: NowPlayingPage widget tests. The full-screen phone player
-// must render the metro transport assets (prev 32 / play-pause 48 / next
-// 32), the shuffle state-glyph + volume row, a seek slider with 10.5px time
-// labels, centered title/artist/album, and art sized min(width - 48, 360).
-// Transport taps go through spy-safe paths (PlayerService.next/previous
-// would construct a media_kit Player, whose natives are unavailable under
-// `flutter test`).
+// Now Playing reskin: full-bleed, artwork-tinted phone player. No AppBar --
+// a top-left np-close chevron dismisses the page instead -- one transport
+// row of exactly five controls (shuffle / previous / play-pause / next /
+// overflow), a seek slider styled for the dark background, and an
+// AnimatedContainer (np-tint) painting the gradient. Transport taps go
+// through spy-safe paths (PlayerService.next/previous would construct a
+// media_kit Player, whose natives are unavailable under `flutter test`).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/model/library_model.dart';
+import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
@@ -41,7 +43,7 @@ List<Track> fixtureTracks() => [
     dateAdded: DateTime.utc(2026, 7, 2),
     title: 'Song B',
     artist: 'Artist B',
-    album: 'Album B',
+    album: '', // no album tag -- third line should read just the date
     genre: 'Rock',
   ),
 ];
@@ -86,18 +88,21 @@ Future<PlayerService> pumpPage(
   WidgetTester tester, {
   PlayerService? player,
   Size surface = const Size(390, 844),
+  LibraryModel? library,
+  PlaylistStore? store,
+  int startIndex = 0,
 }) async {
   await tester.binding.setSurfaceSize(surface);
   addTearDown(() => tester.binding.setSurfaceSize(null));
   final p = player ?? PlayerService();
   // Queue without touching media_kit natives; setVolume notifies without
   // constructing the lazy Player.
-  p.queueController.setQueue(fixtureTracks(), 0);
+  p.queueController.setQueue(fixtureTracks(), startIndex);
   await p.setVolume(1.0);
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(),
-      home: NowPlayingPage(player: p),
+      home: NowPlayingPage(player: p, library: library, store: store),
     ),
   );
   await tester.pumpAndSettle();
@@ -105,56 +110,115 @@ Future<PlayerService> pumpPage(
 }
 
 void main() {
-  testWidgets('renders metro transport assets, both sliders, and track info', (
+  testWidgets('no AppBar / "Now Playing" title -- full-bleed page', (
     tester,
   ) async {
     await pumpPage(tester);
 
-    expect(metroIcon(kIconPrevious), findsOneWidget);
-    expect(metroIcon(kIconPlay), findsOneWidget); // not playing -> play glyph
-    expect(metroIcon(kIconPause), findsNothing);
-    expect(metroIcon(kIconNext), findsOneWidget);
-    expect(metroIcon(kIconShuffleOff), findsOneWidget);
-    expect(metroIcon(kIconShuffleOn), findsNothing);
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('Now Playing'), findsNothing);
+    expect(find.byKey(const Key('np-tint')), findsOneWidget);
+  });
 
-    // Transport sizes per spec: prev 32 / play-pause 48 / next 32.
-    expect(tester.widget<Image>(metroIcon(kIconPrevious)).width, 32);
-    expect(tester.widget<Image>(metroIcon(kIconPlay)).width, 48);
-    expect(tester.widget<Image>(metroIcon(kIconNext)).width, 32);
+  testWidgets('np-close pops the route', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final player = PlayerService();
+    player.queueController.setQueue(fixtureTracks(), 0);
+    await player.setVolume(1.0);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(NowPlayingPage.route(player: player)),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
 
-    expect(find.byKey(const Key('np-seek')), findsOneWidget);
-    // No volume control on phone -- Android's hardware keys own volume.
-    expect(find.byKey(const Key('np-volume')), findsNothing);
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NowPlayingPage), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('np-close')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NowPlayingPage), findsNothing);
+    expect(find.text('open'), findsOneWidget);
+  });
+
+  testWidgets(
+    'exactly five transport controls, no repeat/EQ affordance',
+    (tester) async {
+      await pumpPage(tester);
+
+      final transport = find.byKey(const Key('np-transport'));
+      expect(transport, findsOneWidget);
+      expect(
+        find.descendant(of: transport, matching: find.byType(IconButton)),
+        findsNWidgets(5),
+      );
+
+      expect(metroIcon(kIconShuffleOff), findsOneWidget);
+      expect(metroIcon(kIconPrevious), findsOneWidget);
+      expect(metroIcon(kIconPlay), findsOneWidget); // not playing
+      expect(metroIcon(kIconPause), findsNothing);
+      expect(metroIcon(kIconNext), findsOneWidget);
+      expect(find.byKey(const Key('np-more')), findsOneWidget);
+
+      // Nothing else on this screen.
+      expect(find.byIcon(Icons.repeat), findsNothing);
+      expect(find.byIcon(Icons.equalizer), findsNothing);
+      expect(find.byIcon(Icons.volume_up), findsNothing);
+      expect(find.byIcon(Icons.favorite), findsNothing);
+      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(find.byIcon(Icons.fast_forward), findsNothing);
+      expect(find.byIcon(Icons.fast_rewind), findsNothing);
+      expect(find.byType(Slider), findsOneWidget); // seek only
+    },
+  );
+
+  testWidgets('renders track info: title, artist, album · date', (
+    tester,
+  ) async {
+    await pumpPage(tester);
 
     expect(find.text('Song A'), findsOneWidget);
     expect(find.text('Artist A'), findsOneWidget);
-    expect(find.text('Album A'), findsOneWidget);
-
-    // No duration known yet -> both time labels read 0:00.
-    expect(find.text('0:00'), findsNWidgets(2));
-
-    // AppBar with a title (back button appears when the page is pushed --
-    // covered by the mini-player navigation test).
-    expect(find.byType(AppBar), findsOneWidget);
-    expect(find.text('Now Playing'), findsOneWidget);
+    expect(find.text('Album A · 2026-07'), findsOneWidget);
   });
 
-  testWidgets('art is sized min(width - 48, 360)', (tester) async {
-    // Phone-narrow: 390 - 48 = 342.
+  testWidgets('empty album omits it, showing just the date', (tester) async {
+    await pumpPage(tester, startIndex: 1); // Song B, no album
+
+    expect(find.text('Song B'), findsOneWidget);
+    expect(find.text('2026-07'), findsOneWidget);
+  });
+
+  testWidgets('art is sized min(width - 56, 400)', (tester) async {
+    // Phone-narrow: 390 - 56 = 334.
     await pumpPage(tester);
-    expect(tester.getSize(find.byType(AlbumArt)), const Size(342, 342));
+    expect(tester.getSize(find.byType(AlbumArt)), const Size(334, 334));
   });
 
-  testWidgets('art caps at 360 on wide surfaces', (tester) async {
+  testWidgets('art caps at 400 on wide surfaces', (tester) async {
     await pumpPage(tester, surface: const Size(800, 1000));
-    expect(tester.getSize(find.byType(AlbumArt)), const Size(360, 360));
+    expect(tester.getSize(find.byType(AlbumArt)), const Size(400, 400));
   });
 
-  testWidgets('time labels show position/duration at 10.5px', (tester) async {
+  testWidgets('time labels show position/duration with tabular figures', (
+    tester,
+  ) async {
     final player = await pumpPage(tester);
 
-    // position/duration mirror engine streams in production; set directly
-    // and use setVolume as the no-native notifyListeners trigger.
     player.duration = const Duration(minutes: 3, seconds: 5);
     player.position = const Duration(seconds: 12);
     await player.setVolume(1.0);
@@ -162,8 +226,10 @@ void main() {
 
     expect(find.text('0:12'), findsOneWidget);
     expect(find.text('3:05'), findsOneWidget);
-    expect(tester.widget<Text>(find.text('3:05')).style?.fontSize, 10.5);
-    expect(tester.widget<Text>(find.text('0:12')).style?.fontSize, 10.5);
+    final style = tester.widget<Text>(find.text('3:05')).style;
+    expect(style?.fontSize, 11);
+    expect(style?.color, Colors.white70);
+    expect(style?.fontFeatures, contains(const FontFeature.tabularFigures()));
   });
 
   testWidgets('play/pause glyph follows playing state', (tester) async {
@@ -212,11 +278,13 @@ void main() {
     expect(spy.seeks.last, lessThanOrEqualTo(const Duration(minutes: 4)));
   });
 
-  testWidgets('shuffle toggle flips the state glyph', (tester) async {
+  testWidgets('shuffle toggle flips the state glyph and calls toggleShuffle', (
+    tester,
+  ) async {
     final player = await pumpPage(tester);
 
     expect(player.shuffle, isFalse);
-    await tester.tap(find.byTooltip('Shuffle'));
+    await tester.tap(find.byKey(const Key('np-shuffle')));
     await tester.pumpAndSettle();
 
     expect(player.shuffle, isTrue);
@@ -224,13 +292,30 @@ void main() {
     expect(metroIcon(kIconShuffleOn), findsOneWidget);
   });
 
-  testWidgets('no volume slider on phone (hardware keys own volume)',
-      (tester) async {
-    await pumpPage(tester);
+  testWidgets('np-more opens the existing track context sheet', (
+    tester,
+  ) async {
+    final library = LibraryModel();
+    final store = PlaylistStore(library: library, device: 'test');
+    await pumpPage(tester, library: library, store: store);
 
-    expect(find.byKey(const Key('np-volume')), findsNothing);
-    expect(find.byIcon(Icons.volume_up), findsNothing);
-    // The seek slider is the only slider on the page.
-    expect(find.byType(Slider), findsOneWidget);
+    await tester.tap(find.byKey(const Key('np-more')));
+    await tester.pumpAndSettle();
+
+    // One of the sheet's known items -- proves the EXISTING sheet opened,
+    // not some new bespoke menu.
+    expect(find.byKey(const Key('sheet-view-details')), findsOneWidget);
+    expect(find.byKey(const Key('sheet-add-to-playlist')), findsOneWidget);
+  });
+
+  testWidgets('np-more is a no-op without library/store wired', (
+    tester,
+  ) async {
+    await pumpPage(tester); // no library/store
+
+    await tester.tap(find.byKey(const Key('np-more')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('sheet-view-details')), findsNothing);
   });
 }

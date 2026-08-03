@@ -1,9 +1,11 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-08-02--2327
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../artwork/artwork_resolver.dart';
+import '../../artwork/picker_seams.dart' show ArtworkServices;
 import '../../model/library_model.dart';
+import '../../model/playlist_store.dart';
 import '../../model/track.dart';
 import '../../player/player_service.dart';
 import 'app_background.dart';
@@ -83,6 +85,12 @@ class PhoneShell extends StatefulWidget {
   /// Artwork chain, forwarded to the full-screen player this shell opens.
   final ArtworkResolver? artworkResolver;
 
+  /// Forwarded to the full-screen player's overflow ("more") button, which
+  /// reuses the existing track context sheet. Null keeps that button a
+  /// harmless no-op, exactly like [NowPlayingPage]'s own default.
+  final PlaylistStore? store;
+  final ArtworkServices? artwork;
+
   /// Whether tapping a song opens the full-screen player on top of playing
   /// it. On by default; widget tests that only want to observe the play
   /// callback turn it off rather than dealing with a pushed route.
@@ -97,6 +105,8 @@ class PhoneShell extends StatefulWidget {
     this.miniPlayerBuilder,
     this.viewBuilders = const {},
     this.artworkResolver,
+    this.store,
+    this.artwork,
     this.openNowPlayingOnPlay = true,
   });
 
@@ -138,6 +148,9 @@ class _PhoneShellState extends State<PhoneShell> {
         NowPlayingPage.route(
           player: widget.player,
           artworkResolver: widget.artworkResolver,
+          library: widget.library,
+          store: widget.store,
+          artwork: widget.artwork,
         ),
       );
     }

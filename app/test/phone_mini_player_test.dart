@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1835
+// Last modified: 2026-08-02--2327
 //
 // Plan 2b / P2: phone MiniPlayer widget tests. The bar must be hidden with
 // no current track, appear as a 64px bar (48px art + title/artist + metro
@@ -142,21 +142,24 @@ void main() {
     expect(find.byType(NowPlayingPage), findsNothing);
   });
 
-  testWidgets('tapping the bar pushes NowPlayingPage; back pops to the bar', (
-    tester,
-  ) async {
-    await pumpMini(tester);
+  testWidgets(
+    'tapping the bar pushes NowPlayingPage; np-close pops back to the bar',
+    (tester) async {
+      await pumpMini(tester);
 
-    await tester.tap(find.text('Song A'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Song A'));
+      await tester.pumpAndSettle();
 
-    expect(find.byType(NowPlayingPage), findsOneWidget);
-    expect(find.byType(BackButton), findsOneWidget);
+      expect(find.byType(NowPlayingPage), findsOneWidget);
+      // No AppBar on the reskinned page -- np-close is the dismiss
+      // affordance instead of the framework BackButton.
+      expect(find.byKey(const Key('np-close')), findsOneWidget);
 
-    await tester.tap(find.byType(BackButton));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('np-close')));
+      await tester.pumpAndSettle();
 
-    expect(find.byType(NowPlayingPage), findsNothing);
-    expect(find.byKey(const Key('mini-player-bar')), findsOneWidget);
-  });
+      expect(find.byType(NowPlayingPage), findsNothing);
+      expect(find.byKey(const Key('mini-player-bar')), findsOneWidget);
+    },
+  );
 }

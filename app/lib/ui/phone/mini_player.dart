@@ -1,8 +1,11 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-08-02--2327
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../../artwork/artwork_resolver.dart';
+import '../../artwork/picker_seams.dart' show ArtworkServices;
+import '../../model/library_model.dart';
+import '../../model/playlist_store.dart';
 import '../../player/player_service.dart';
 import '../app_theme.dart';
 import '../now_playing_bar.dart' show AlbumArt, kIconPlay, kIconPause;
@@ -25,7 +28,21 @@ class MiniPlayer extends StatelessWidget {
   /// Null keeps the pre-Plan-4 embedded-art-only behavior.
   final ArtworkResolver? artworkResolver;
 
-  const MiniPlayer({super.key, required this.player, this.artworkResolver});
+  /// Forwarded to the full-screen page's overflow ("more") button, which
+  /// reuses the existing track context sheet. Null keeps that button a
+  /// harmless no-op, exactly like [NowPlayingPage]'s own default.
+  final LibraryModel? library;
+  final PlaylistStore? store;
+  final ArtworkServices? artwork;
+
+  const MiniPlayer({
+    super.key,
+    required this.player,
+    this.artworkResolver,
+    this.library,
+    this.store,
+    this.artwork,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +58,9 @@ class MiniPlayer extends StatelessWidget {
               NowPlayingPage.route(
                 player: player,
                 artworkResolver: artworkResolver,
+                library: library,
+                store: store,
+                artwork: artwork,
               ),
             ),
             child: Container(

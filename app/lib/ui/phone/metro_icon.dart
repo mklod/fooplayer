@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1835
+// Last modified: 2026-08-02--2327
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
@@ -13,7 +13,15 @@ import '../app_theme.dart';
 class MetroIcon extends StatelessWidget {
   final String asset;
   final double size;
-  const MetroIcon(this.asset, {super.key, this.size = 26});
+
+  /// Optional runtime tint (Now Playing reskin: shuffle needs the app's
+  /// blue accent when active, and a dimmer white when off). Null (the
+  /// default) is byte-identical to the original widget -- no filter is
+  /// applied and every existing call site keeps rendering the PNG's own
+  /// baked-in white exactly as before.
+  final Color? color;
+
+  const MetroIcon(this.asset, {super.key, this.size = 26, this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -21,10 +29,11 @@ class MetroIcon extends StatelessWidget {
       asset,
       width: size,
       height: size,
-      // No runtime color/colorBlendMode: srcIn forces a saveLayer, whose
-      // bounds SwiftShader (the Android emulator's software renderer)
-      // paints as a faint hairline box around every glyph. The ink color
-      // is baked into the PNGs instead (assets/icons/*.png).
+      color: color,
+      // Only pay for the srcIn saveLayer (and its documented SwiftShader
+      // hairline risk on emulators) when a caller actually asked for a
+      // tint; every untinted glyph keeps the baked-in-PNG fast path.
+      colorBlendMode: color == null ? null : BlendMode.srcIn,
       filterQuality: FilterQuality.medium,
     );
   }

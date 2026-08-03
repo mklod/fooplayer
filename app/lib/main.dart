@@ -820,6 +820,10 @@ class FooPlayerApp extends StatelessWidget {
             // The full-screen player this shell opens on a song tap needs the
             // same artwork chain the mini-player uses.
             artworkResolver: artworkResolver,
+            // Lets the full-screen player's overflow button reuse the same
+            // track context sheet every other long-press opens.
+            store: store,
+            artwork: artworkServices,
             onTrackLongPress: (sheetContext, track) => showTrackContextSheet(
               sheetContext,
               track: track,
@@ -829,8 +833,13 @@ class FooPlayerApp extends StatelessWidget {
               // Enables "Play next" / "Add to queue" in the sheet.
               player: player,
             ),
-            miniPlayerBuilder: (_) =>
-                MiniPlayer(player: player, artworkResolver: artworkResolver),
+            miniPlayerBuilder: (_) => MiniPlayer(
+              player: player,
+              artworkResolver: artworkResolver,
+              library: library,
+              store: store,
+              artwork: artworkServices,
+            ),
             viewBuilders: {
               PhoneView.folders: (_) => FoldersView(
                 library: library,
