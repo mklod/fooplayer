@@ -41,6 +41,34 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-02--2348
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tablet updated over USB)
+
+### Changes
+
+- **Now Playing reskin (the commissioned design pass, scoped to the
+  player screen).** Full-bleed immersive page: the whole background takes
+  a muted wash of the artwork's dominant color — extracted per track
+  (12-bucket HSV vote, near-grey pixels excluded, circular-mean hue),
+  then deliberately muted (saturation and brightness clamped into a
+  slate band) so ANY cover produces the same calm, readable feel; 400ms
+  crossfade between tracks, neutral slate fallback for bare art.
+  Layout: dismiss chevron, large rounded artwork with soft shadow,
+  title/artist/album·date centered in white, white seekbar, and exactly
+  five controls — shuffle (blue when on) · previous · play/pause ·
+  next · an ⋯ opening the existing track sheet. Metro glyphs unchanged.
+  Deliberately absent: repeat, EQ, volume (hardware keys), rew/ffwd.
+  Verified live on the emulator across warm and dark covers.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player screen: tint follows the artwork and changes with the track; text readable on your brightest and darkest covers
+>   - Notes:
+> - [ ] Five controls only; ⋯ opens the usual track sheet; chevron closes; Back still works
+>   - Notes:
+
 ## Build 2026-08-02--0034
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tablet already updated over USB)
