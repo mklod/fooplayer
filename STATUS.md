@@ -10,15 +10,17 @@ five roots discovered, and its playlists ("alt", "summer") auto-pushed to
 the NAS `.playlists/` — first real cross-device playlist sync. The
 hardware pass caught and fixed two release-only bugs (probe teardown
 race; full-share-walk discovery — see CHANGELOG 2026-08-02--0034).
-Remaining: (1) Mike checks roots + Sync now on the tablet when he wants
-mirrors (checklist items: big pull, mid-transfer Wi-Fi kill, cancel);
-(2) **desktop rollout** — rebuild the daily driver from
-current `main` (worktree `C:\dev\foobar-app` needs its branch updated) —
-its FIRST run migrates the real library's playlists into
-`L:\music (original structure)\.playlists\` and empties the manifest
-arrays, after which pre-Plan-3 builds stop seeing playlists, so upgrade
-desktop and tablet the same day; (3) the small **post-merge cleanup**
-list queued in CHANGELOG's TODO.
+**Desktop rollout DONE (2026-08-03):** daily driver rebuilt from `main`
+(windows-app `b156976`), first run migrated the real playlists — echos
+(9), monthly (1,841), sheepy mixes (12) — into the shared `.playlists/`
+sidecar alongside the tablet's alt + summer; monthly manifest's array
+emptied with `.bak` kept, `playlistsMigrated` set, pre-migration
+snapshot kept in session scratchpad. **All three devices now share one
+playlist truth.** The phone Now Playing screen got its artwork-tinted
+reskin (build 2026-08-02--2348). Remaining: (1) Mike's optional tablet
+stress items (big pull, mid-transfer Wi-Fi kill, cancel button);
+(2) the small **post-merge cleanup** list queued in CHANGELOG's TODO;
+(3) player tint tuning on request.
 
 **Parked, not forgotten:** a UI reskin (moving/restyling existing
 controls) is deliberately punted until Mike runs a dedicated Claude-design
