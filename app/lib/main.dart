@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0131
+// Last modified: 2026-08-04--0340
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -792,6 +792,17 @@ class FooPlayerApp extends StatelessWidget {
     return MaterialApp(
       title: 'fooplayer',
       theme: buildAppTheme(),
+      // Phone devices get the scaled-up type ramp (see buildAppTheme's
+      // [phone] doc). Applied here in MaterialApp.builder -- which wraps
+      // the NAVIGATOR, not just `home` -- so every pushed route, dialog,
+      // and bottom sheet on a phone inherits it, while the desktop panel
+      // layout (including the tablet, which uses it) keeps the dense
+      // theme from the `theme:` slot above. usePhoneShell is the same
+      // rule the `home` Builder below already keys the layout on.
+      builder: (context, child) {
+        if (!usePhoneShell(context)) return child!;
+        return Theme(data: buildAppTheme(phone: true), child: child!);
+      },
       // Adaptive form-factor switch (Plan 2b): Android (or a future
       // phone-sized mobile target) gets the PhoneShell; desktop keeps the
       // panel layout untouched -- see usePhoneShell's doc for the exact

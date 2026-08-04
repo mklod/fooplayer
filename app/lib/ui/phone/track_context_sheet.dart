@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-08-04--0340
 //
 // Phone track long-press context sheet (Plan 2b, task P3): the phone
 // counterpart of the desktop row's right-click menu, with the plan's two
@@ -41,7 +41,7 @@ Widget _detailRow(String label, String value) {
           child: Text(
             label,
             style: const TextStyle(
-              fontSize: 11.5,
+              fontSize: 13,
               color: AppColors.inkSecondary,
             ),
           ),
@@ -49,7 +49,7 @@ Widget _detailRow(String label, String value) {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 12.5, color: AppColors.ink),
+            style: const TextStyle(fontSize: 14.5, color: AppColors.ink),
           ),
         ),
       ],

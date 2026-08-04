@@ -1,4 +1,4 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--0340
 //
 // Plan 2b / P2: phone MiniPlayer widget tests. The bar must be hidden with
 // no current track, appear as a 64px bar (48px art + title/artist + metro
@@ -94,18 +94,18 @@ void main() {
     expect(find.text('Song A'), findsNothing);
   });
 
-  testWidgets('appears once a queue is set: 64px bar, 48px art, title/artist', (
+  testWidgets('appears once a queue is set: 76px bar, 56px art, title/artist', (
     tester,
   ) async {
     await pumpMini(tester);
 
     final bar = find.byKey(const Key('mini-player-bar'));
     expect(bar, findsOneWidget);
-    expect(tester.getSize(bar).height, 64);
+    expect(tester.getSize(bar).height, 76);
 
     final art = find.byType(AlbumArt);
     expect(art, findsOneWidget);
-    expect(tester.getSize(art), const Size(48, 48));
+    expect(tester.getSize(art), const Size(56, 56));
 
     expect(find.text('Song A'), findsOneWidget);
     expect(find.text('Artist A'), findsOneWidget);

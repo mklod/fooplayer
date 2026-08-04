@@ -47,7 +47,17 @@ class AppColors {
 /// never `ColorScheme.fromSeed`, which derives a tinted (purple-leaning)
 /// Material 3 palette from a seed color and would reintroduce exactly the
 /// look this theme exists to avoid.
-ThemeData buildAppTheme() {
+/// [phone] scales the whole type ramp and densities up for a handheld
+/// screen -- reported live: the desktop's iTunes-dense 13/11.5px ramp and
+/// compact ListTiles, reused verbatim on the phone, read as "much too
+/// small" everywhere (library rows, drawer, mini player). Desktop and
+/// tablet (which uses the desktop panel layout) keep the dense ramp;
+/// main.dart applies the phone variant through MaterialApp.builder so every
+/// pushed route and dialog on a phone inherits it.
+ThemeData buildAppTheme({bool phone = false}) {
+  final double rowSize = phone ? 15 : 13;
+  final double subSize = phone ? 13 : 11.5;
+  final double labelSize = phone ? 12 : 11;
   const colorScheme = ColorScheme.light(
     brightness: Brightness.light,
     primary: AppColors.accent,
@@ -73,26 +83,26 @@ ThemeData buildAppTheme() {
   final textTheme = base.textTheme.copyWith(
     // List rows (track titles, sidebar/filter entries): 13.
     bodyMedium: base.textTheme.bodyMedium?.copyWith(
-      fontSize: 13,
+      fontSize: rowSize,
       color: AppColors.ink,
     ),
     bodyLarge: base.textTheme.bodyLarge?.copyWith(
-      fontSize: 13,
+      fontSize: rowSize,
       color: AppColors.ink,
     ),
     // Subtitles (artist — album, dates): 11.5.
     bodySmall: base.textTheme.bodySmall?.copyWith(
-      fontSize: 11.5,
+      fontSize: subSize,
       color: AppColors.inkSecondary,
     ),
     // Bar title / emphasized row title: 13 w600.
     titleMedium: base.textTheme.titleMedium?.copyWith(
-      fontSize: 13,
+      fontSize: rowSize,
       fontWeight: FontWeight.w600,
       color: AppColors.ink,
     ),
     titleSmall: base.textTheme.titleSmall?.copyWith(
-      fontSize: 13,
+      fontSize: rowSize,
       fontWeight: FontWeight.w600,
       color: AppColors.ink,
     ),
@@ -100,7 +110,7 @@ ThemeData buildAppTheme() {
     // Widgets are responsible for upper-casing the label text itself; this
     // only fixes the type spec.
     labelLarge: base.textTheme.labelLarge?.copyWith(
-      fontSize: 11,
+      fontSize: labelSize,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.4,
       color: AppColors.inkSecondary,
@@ -110,7 +120,7 @@ ThemeData buildAppTheme() {
   return base.copyWith(
     scaffoldBackgroundColor: AppColors.windowBg,
     canvasColor: AppColors.windowBg,
-    visualDensity: VisualDensity.compact,
+    visualDensity: phone ? VisualDensity.standard : VisualDensity.compact,
     textTheme: textTheme,
     // Every dialog in the app gets the same corners. Material's default is
     // 28, at which a dialog reads as a phone sheet rather than a desktop
@@ -129,8 +139,8 @@ ThemeData buildAppTheme() {
       space: 1,
     ),
     listTileTheme: ListTileThemeData(
-      dense: true,
-      visualDensity: VisualDensity.compact,
+      dense: !phone,
+      visualDensity: phone ? VisualDensity.standard : VisualDensity.compact,
       selectedTileColor: AppColors.selectionFill,
       selectedColor: AppColors.ink,
       iconColor: AppColors.inkSecondary,

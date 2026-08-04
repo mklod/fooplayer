@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0131
+// Last modified: 2026-08-04--0340
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -267,6 +267,11 @@ class _PhoneShellState extends State<PhoneShell> {
           ],
         ),
         drawer: Drawer(
+          // Wider than Material's 304 default -- reported live as "too
+          // small" together with the rest of the phone chrome; the wider
+          // panel also keeps the (now larger, see buildAppTheme's phone
+          // ramp) entry text from feeling cramped against the edge.
+          width: 340,
           child: SafeArea(
             child: ListView(
               children: [

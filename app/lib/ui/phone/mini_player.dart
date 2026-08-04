@@ -1,4 +1,4 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--0340
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -12,7 +12,7 @@ import '../now_playing_bar.dart' show AlbumArt, kIconPlay, kIconPause;
 import 'metro_icon.dart';
 import 'now_playing_page.dart';
 
-/// Phone bottom mini-player: a 64px bar with 48px album art, title/artist,
+/// Phone bottom mini-player: a 76px bar with 56px album art, title/artist,
 /// and a metro play/pause button. Hidden entirely when no track is loaded.
 /// Tapping anywhere on the bar (except the play/pause button, which consumes
 /// its own tap) pushes [NowPlayingPage].
@@ -65,7 +65,7 @@ class MiniPlayer extends StatelessWidget {
             ),
             child: Container(
               key: const Key('mini-player-bar'),
-              height: 64,
+              height: 76,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: const BoxDecoration(
                 border: Border(top: BorderSide(color: AppColors.hairline)),
@@ -75,11 +75,11 @@ class MiniPlayer extends StatelessWidget {
                   AlbumArt(
                     contentId: t.contentId,
                     file: File(p.join(t.rootPath, t.relPath)),
-                    size: 48,
+                    size: 56,
                     resolver: artworkResolver,
                     track: t,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -104,10 +104,10 @@ class MiniPlayer extends StatelessWidget {
                   const SizedBox(width: 4),
                   IconButton(
                     tooltip: player.playing ? 'Pause' : 'Play',
-                    iconSize: 32,
+                    iconSize: 40,
                     icon: MetroIcon(
                       player.playing ? kIconPause : kIconPlay,
-                      size: 32,
+                      size: 40,
                     ),
                     onPressed: player.togglePlayPause,
                   ),
