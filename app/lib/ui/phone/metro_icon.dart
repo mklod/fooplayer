@@ -1,24 +1,26 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--0340
 import 'package:flutter/material.dart';
 import '../app_theme.dart';
 
-/// One metro-style PNG glyph for the phone player surfaces, tinted to be
-/// visible on light backgrounds.
+/// One metro-style PNG glyph for the phone player surfaces.
 ///
 /// Public sibling of the desktop bar's private `_MetroIcon` (see
-/// `now_playing_bar.dart`): the source PNGs are WHITE glyphs on transparency,
-/// so the srcIn [ColorFilter] repaints every opaque pixel [AppColors.ink].
-/// Duplicated (rather than making the desktop one public) so the phone
-/// branch leaves desktop files byte-identical.
+/// `now_playing_bar.dart`). Duplicated (rather than making the desktop one
+/// public) so the phone branch leaves desktop files byte-identical.
+///
+/// The source PNGs are baked INK-DARK (measured ~#1D1D1F, same as
+/// [AppColors.ink]) glyphs on transparency -- NOT white, as this doc once
+/// claimed; that error shipped the Now Playing transport as near-invisible
+/// black-on-dark. Null [color] renders that baked-in dark, which is right
+/// for light surfaces (the mini player); any dark surface MUST pass an
+/// explicit white tint.
 class MetroIcon extends StatelessWidget {
   final String asset;
   final double size;
 
-  /// Optional runtime tint (Now Playing reskin: shuffle needs the app's
-  /// blue accent when active, and a dimmer white when off). Null (the
-  /// default) is byte-identical to the original widget -- no filter is
-  /// applied and every existing call site keeps rendering the PNG's own
-  /// baked-in white exactly as before.
+  /// Optional runtime tint (srcIn repaint of every opaque pixel). Null (the
+  /// default) applies no filter: the PNG's own baked-in ink-dark shows,
+  /// which suits light backgrounds only -- see the class doc.
   final Color? color;
 
   const MetroIcon(this.asset, {super.key, this.size = 26, this.color});

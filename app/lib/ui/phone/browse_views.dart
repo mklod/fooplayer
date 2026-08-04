@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-08-04--0340
 //
 // Phone-shell browse views (Plan 2b, task P3): Folders / Artists / Albums /
 // Playlists -- the drawer destinations other than the Library feed. Each is
@@ -112,7 +112,7 @@ class FoldersView extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 11.5,
+                        fontSize: 13,
                         color: AppColors.inkSecondary,
                       ),
                     ),

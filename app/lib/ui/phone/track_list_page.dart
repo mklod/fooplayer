@@ -1,4 +1,4 @@
-// Last modified: 2026-07-24--1837
+// Last modified: 2026-08-04--0340
 //
 // Phone-shell filtered track list page (Plan 2b, task P3): the page an
 // Artists/Albums/Playlists entry taps through to, plus the feed-style row
@@ -32,9 +32,10 @@ String trackSubtitle(Track t) {
   return t.artist.isNotEmpty ? t.artist : t.album;
 }
 
-/// One feed-style phone track row (per the Plan 2b spec): title (13,
-/// [AppColors.ink]) over `artist — album` (11.5, [AppColors.inkSecondary]),
-/// duration right-aligned. Tap = play (phone idiom -- not desktop's
+/// One feed-style phone track row (per the Plan 2b spec): title
+/// (bodyMedium, ink) over `artist — album` (bodySmall, secondary),
+/// duration right-aligned -- sizes come from the theme's phone ramp, see
+/// buildAppTheme. Tap = play (phone idiom -- not desktop's
 /// select-then-double-click); long-press = the track context sheet (the
 /// caller owns both gestures so tests can spy on them).
 class PhoneTrackRow extends StatelessWidget {
@@ -67,7 +68,9 @@ class PhoneTrackRow extends StatelessWidget {
                     track.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, color: AppColors.ink),
+                    // Theme-derived (not hardcoded 13) so the phone type
+                    // ramp in buildAppTheme actually reaches these rows.
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   if (subtitle.isNotEmpty) ...[
                     const SizedBox(height: 2),
@@ -75,10 +78,7 @@ class PhoneTrackRow extends StatelessWidget {
                       subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: AppColors.inkSecondary,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ],
@@ -87,10 +87,7 @@ class PhoneTrackRow extends StatelessWidget {
             const SizedBox(width: 12),
             Text(
               formatTrackDuration(track.durationMs),
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: AppColors.inkSecondary,
-              ),
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),

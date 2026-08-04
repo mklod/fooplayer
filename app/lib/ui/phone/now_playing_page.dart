@@ -1,4 +1,4 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--0340
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -405,56 +405,66 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                         widget.player.shuffle
                                             ? kIconShuffleOn
                                             : kIconShuffleOff,
-                                        size: 24,
+                                        size: 32,
                                         color: widget.player.shuffle
                                             ? AppColors.accent
                                             : Colors.white54,
                                       ),
                                       onPressed: widget.player.toggleShuffle,
                                     ),
-                                    const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
+                                    // The transport glyphs MUST be tinted
+                                    // white explicitly: the PNGs are baked
+                                    // ink-dark (see MetroIcon's doc), so an
+                                    // untinted glyph disappears against
+                                    // this page's dark gradient -- exactly
+                                    // the "black, very difficult to see"
+                                    // buttons reported from the phone.
                                     IconButton(
                                       tooltip: 'Previous',
-                                      iconSize: 32,
+                                      iconSize: 40,
                                       icon: const MetroIcon(
                                         kIconPrevious,
-                                        size: 32,
+                                        size: 40,
+                                        color: Colors.white,
                                       ),
                                       onPressed: widget.player.previous,
                                     ),
-                                    const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
                                     IconButton(
                                       tooltip: widget.player.playing
                                           ? 'Pause'
                                           : 'Play',
-                                      iconSize: 48,
+                                      iconSize: 60,
                                       icon: MetroIcon(
                                         widget.player.playing
                                             ? kIconPause
                                             : kIconPlay,
-                                        size: 48,
+                                        size: 60,
+                                        color: Colors.white,
                                       ),
                                       onPressed:
                                           widget.player.togglePlayPause,
                                     ),
-                                    const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
                                     IconButton(
                                       tooltip: 'Next',
-                                      iconSize: 32,
+                                      iconSize: 40,
                                       icon: const MetroIcon(
                                         kIconNext,
-                                        size: 32,
+                                        size: 40,
+                                        color: Colors.white,
                                       ),
                                       onPressed: widget.player.next,
                                     ),
-                                    const SizedBox(width: 16),
+                                    const SizedBox(width: 8),
                                     IconButton(
                                       key: const Key('np-more'),
                                       tooltip: 'More',
                                       icon: const Icon(
                                         Icons.more_horiz,
                                         color: Colors.white70,
-                                        size: 24,
+                                        size: 32,
                                       ),
                                       onPressed: () => _openMore(context, t),
                                     ),
