@@ -41,6 +41,37 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--1655
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)
+
+### Changes
+
+- **Now Playing rebuilt to the Apple-Music reference** (two screenshots
+  provided). Artwork pushed to the top with flexible breathing room;
+  title / artist / **source folder** left-aligned (folder = the file's
+  immediate parent directory, e.g. "loose tracks - old"); shuffle and
+  overflow are now small circular translucent buttons to the right of the
+  title block (the reference's star/dots); the seek bar is a fat 7px
+  rounded fill with **no thumb dot**, still draggable, with the times
+  directly beneath it (current position left, total right); exactly three
+  large transport controls (previous / play-pause / next). 1.0.0+10
+  (arm64 = 2010).
+- **Persistent bottom shortcut bar on the player** (per the second
+  reference): Library · Queue · Folders · Artists · Playlists. Tapping one
+  closes the player and jumps the shell straight to that view — verified
+  live (player → Folders).
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player matches the reference: left-aligned text, thumbless fat seekbar, times under the bar, three big buttons
+>   - Notes:
+> - [ ] Third metadata line shows the track's source folder
+>   - Notes:
+> - [ ] Bottom bar shortcuts land on the right views with the mini player showing
+>   - Notes:
+
 ## Build 2026-08-04--0341
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)
