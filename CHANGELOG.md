@@ -41,6 +41,39 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--0341
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)
+
+### Changes
+
+- **Phone chrome made readable** (reported live: transport buttons "black
+  and much too small", library text / drawer / mini player all too small).
+  - **Transport glyphs were literally invisible-by-default**: the metro
+    PNGs are baked ink-dark (~#1D1D1F), not white as `MetroIcon`'s doc
+    claimed, and prev/play/next never passed a tint — black icons on the
+    dark player gradient. Now explicitly white and much larger
+    (prev/next 40px, play/pause 60px, shuffle 32px, tightened gaps so a
+    360dp screen still fits the row).
+  - **Phone-scaled theme ramp**: `buildAppTheme(phone: true)` — 15px rows
+    / 13px subtitles (up from the desktop's 13/11.5), standard density,
+    non-dense ListTiles — applied via `MaterialApp.builder` so every phone
+    route inherits it. Desktop AND tablet (which uses the desktop panel
+    layout) are untouched.
+  - **Mini player**: 76px bar, 56px art, 40px play/pause (was 64/48/32).
+  - **Drawer** widened to 340dp; track rows now take theme sizes; folders
+    breadcrumb and details dialog bumped to match.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player screen: prev/play/next clearly white and comfortably large on any cover
+>   - Notes:
+> - [ ] Library/browse rows, drawer, mini player: text readable at arm's length
+>   - Notes:
+> - [ ] Tablet + desktop unchanged (dense iTunes look preserved)
+>   - Notes:
+
 ## Build 2026-08-04--0324
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)

@@ -4,6 +4,15 @@
 
 ## Next session starts here
 
+**Phone chrome readability pass SHIPPED (2026-08-04, build
+2026-08-04--0341, merged `78c6bb7`, 1.0.0+9).** Mike's live feedback:
+transport buttons black + tiny, everything on the phone too small. Root
+cause of the black buttons: the metro PNGs are baked ink-dark — MetroIcon's
+doc falsely claimed white — and prev/play/next were never tinted. Now white
+40/60px transport, `buildAppTheme(phone:)` 15/13px standard-density ramp
+via MaterialApp.builder (desktop + tablet keep the dense look), 76px mini
+player, 340dp drawer. Emulator-verified across player/library/drawer/mini.
+
 **Sync-page live progress SHIPPED (2026-08-04, build 2026-08-04--0324,
 merged `0c19cb6`, 1.0.0+8).** Second VTC capture of the night: the Sync
 page still showed only the button spinner while the numbers lived on the
