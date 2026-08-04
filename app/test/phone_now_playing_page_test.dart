@@ -1,12 +1,14 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--1654
 //
-// Now Playing reskin: full-bleed, artwork-tinted phone player. No AppBar --
-// a top-left np-close chevron dismisses the page instead -- one transport
-// row of exactly five controls (shuffle / previous / play-pause / next /
-// overflow), a seek slider styled for the dark background, and an
-// AnimatedContainer (np-tint) painting the gradient. Transport taps go
-// through spy-safe paths (PlayerService.next/previous would construct a
-// media_kit Player, whose natives are unavailable under `flutter test`).
+// Now Playing, Apple-Music-style layout: full-bleed, artwork-tinted, no
+// AppBar (np-close chevron dismisses). Left-aligned title/artist/source-
+// folder block with circular shuffle + overflow actions on its right, a
+// fat thumbless seek bar with the times directly below it, exactly THREE
+// transport controls (previous / play-pause / next), and a persistent
+// bottom shortcut bar (np-nav-bar) that pops the page and switches the
+// shell view via phoneShellNavRequest. Transport taps go through spy-safe
+// paths (PlayerService.next/previous would construct a media_kit Player,
+// whose natives are unavailable under `flutter test`).
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fooplayer_app/model/library_model.dart';
@@ -24,6 +26,8 @@ import 'package:fooplayer_app/ui/now_playing_bar.dart'
         kIconShuffleOff,
         kIconShuffleOn;
 import 'package:fooplayer_app/ui/phone/now_playing_page.dart';
+import 'package:fooplayer_app/ui/phone/phone_shell.dart'
+    show PhoneView, phoneShellNavRequest;
 
 List<Track> fixtureTracks() => [
   Track(
@@ -43,7 +47,7 @@ List<Track> fixtureTracks() => [
     dateAdded: DateTime.utc(2026, 7, 2),
     title: 'Song B',
     artist: 'Artist B',
-    album: '', // no album tag -- third line should read just the date
+    album: '', // no album tag -- the third line is the folder, not the album
     genre: 'Rock',
   ),
 ];
@@ -156,7 +160,7 @@ void main() {
   });
 
   testWidgets(
-    'exactly five transport controls, no repeat/EQ affordance',
+    'exactly three transport controls; shuffle and more are circle actions',
     (tester) async {
       await pumpPage(tester);
 
@@ -164,9 +168,10 @@ void main() {
       expect(transport, findsOneWidget);
       expect(
         find.descendant(of: transport, matching: find.byType(IconButton)),
-        findsNWidgets(5),
+        findsNWidgets(3),
       );
 
+      // Shuffle and overflow moved up to the title row, still present.
       expect(metroIcon(kIconShuffleOff), findsOneWidget);
       expect(metroIcon(kIconPrevious), findsOneWidget);
       expect(metroIcon(kIconPlay), findsOneWidget); // not playing
@@ -186,22 +191,86 @@ void main() {
     },
   );
 
-  testWidgets('renders track info: title, artist, album · date', (
+  testWidgets('renders track info: title, artist, source folder', (
     tester,
   ) async {
     await pumpPage(tester);
 
     expect(find.text('Song A'), findsOneWidget);
     expect(find.text('Artist A'), findsOneWidget);
-    expect(find.text('Album A · 2026-07'), findsOneWidget);
+    // Third line is the file's immediate parent folder -- the fixture
+    // lives directly in the root L:/Music, so its basename.
+    expect(find.text('Music'), findsOneWidget);
   });
 
-  testWidgets('empty album omits it, showing just the date', (tester) async {
-    await pumpPage(tester, startIndex: 1); // Song B, no album
+  testWidgets('seek bar has no thumb dot and a fat track', (tester) async {
+    await pumpPage(tester);
 
-    expect(find.text('Song B'), findsOneWidget);
-    expect(find.text('2026-07'), findsOneWidget);
+    final theme = tester.widget<SliderTheme>(
+      find
+          .ancestor(
+            of: find.byKey(const Key('np-seek')),
+            matching: find.byType(SliderTheme),
+          )
+          .first,
+    );
+    expect(theme.data.thumbShape, SliderComponentShape.noThumb);
+    expect(theme.data.trackHeight, 7);
   });
+
+  testWidgets(
+    'nav bar lists the five shortcuts and posts the view on tap',
+    (tester) async {
+      addTearDown(() => phoneShellNavRequest.value = null);
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final player = PlayerService();
+      player.queueController.setQueue(fixtureTracks(), 0);
+      await player.setVolume(1.0);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(
+                    context,
+                  ).push(NowPlayingPage.route(player: player)),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final bar = find.byKey(const Key('np-nav-bar'));
+      expect(bar, findsOneWidget);
+      expect(
+        find.descendant(of: bar, matching: find.byType(IconButton)),
+        findsNWidgets(5),
+      );
+      for (final v in const [
+        PhoneView.library,
+        PhoneView.queue,
+        PhoneView.folders,
+        PhoneView.artists,
+        PhoneView.playlists,
+      ]) {
+        expect(find.byKey(Key('np-nav-${v.name}')), findsOneWidget);
+      }
+
+      await tester.tap(find.byKey(const Key('np-nav-artists')));
+      await tester.pumpAndSettle();
+
+      // Popped itself and posted the request for the shell to consume.
+      expect(find.byType(NowPlayingPage), findsNothing);
+      expect(phoneShellNavRequest.value, PhoneView.artists);
+    },
+  );
 
   testWidgets('art is sized min(width - 56, 400)', (tester) async {
     // Phone-narrow: 390 - 56 = 334.
