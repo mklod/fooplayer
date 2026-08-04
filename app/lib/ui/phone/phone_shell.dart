@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0340
+// Last modified: 2026-08-04--1654
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -21,6 +21,15 @@ import 'phone_search_page.dart';
 /// view's body via [PhoneShell.viewBuilders] -- the P3 browse views plus
 /// the Settings page (`phone_settings_view.dart`).
 enum PhoneView { library, queue, folders, artists, albums, playlists, settings }
+
+/// App-global "switch the shell to this view" request bus. The full-screen
+/// player's bottom shortcut bar (now_playing_page.dart's `_navBar`) lives on
+/// a pushed ROUTE above the shell, with no constructor path back to the
+/// shell's private view state -- so it pops itself and posts the target view
+/// here, and the live shell listens and switches. Nulled by the handler, so
+/// the same view can be requested again later.
+final ValueNotifier<PhoneView?> phoneShellNavRequest =
+    ValueNotifier<PhoneView?>(null);
 
 extension PhoneViewInfo on PhoneView {
   /// Drawer entry text AND the AppBar title while the view is active.
@@ -142,6 +151,27 @@ class _PhoneShellState extends State<PhoneShell> {
   /// without this check Back would skip past an open drawer and change the
   /// view underneath it -- two levels for one press.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    phoneShellNavRequest.addListener(_onNavRequest);
+  }
+
+  @override
+  void dispose() {
+    phoneShellNavRequest.removeListener(_onNavRequest);
+    super.dispose();
+  }
+
+  void _onNavRequest() {
+    final v = phoneShellNavRequest.value;
+    if (v == null) return;
+    // Null it BEFORE acting: the write re-fires this listener (guarded by
+    // the null check above), and leaves the bus clean for the next request.
+    phoneShellNavRequest.value = null;
+    _selectView(v);
+  }
 
   PlayTrackCallback get _rawPlay =>
       widget.onPlayTrack ?? widget.player.playFrom;
