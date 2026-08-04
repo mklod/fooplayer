@@ -1,8 +1,29 @@
 # fooplayer — STATUS
 
-*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-07-31.*
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-08-04.*
 
 ## Next session starts here
+
+**Sync foreground service SHIPPED (2026-08-04, build 2026-08-04--0230,
+merged `164ead8`).** The VTC-reported gaps — no sync progress indicator on
+the phone, and syncs dying "connection closed midstream" when the app was
+backgrounded — are both closed by one `dataSync` foreground service: its
+notification carries a live progress bar, an in-app activity strip mirrors
+it on the library screens, and Android keeps the network alive while
+backgrounded. Emulator-verified end-to-end (92-file root synced while
+HOME'd; clean service teardown; report dialog on return). Release on
+dist.flana.app/fooplayer; tablet not USB-connected — tap-install from
+there. versionCode now 1.0.0+7 (arm64 = 2007).
+
+**Debugging postmortem worth remembering:** a night was nearly lost to a
+phantom "sync stall regression" that was actually (a) an adb tap missing a
+moved Settings tile by 100px, so no sync ever started, and (b) checking
+`/storage/emulated/0/Music` for files when the engine's local home is the
+app-private `files/` dir. The first vtc test run had in fact synced
+perfectly. Rule reaffirmed: dump-verify EVERY navigation tap, and verify
+the destination path from the code, not from assumption.
+
+## Previous snapshot (2026-08-03)
 
 **Plan 3 SHIPPED; tablet rollout DONE (2026-08-02).** The Tab S9+ runs the
 release build with sync configured (host 192.168.1.16): probe Connected,

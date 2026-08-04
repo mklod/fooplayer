@@ -41,6 +41,40 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--0230
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install on phone/tablet)
+
+### Changes
+
+- **LAN sync now shows progress on the phone and survives backgrounding**
+  (voice capture 2026-08-03 + "connection closed midstream" follow-up).
+  Three pieces, one fix: (1) a `dataSync` foreground service holds the
+  network alive while the app is backgrounded — Android was cutting the
+  process's connections the moment the screen locked, which is exactly the
+  mid-sync "connection closed" that was reported; (2) the service's
+  mandatory notification doubles as the missing status indicator — live
+  label, MB count, and a determinate progress bar in the shade; (3) a slim
+  in-app activity strip on the phone's library screens mirrors the same
+  progress ("Syncing loose tracks - old — 68.0 MB — 14 / 126"). Verified
+  on the emulator end-to-end: full 92-file root synced with the app
+  HOME'd mid-transfer, notification live throughout, service torn down
+  clean at completion, report dialog surfaced on return. Notification
+  permission is requested once, when the first sync job appears.
+- Answer to "does fooplayer need to stay in the foreground during the
+  entire sync?": **no longer.** Start the sync, background the app; the
+  notification tracks it.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Start a sync on the phone, press Home mid-transfer: notification shows progress, files keep landing, "Sync finished" dialog waits when you come back
+>   - Notes:
+> - [ ] Library screens show the bottom activity strip while a sync runs
+>   - Notes:
+> - [ ] First sync on a fresh install asks for notification permission once
+>   - Notes:
+
 ## Build 2026-08-02--2348
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tablet updated over USB)
