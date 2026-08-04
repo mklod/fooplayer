@@ -8,11 +8,12 @@
 // injected seams below; this widget never touches `dart:io` or a
 // `SyncTransport` directly, which is what makes it testable with fakes.
 //
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-04--0330
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'report_dialog.dart';
+import '../model/activity_model.dart';
 import '../sync/sync_engine.dart';
 import '../sync/sync_settings.dart';
 
@@ -44,6 +45,15 @@ class SyncUiSeams {
   /// themselves.
   final Future<void> Function() cancelSync;
 
+  /// The app's [ActivityModel], so the sync page can show the SAME live
+  /// progress line the phone strip and the notification already carry
+  /// ("Syncing albums — 68.0 MB — 14 / 126") right next to the button the
+  /// user pressed -- reported live: a sync started from this page showed
+  /// only the button's spinner, with the real numbers hidden on other
+  /// screens. Optional so widget tests (and any caller without a model)
+  /// can omit it; null just means no progress line, never an error.
+  final ActivityModel? activity;
+
   const SyncUiSeams({
     required this.currentSettings,
     required this.onSave,
@@ -51,6 +61,7 @@ class SyncUiSeams {
     required this.probe,
     required this.discoverRoots,
     required this.cancelSync,
+    this.activity,
   });
 }
 
@@ -66,6 +77,9 @@ class SyncView extends StatefulWidget {
   /// See [SyncUiSeams.cancelSync]'s doc.
   final Future<void> Function() cancelSync;
 
+  /// See [SyncUiSeams.activity]'s doc.
+  final ActivityModel? activity;
+
   const SyncView({
     super.key,
     required this.settings,
@@ -74,6 +88,7 @@ class SyncView extends StatefulWidget {
     required this.probe,
     required this.discoverRoots,
     required this.cancelSync,
+    this.activity,
   });
 
   @override
@@ -378,6 +393,52 @@ class _SyncViewState extends State<SyncView> {
             ],
           ],
         ),
+        // The engine's own live progress, rendered where the user is
+        // actually looking during a page-initiated sync. Gated on _syncing
+        // (not just the job's presence) so the app-start playlist reconcile
+        // or a periodic tick doesn't paint a surprise line under an idle
+        // button.
+        if (_syncing && widget.activity != null)
+          ListenableBuilder(
+            listenable: widget.activity!,
+            builder: (context, _) {
+              BackgroundActivity? job;
+              for (final j in widget.activity!.active) {
+                if (j.id == ActivityIds.sync) job = j;
+              }
+              if (job == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      job.text,
+                      key: const Key('sync-progress-line'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    if (job.hasProgress) ...[
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          key: const Key('sync-progress-bar'),
+                          value: job.fraction,
+                          minHeight: 4,
+                          backgroundColor: AppColors.hairline,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
         if (_syncError != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),

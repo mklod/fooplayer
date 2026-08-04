@@ -12,6 +12,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/model/activity_model.dart';
 import 'package:fooplayer_app/sync/sync_engine.dart';
 import 'package:fooplayer_app/sync/sync_settings.dart';
 import 'package:fooplayer_app/ui/sync_view.dart';
@@ -31,6 +32,7 @@ Future<void> _pumpSyncView(
   Future<bool> Function()? probe,
   Future<List<String>> Function()? discoverRoots,
   Future<void> Function()? cancelSync,
+  ActivityModel? activity,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -43,6 +45,7 @@ Future<void> _pumpSyncView(
             probe: probe ?? () async => true,
             discoverRoots: discoverRoots ?? () async => const [],
             cancelSync: cancelSync ?? () async {},
+            activity: activity,
           ),
         ),
       ),
@@ -404,6 +407,42 @@ void main() {
         find.textContaining('Sync did not run: NAS unreachable'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'a running sync shows the live progress line and bar on the page, and '
+    'both leave with the job',
+    (tester) async {
+      final activity = ActivityModel();
+      final gate = Completer<SyncReport>();
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () => gate.future,
+        activity: activity,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pump();
+      // In flight but the engine hasn't reported anything yet -- no line.
+      expect(find.byKey(const Key('sync-progress-line')), findsNothing);
+
+      activity.progress(ActivityIds.sync, 'Syncing albums — 68.0 MB', 14, 126);
+      await tester.pump();
+      expect(
+        find.text('Syncing albums — 68.0 MB — 14 / 126'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('sync-progress-bar')), findsOneWidget);
+
+      activity.finish(ActivityIds.sync);
+      gate.complete(_emptyReport());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('sync-progress-line')), findsNothing);
+      expect(find.byKey(const Key('sync-report-dialog')), findsOneWidget);
     },
   );
 }
