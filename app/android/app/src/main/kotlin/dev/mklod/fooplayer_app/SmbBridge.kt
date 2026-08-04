@@ -28,7 +28,8 @@ package dev.mklod.fooplayer_app
 // everything, including malformed arguments, and always resolves to a
 // plain boolean, bounded to ~5s regardless of how the network is failing.
 //
-// Last modified: 2026-07-31--1949
+// Last modified: 2026-08-04--0131
+import android.content.Context
 import android.os.Handler
 import android.util.Log
 import android.os.Looper
@@ -64,7 +65,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.SocketFactory
 
-class SmbBridge private constructor(messenger: BinaryMessenger) {
+class SmbBridge private constructor(messenger: BinaryMessenger, context: Context) {
+    // applicationContext, not the raw Activity context handed to [attach] --
+    // this outlives any one Activity instance exactly like the rest of this
+    // singleton does (see [attach]'s doc), and is only ever used to build
+    // Intents for [SyncForegroundService], never to touch UI.
+    private val appContext: Context = context.applicationContext
+
     // All real SMB-session work happens here, one call at a time. SMBJ has
     // no async API worth using for this app's traffic (small JSON files +
     // occasional large audio downloads), so a single background thread is
@@ -167,7 +174,43 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
             "cancel" -> dispatch(result, controlExecutor) { doCancel(call) }
             "close" -> dispatch(result, controlExecutor) { doClose(call) }
             "freeSpace" -> dispatch(result) { doFreeSpace(call) }
+            // Task: sync-survives-backgrounding. These three drive
+            // SyncForegroundService directly on THIS (main) thread --
+            // deliberately not routed through [dispatch]/[executor]: they
+            // only ever build and send a Service Intent, never touch an SMB
+            // session, and queuing a progress notification behind whatever
+            // [executor] is currently blocked on (a chunked download) would
+            // defeat the whole point of a live progress indicator.
+            "syncFgStart" -> handleSyncForeground(result) {
+                val label = call.argument<String>("label") ?: "Syncing"
+                SyncForegroundService.start(appContext, label)
+            }
+            "syncFgUpdate" -> handleSyncForeground(result) {
+                val label = call.argument<String>("label") ?: "Syncing"
+                val done = call.argument<Int>("done") ?: -1
+                val total = call.argument<Int>("total") ?: -1
+                SyncForegroundService.update(appContext, label, done, total)
+            }
+            "syncFgStop" -> handleSyncForeground(result) {
+                SyncForegroundService.stop(appContext)
+            }
             else -> result.notImplemented()
+        }
+    }
+
+    /** Runs [block] synchronously (see the dispatch comment above for why),
+     * then always resolves [result] -- to null on success, since Dart's
+     * SyncForegroundNotifier ignores the return value either way, or to an
+     * error if building/sending the Intent itself threw. A notification is
+     * a nicety: this exists so a failure here comes back as a normal
+     * PlatformException for Dart's own swallow-everything error handling,
+     * rather than an uncaught exception on the platform thread. */
+    private inline fun handleSyncForeground(result: MethodChannel.Result, block: () -> Unit) {
+        try {
+            block()
+            result.success(null)
+        } catch (e: Exception) {
+            result.error("smb", e.message ?: e.toString(), null)
         }
     }
 
@@ -688,15 +731,21 @@ class SmbBridge private constructor(messenger: BinaryMessenger) {
          * all survive recreation exactly like the engine itself already
          * does, instead of a fresh (and instantly orphaned) SmbBridge being
          * built each time.
+         *
+         * [context] (added for SyncForegroundService, task
+         * sync-survives-backgrounding) is only ever read for its
+         * `applicationContext` at construction time -- re-passing it on a
+         * later, idempotent call is harmless (same process, same
+         * application context) and simply isn't used past the first call.
          */
         @Synchronized
-        fun attach(messenger: BinaryMessenger): SmbBridge {
+        fun attach(messenger: BinaryMessenger, context: Context): SmbBridge {
             val existing = instance
             if (existing != null) {
                 existing.registerHandlers(messenger)
                 return existing
             }
-            val created = SmbBridge(messenger)
+            val created = SmbBridge(messenger, context)
             instance = created
             return created
         }

@@ -1,12 +1,13 @@
-// Last modified: 2026-07-24--1855
+// Last modified: 2026-08-04--0131
 //
 // Widget tests for the Plan 2b PhoneShell: drawer navigation + active
 // highlight, the feed view's newest-first rows (title / artist — album /
 // duration), tap-plays-immediately (phone idiom), long-press opening the
-// real context sheet through the injected callback, and the two wiring
-// slots (miniPlayerBuilder / viewBuilders) main.dart fills.
+// real context sheet through the injected callback, and the wiring slots
+// (miniPlayerBuilder / activity / viewBuilders) main.dart fills.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fooplayer_app/model/activity_model.dart';
 import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
@@ -46,6 +47,7 @@ Future<void> pumpShell(
   void Function(List<Track>, int)? onPlayTrack,
   void Function(BuildContext, Track)? onTrackLongPress,
   WidgetBuilder? miniPlayerBuilder,
+  ActivityModel? activity,
   Map<PhoneView, WidgetBuilder> viewBuilders = const {},
 }) {
   return tester.pumpWidget(
@@ -59,6 +61,7 @@ Future<void> pumpShell(
         onPlayTrack: onPlayTrack ?? (_, _) {},
         onTrackLongPress: onTrackLongPress ?? (_, _) {},
         miniPlayerBuilder: miniPlayerBuilder,
+        activity: activity,
         viewBuilders: viewBuilders,
       ),
     ),
@@ -203,5 +206,48 @@ void main() {
           const SizedBox(key: Key('mini-player'), height: 64),
     );
     expect(find.byKey(const Key('mini-player')), findsOneWidget);
+  });
+
+  testWidgets('no activity model -> no strip, mini-player unaffected', (
+    tester,
+  ) async {
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      miniPlayerBuilder: (_) =>
+          const SizedBox(key: Key('mini-player'), height: 64),
+    );
+    expect(find.byKey(const Key('phone-activity-strip')), findsNothing);
+    expect(find.byKey(const Key('mini-player')), findsOneWidget);
+  });
+
+  testWidgets('an idle activity model shows no strip', (tester) async {
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      activity: ActivityModel(),
+    );
+    expect(find.byKey(const Key('phone-activity-strip')), findsNothing);
+  });
+
+  testWidgets('a background job shows the strip above the mini-player, sync '
+      'surviving backgrounding was reported with NOTHING on the phone UI '
+      'hinting a sync was even running', (tester) async {
+    final activity = ActivityModel()..start('sync', 'Syncing with NAS');
+    await pumpShell(
+      tester,
+      library: fixtureLibrary(),
+      activity: activity,
+      miniPlayerBuilder: (_) =>
+          const SizedBox(key: Key('mini-player'), height: 64),
+    );
+
+    expect(find.byKey(const Key('phone-activity-strip')), findsOneWidget);
+    expect(find.text('Syncing with NAS'), findsOneWidget);
+    // The strip sits ABOVE the mini-player in the same bottom column.
+    expect(
+      tester.getTopLeft(find.byKey(const Key('phone-activity-strip'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('mini-player'))).dy),
+    );
   });
 }

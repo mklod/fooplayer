@@ -17,8 +17,10 @@ class MainActivity : AudioServiceActivity() {
         // NOT the constructor: this runs on every Activity recreation while
         // the (cached, shared) engine survives it, so a fresh SmbBridge
         // here every time would leak the old one's open sessions and orphan
-        // Dart's cached handle -- see SmbBridge.attach's doc.
-        SmbBridge.attach(flutterEngine.dartExecutor.binaryMessenger)
+        // Dart's cached handle -- see SmbBridge.attach's doc. `applicationContext`
+        // (not `this`): SmbBridge outlives any one Activity instance, and
+        // it needs a Context to start SyncForegroundService with.
+        SmbBridge.attach(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

@@ -17,6 +17,16 @@
          happening to declare it. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- SyncForegroundService: keeps a LAN sync's network alive when the app
+         is backgrounded, and shows its progress notification. dataSync is
+         the specific foreground-service type Android 14+ requires declaring
+         for exactly this kind of background network transfer, distinct
+         from FOREGROUND_SERVICE_MEDIA_PLAYBACK above, which only covers
+         playback. POST_NOTIFICATIONS is already declared above for the
+         playback notification; the sync notification reuses that same
+         runtime permission. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
     <!-- Reading a music folder the user picked.
 
          READ_MEDIA_AUDIO (13+) and READ_EXTERNAL_STORAGE (32 and below) cover
@@ -84,6 +94,12 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON"/>
             </intent-filter>
         </receiver>
+        <!-- See SyncForegroundService.kt's class doc. Not exported: only
+             this app's own SmbBridge starts it. -->
+        <service
+            android:name=".SyncForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

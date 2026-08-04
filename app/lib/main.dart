@@ -1,8 +1,9 @@
-// Last modified: 2026-08-01--1946
+// Last modified: 2026-08-04--0131
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:fooplayer_core/fooplayer_core.dart' as core;
 import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:path/path.dart' as p;
@@ -27,6 +28,7 @@ import 'player/player_service.dart';
 import 'sync/playlist_reconciler.dart';
 import 'sync/smb_transport.dart';
 import 'sync/sync_engine.dart';
+import 'sync/sync_foreground.dart';
 import 'sync/sync_settings.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
@@ -458,6 +460,25 @@ void main() async {
         )
       : null;
 
+  // Sync-survives-backgrounding: mirrors the [ActivityIds.sync] job onto
+  // Android's SyncForegroundService (SmbBridge.kt's syncFg* methods) so a
+  // sync keeps its network alive with the app backgrounded and shows a
+  // system-wide progress notification for as long as it runs -- reported
+  // live as "connection closed midstream" the moment the phone was
+  // backgrounded, with no indicator anywhere that a sync was in flight.
+  // Android-only for the same reason [syncUi]/[syncScheduler] are: there is
+  // no SMB bridge (and so no `syncFgStart`/`syncFgUpdate`/`syncFgStop`
+  // channel handler) on any other platform. Held (never disposed) for the
+  // app's lifetime, same as every other top-level wiring object here.
+  if (Platform.isAndroid) {
+    SyncForegroundNotifier(
+      activity,
+      invoke: (method, [args]) => const MethodChannel(
+        'dev.mklod.fooplayer/smb',
+      ).invokeMethod(method, args),
+    );
+  }
+
   // One-time move of any playlists still sitting in a root's
   // `.library.json` into the shared sidecar (Plan 3 Task 4) -- must run
   // before the very first [reloadLibrary] so that load's playlist merge
@@ -820,6 +841,10 @@ class FooPlayerApp extends StatelessWidget {
             // The full-screen player this shell opens on a song tap needs the
             // same artwork chain the mini-player uses.
             artworkResolver: artworkResolver,
+            // Renders PhoneActivityStrip above the mini-player -- see
+            // SyncForegroundNotifier's wiring above for the other half of
+            // sync-survives-backgrounding (the system notification).
+            activity: activity,
             // Lets the full-screen player's overflow button reuse the same
             // track context sheet every other long-press opens.
             store: store,

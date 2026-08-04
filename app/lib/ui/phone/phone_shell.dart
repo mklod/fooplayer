@@ -1,9 +1,10 @@
-// Last modified: 2026-08-02--2327
+// Last modified: 2026-08-04--0131
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../artwork/artwork_resolver.dart';
 import '../../artwork/picker_seams.dart' show ArtworkServices;
+import '../../model/activity_model.dart';
 import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
@@ -11,6 +12,7 @@ import '../../player/player_service.dart';
 import 'app_background.dart';
 import '../queue_view.dart';
 import 'now_playing_page.dart';
+import 'phone_activity_strip.dart';
 import 'phone_feed.dart';
 import 'phone_search_page.dart';
 
@@ -52,10 +54,12 @@ extension PhoneViewInfo on PhoneView {
 /// Two injectable builder slots keep this file decoupled from the concrete
 /// view/player widgets (main.dart owns the production wiring):
 ///
-/// - [miniPlayerBuilder]: rendered as the Scaffold's bottomNavigationBar.
-///   Defaults to nothing ([SizedBox.shrink]); production passes the P2
-///   MiniPlayer (which itself renders empty until a track is loaded, like
-///   the desktop NowPlayingBar).
+/// - [miniPlayerBuilder]: rendered as the bottom of the Scaffold's
+///   bottomNavigationBar column. Defaults to nothing ([SizedBox.shrink]);
+///   production passes the P2 MiniPlayer (which itself renders empty until
+///   a track is loaded, like the desktop NowPlayingBar). [activity], when
+///   supplied, renders [PhoneActivityStrip] just above it in that same
+///   column -- the phone's answer to the desktop's persistent ActivityBar.
 /// - [viewBuilders]: per-[PhoneView] body builders. Production fills EVERY
 ///   non-library entry (P3's Folders/Artists/Albums/Playlists views and
 ///   the Settings page); [PhoneView.library] always uses the built-in live
@@ -78,6 +82,12 @@ class PhoneShell extends StatefulWidget {
 
   /// Mini-player slot -- see the class doc.
   final WidgetBuilder? miniPlayerBuilder;
+
+  /// Background jobs (sync, tag reading, artwork work), shown above the
+  /// mini-player as [PhoneActivityStrip]. Null hides the strip entirely --
+  /// matches the desktop's [ActivityBar], which is likewise optional in
+  /// bare test builds that construct a shell without one.
+  final ActivityModel? activity;
 
   /// Per-view body overrides -- see the class doc.
   final Map<PhoneView, WidgetBuilder> viewBuilders;
@@ -103,6 +113,7 @@ class PhoneShell extends StatefulWidget {
     this.onPlayTrack,
     required this.onTrackLongPress,
     this.miniPlayerBuilder,
+    this.activity,
     this.viewBuilders = const {},
     this.artworkResolver,
     this.store,
@@ -243,40 +254,46 @@ class _PhoneShellState extends State<PhoneShell> {
         if (!didPop) unawaited(_handleBack());
       },
       child: Scaffold(
-      key: _scaffoldKey,
-      appBar: AppBar(
-        title: Text(_view.label),
-        actions: [
-          IconButton(
-            key: const Key('phone-search'),
-            icon: const Icon(Icons.search),
-            tooltip: 'Search',
-            onPressed: () => _openSearch(context),
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: ListView(
-            children: [
-              for (final v in const [
-                PhoneView.library,
-                PhoneView.queue,
-                PhoneView.folders,
-                PhoneView.artists,
-                PhoneView.albums,
-                PhoneView.playlists,
-              ])
-                _drawerTile(context, v),
-              const Divider(height: 1),
-              _drawerTile(context, PhoneView.settings),
-            ],
+        key: _scaffoldKey,
+        appBar: AppBar(
+          title: Text(_view.label),
+          actions: [
+            IconButton(
+              key: const Key('phone-search'),
+              icon: const Icon(Icons.search),
+              tooltip: 'Search',
+              onPressed: () => _openSearch(context),
+            ),
+          ],
+        ),
+        drawer: Drawer(
+          child: SafeArea(
+            child: ListView(
+              children: [
+                for (final v in const [
+                  PhoneView.library,
+                  PhoneView.queue,
+                  PhoneView.folders,
+                  PhoneView.artists,
+                  PhoneView.albums,
+                  PhoneView.playlists,
+                ])
+                  _drawerTile(context, v),
+                const Divider(height: 1),
+                _drawerTile(context, PhoneView.settings),
+              ],
+            ),
           ),
         ),
-      ),
-      body: _body(context),
-      bottomNavigationBar:
-          widget.miniPlayerBuilder?.call(context) ?? const SizedBox.shrink(),
+        body: _body(context),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.activity != null)
+              PhoneActivityStrip(activity: widget.activity!),
+            widget.miniPlayerBuilder?.call(context) ?? const SizedBox.shrink(),
+          ],
+        ),
       ),
     );
   }
