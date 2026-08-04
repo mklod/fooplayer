@@ -114,6 +114,7 @@ class PhoneSettingsView extends StatelessWidget {
               probe: seams.probe,
               discoverRoots: seams.discoverRoots,
               cancelSync: seams.cancelSync,
+              activity: seams.activity,
             ),
           ),
         ),

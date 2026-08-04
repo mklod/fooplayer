@@ -443,6 +443,7 @@ void main() async {
           probe: probeSyncNow,
           discoverRoots: discoverSyncRoots,
           cancelSync: cancelSync,
+          activity: activity,
         )
       : null;
 
