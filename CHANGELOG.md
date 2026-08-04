@@ -41,6 +41,28 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--0324
+
+APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)
+
+### Changes
+
+- **The Sync page itself now shows live progress** (voice capture
+  2026-08-04: "still just shows spinning wheel… no transparency"). The
+  notification and library-screen strip had the numbers, but the page with
+  the Sync now button — where you actually watch a sync — showed only the
+  button's 16px spinner. The engine's own progress line ("Syncing loose
+  tracks - old — 59.1 MB — 13 / 126") plus a determinate bar now render
+  directly under the button, updating live. New optional `ActivityModel`
+  seam through `SyncUiSeams`; desktop's sync dialog gets the same line for
+  free. 1.0.0+8 (arm64 = 2008).
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Sync now on the phone: progress text + bar appear under the button within a few seconds and count up
+>   - Notes:
+
 ## Build 2026-08-04--0230
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install on phone/tablet)

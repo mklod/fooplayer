@@ -4,6 +4,13 @@
 
 ## Next session starts here
 
+**Sync-page live progress SHIPPED (2026-08-04, build 2026-08-04--0324,
+merged `0c19cb6`, 1.0.0+8).** Second VTC capture of the night: the Sync
+page still showed only the button spinner while the numbers lived on the
+strip/notification. The engine's progress line + determinate bar now
+render under the Sync now button (new optional ActivityModel seam through
+SyncUiSeams). Emulator-verified mid-transfer.
+
 **Sync foreground service SHIPPED (2026-08-04, build 2026-08-04--0230,
 merged `164ead8`).** The VTC-reported gaps — no sync progress indicator on
 the phone, and syncs dying "connection closed midstream" when the app was
