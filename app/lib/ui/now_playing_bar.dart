@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2115
+// Last modified: 2026-08-04--2348
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -241,6 +241,18 @@ const kIconPause = 'assets/icons/pause.png';
 const kIconNext = 'assets/icons/next.png';
 const kIconPrevious = 'assets/icons/previous.png';
 const kIconShuffleOff = 'assets/icons/shuffle1.png';
+
+/// Ring-free variants of the same glyphs (generated from the originals by
+/// erasing the baked circle and rescaling the inner shape to fill the
+/// canvas). The phone's full-screen player uses these -- Mike asked for the
+/// Apple-Music bare look there; the desktop bar and mini player keep the
+/// circled originals.
+const kIconPlayBare = 'assets/icons/play_bare.png';
+const kIconPauseBare = 'assets/icons/pause_bare.png';
+const kIconNextBare = 'assets/icons/next_bare.png';
+const kIconPreviousBare = 'assets/icons/previous_bare.png';
+const kIconShuffleOffBare = 'assets/icons/shuffle1_bare.png';
+const kIconShuffleOnBare = 'assets/icons/shuffle2_bare.png';
 
 /// The "no cover" mark: the app's own music-note icon in grey, rather than a
 /// generic disc glyph.
