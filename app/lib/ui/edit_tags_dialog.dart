@@ -170,7 +170,7 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
                   ),
                 ),
               const SizedBox(height: 4),
-              const Text(
+              Text(
                 'Written into the files themselves, so every other player '
                 'sees the correction. The audio is never rewritten, so '
                 'nothing changes identity, and each file’s dates are put '

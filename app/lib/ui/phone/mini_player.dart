@@ -67,7 +67,7 @@ class MiniPlayer extends StatelessWidget {
               key: const Key('mini-player-bar'),
               height: 76,
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 border: Border(top: BorderSide(color: AppColors.hairline)),
               ),
               child: Row(

@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0340
+// Last modified: 2026-08-05--0055
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -695,22 +695,70 @@ void main() async {
   );
 
   runApp(
-    FooPlayerApp(
-      library: library,
-      player: player,
-      layoutPrefs: layoutPrefs,
-      libraryRootsPrefs: libraryRootsPrefs,
-      device: device,
-      artworkResolver: artworkResolver,
-      artworkServices: artworkServices,
-      artworkStores: artwork.stores,
-      artworkBackfill: artworkBackfill,
-      activity: activity,
-      syncScheduler: syncScheduler,
-      syncUi: syncUi,
-      onSetUpRootAction: setUpRoot,
+    BrightnessRoot(
+      childBuilder: () => FooPlayerApp(
+        library: library,
+        player: player,
+        layoutPrefs: layoutPrefs,
+        libraryRootsPrefs: libraryRootsPrefs,
+        device: device,
+        artworkResolver: artworkResolver,
+        artworkServices: artworkServices,
+        artworkStores: artwork.stores,
+        artworkBackfill: artworkBackfill,
+        activity: activity,
+        syncScheduler: syncScheduler,
+        syncUi: syncUi,
+        onSetUpRootAction: setUpRoot,
+      ),
     ),
   );
+}
+
+/// Keys the [AppColors] palette to the platform brightness on Android (dark
+/// mode follows the system setting; desktop keeps the iTunes light look)
+/// and rebuilds the whole app when it flips.
+///
+/// Takes a BUILDER, not a child: a stored child widget would be identical
+/// across setState calls and Flutter would skip rebuilding it -- the entire
+/// point here is a fresh [FooPlayerApp] build so `buildAppTheme()` re-reads
+/// the swapped palette.
+class BrightnessRoot extends StatefulWidget {
+  final Widget Function() childBuilder;
+  const BrightnessRoot({super.key, required this.childBuilder});
+
+  @override
+  State<BrightnessRoot> createState() => _BrightnessRootState();
+}
+
+class _BrightnessRootState extends State<BrightnessRoot>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _apply();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangePlatformBrightness() => setState(_apply);
+
+  void _apply() {
+    final dark =
+        isAndroidPlatform() &&
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark;
+    setAppBrightness(dark ? Brightness.dark : Brightness.light);
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.childBuilder();
 }
 
 class FooPlayerApp extends StatelessWidget {

@@ -292,7 +292,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
                       key: const Key('artwork-picker-title'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
                         color: AppColors.ink,
@@ -307,7 +307,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
                         'Applies to ${widget.otherTracks.length + 1} '
                         'selected tracks',
                         key: const Key('artwork-picker-selection-count'),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           color: AppColors.inkSecondary,
                         ),
@@ -323,7 +323,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
                 tooltip: 'Close',
                 iconSize: 18,
                 visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.close, color: AppColors.inkSecondary),
+                icon: Icon(Icons.close, color: AppColors.inkSecondary),
                 onPressed: () => Navigator.of(context).maybePop(),
               ),
             ],
@@ -381,7 +381,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
           ),
         ),
         const SizedBox(height: 6),
-        const Text(
+        Text(
           'CURRENT',
           style: TextStyle(
             fontSize: 10.5,
@@ -406,7 +406,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       );
     }
     if (_candidates.isEmpty) {
-      return const Center(
+      return Center(
         child: Text(
           'No artwork found.',
           key: Key('artwork-picker-empty'),
@@ -519,7 +519,7 @@ class _CandidateTile extends StatelessWidget {
                   ),
                 ),
                 if (isCurrent)
-                  const Align(
+                  Align(
                     alignment: Alignment.topRight,
                     child: Padding(
                       padding: EdgeInsets.all(3),
@@ -539,13 +539,13 @@ class _CandidateTile extends StatelessWidget {
             artworkSourceLabel(candidate.source),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: AppColors.ink),
+            style: TextStyle(fontSize: 11, color: AppColors.ink),
           ),
           Text(
             resolution,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10.5,
               color: AppColors.inkSecondary,
             ),
@@ -607,7 +607,7 @@ class _CandidateThumbState extends State<_CandidateThumb> {
   Widget build(BuildContext context) {
     final bytes = _bytes;
     if (bytes == null) {
-      return const Center(
+      return Center(
         child: Icon(Icons.album, size: 28, color: AppColors.inkSecondary),
       );
     }
@@ -619,7 +619,7 @@ class _CandidateThumbState extends State<_CandidateThumb> {
       // (e.g. a non-image response the loader's own validation missed)
       // must fall back to the placeholder, not Flutter's red error box --
       // the candidate stays pickable either way.
-      errorBuilder: (context, error, stackTrace) => const Center(
+      errorBuilder: (context, error, stackTrace) => Center(
         child: Icon(Icons.album, size: 28, color: AppColors.inkSecondary),
       ),
     );

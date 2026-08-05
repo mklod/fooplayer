@@ -82,7 +82,7 @@ Future<void> showFullResArtworkDialog(
                         key: const Key('artwork-view-caption'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           color: AppColors.inkSecondary,
                         ),

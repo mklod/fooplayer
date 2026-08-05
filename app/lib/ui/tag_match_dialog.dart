@@ -130,7 +130,7 @@ class _TagMatchDialogState extends State<TagMatchDialog> {
               width: 3,
               color: selected ? AppColors.accent : Colors.transparent,
             ),
-            bottom: const BorderSide(color: AppColors.hairline),
+            bottom: BorderSide(color: AppColors.hairline),
           ),
         ),
         child: Column(
@@ -185,7 +185,7 @@ class _TagMatchDialogState extends State<TagMatchDialog> {
               ].join(' · '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 color: AppColors.inkSecondary,
               ),

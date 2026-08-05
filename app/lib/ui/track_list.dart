@@ -49,7 +49,7 @@ String _fmtDuration(int? ms) {
 // switches into (see [_TrackRow.build]). This is deliberate: an earlier
 // version rendered Time/Date in a smaller, greyed-out `bodySmall` style,
 // which read as visually inconsistent with the other three text columns.
-const _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
+final _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
 
 /// How long a row's selection highlight takes to fade in/out. Kept very
 /// short (~80ms) so single-click selection reads as immediate -- the stock
@@ -514,7 +514,7 @@ class _TrackListHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.hairline)),
       ),
       child: Padding(
@@ -639,7 +639,7 @@ class _ArtTick extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => on
-      ? const Icon(
+      ? Icon(
           Icons.check_circle_outline,
           size: 15,
           color: AppColors.accent,

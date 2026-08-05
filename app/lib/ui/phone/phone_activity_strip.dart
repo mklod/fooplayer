@@ -12,7 +12,7 @@
 // running (and dying the moment the phone was backgrounded) with nothing on
 // the phone UI anywhere hinting it was in progress at all.
 //
-// Last modified: 2026-08-04--0131
+// Last modified: 2026-08-05--0055
 
 import 'package:flutter/material.dart';
 
@@ -35,9 +35,9 @@ class PhoneActivityStrip extends StatelessWidget {
         if (jobs.isEmpty) return const SizedBox.shrink();
         return Material(
           key: const Key('phone-activity-strip'),
-          color: Colors.white,
+          color: AppColors.windowBg,
           child: Container(
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(top: BorderSide(color: AppColors.hairline)),
             ),
             child: Column(
@@ -71,7 +71,7 @@ class PhoneActivityStrip extends StatelessWidget {
                   job.text,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: AppColors.ink),
+                  style: TextStyle(fontSize: 12, color: AppColors.ink),
                 ),
               ),
             ],

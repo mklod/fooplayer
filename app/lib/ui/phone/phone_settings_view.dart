@@ -133,7 +133,7 @@ class PhoneSettingsView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
+            Text(
               'Library roots',
               style: TextStyle(
                 fontSize: 13,
@@ -159,7 +159,7 @@ class PhoneSettingsView extends StatelessWidget {
             ),
             if (isAndroidPlatform() && syncUi != null) ...[
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'LAN sync',
                 style: TextStyle(
                   fontSize: 13,

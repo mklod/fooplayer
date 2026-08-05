@@ -323,7 +323,7 @@ class _SyncViewState extends State<SyncView> {
           ],
         ),
         const SizedBox(height: 20),
-        const Text(
+        Text(
           'Roots to sync',
           style: TextStyle(
             fontSize: 12,
@@ -417,7 +417,7 @@ class _SyncViewState extends State<SyncView> {
                       key: const Key('sync-progress-line'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
                         color: AppColors.ink,
                       ),
@@ -542,7 +542,7 @@ class SyncReportDialog extends StatelessWidget {
               padding: const EdgeInsets.only(top: 2, left: 8),
               child: Text(
                 '${f.relPath}: ${f.reason}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: AppColors.inkSecondary,
                 ),

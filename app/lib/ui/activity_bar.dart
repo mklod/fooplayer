@@ -57,7 +57,7 @@ class ActivityBar extends StatelessWidget {
         final jobs = activity.active;
         final bar = Container(
           key: const Key('activity-bar'),
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             color: AppColors.panelBg,
             border: Border(top: BorderSide(color: AppColors.hairline)),
           ),
@@ -81,7 +81,7 @@ class ActivityBar extends StatelessWidget {
               Text(
                 '${_thousands(_footerTrackCount())} tracks',
                 key: const Key('footer-track-count'),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   color: AppColors.inkSecondary,
                 ),
@@ -144,7 +144,7 @@ class ActivityBar extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               color: AppColors.inkSecondary,
             ),
@@ -155,7 +155,7 @@ class ActivityBar extends StatelessWidget {
           total == null
               ? _clock(pos)
               : '${_clock(pos)} / ${_clock(total)}',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 12,
             color: AppColors.inkSecondary,
             fontFeatures: [FontFeature.tabularFigures()],
@@ -181,7 +181,7 @@ class ActivityBar extends StatelessWidget {
             key: Key('activity-${job.id}'),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12, color: AppColors.ink),
+            style: TextStyle(fontSize: 12, color: AppColors.ink),
           ),
         ),
         if (job.hasProgress) ...[

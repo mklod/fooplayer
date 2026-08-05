@@ -40,7 +40,7 @@ Widget _detailRow(String label, String value) {
           width: 72,
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               color: AppColors.inkSecondary,
             ),
@@ -49,7 +49,7 @@ Widget _detailRow(String label, String value) {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 14.5, color: AppColors.ink),
+            style: TextStyle(fontSize: 14.5, color: AppColors.ink),
           ),
         ),
       ],
