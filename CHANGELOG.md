@@ -41,6 +41,24 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--1056
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Friendly Android path names in Settings**: library roots and the
+  "Sync to" target now read as `Internal storage › Music`,
+  `App storage › loose tracks - old`, `SD card › …` instead of raw
+  `/storage/emulated/0/...` spellings. Display-only — config and sync
+  keep real paths; desktop paths pass through unchanged. 1.0.0+20.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Settings roots + Sync-to show readable names; picking folders still works
+>   - Notes:
+
 ## Build 2026-08-05--0752
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
