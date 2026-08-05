@@ -19,7 +19,7 @@
 // implementation and the desktop already has a window to control playback
 // from.
 //
-// Last modified: 2026-07-28--2340
+// Last modified: 2026-08-04--2358
 
 import 'dart:async';
 import 'dart:io';
@@ -230,9 +230,20 @@ Future<FooplayerAudioHandler?> maybeStartAudioService({
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'dev.mklod.fooplayer.playback',
       androidNotificationChannelName: 'Playback',
-      // The service stays in the foreground while playing so Android does
-      // not kill it with the screen off -- which is the entire point.
-      androidStopForegroundOnPause: true,
+      // The service stays in the foreground for the WHOLE playback session,
+      // including while paused. This used to be `true` ("drop out of
+      // foreground on pause"), which combined with mpv's transient
+      // playing=false on every EOF->next-track transition to flap the
+      // service out of and back into the foreground on EVERY auto-advance
+      // -- and a backgrounded app whose service just left the foreground is
+      // exactly what Android's process management demotes/freezes, which
+      // surfaced as "audio randomly cuts out early in the song after a
+      // track switch until I hit pause/play on the notification" (that tap
+      // is a MediaSession command, whose foreground-start exemption
+      // restored the service). PlayerService additionally debounces the
+      // transient false (see handlePlayingChange), but the service's
+      // foreground status must not hang on that timing.
+      androidStopForegroundOnPause: false,
       androidNotificationOngoing: false,
     ),
   );
