@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--2348
+// Last modified: 2026-08-05--0005
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -487,39 +487,39 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                             children: [
                                               IconButton(
                                                 tooltip: 'Previous',
-                                                iconSize: 48,
+                                                iconSize: 44,
                                                 icon: const MetroIcon(
                                                   kIconPreviousBare,
-                                                  size: 48,
+                                                  size: 44,
                                                   color: Colors.white,
                                                 ),
                                                 onPressed:
                                                     widget.player.previous,
                                               ),
-                                              const SizedBox(width: 28),
+                                              const SizedBox(width: 40),
                                               IconButton(
                                                 tooltip: widget.player.playing
                                                     ? 'Pause'
                                                     : 'Play',
-                                                iconSize: 68,
+                                                iconSize: 48,
                                                 icon: MetroIcon(
                                                   widget.player.playing
                                                       ? kIconPauseBare
                                                       : kIconPlayBare,
-                                                  size: 68,
+                                                  size: 48,
                                                   color: Colors.white,
                                                 ),
                                                 onPressed: widget
                                                     .player
                                                     .togglePlayPause,
                                               ),
-                                              const SizedBox(width: 28),
+                                              const SizedBox(width: 40),
                                               IconButton(
                                                 tooltip: 'Next',
-                                                iconSize: 48,
+                                                iconSize: 44,
                                                 icon: const MetroIcon(
                                                   kIconNextBare,
-                                                  size: 48,
+                                                  size: 44,
                                                   color: Colors.white,
                                                 ),
                                                 onPressed: widget.player.next,
