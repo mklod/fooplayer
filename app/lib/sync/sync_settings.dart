@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1805
+// Last modified: 2026-08-05--0751
 //
 // Persisted config for LAN sync: where the NAS is (host/share/basePath) and
 // which top-level root folders under that base the user has opted into
@@ -14,10 +14,22 @@ const kSyncDefaultHost = 'murkyserver';
 const kSyncDefaultShare = 'drop';
 const kSyncDefaultBasePath = 'music (original structure)';
 
+/// Where synced NAS folders land when [SyncSettings.localFolder] is unset.
+const kSyncDefaultLocalFolder = '/storage/emulated/0/Music';
+
 class SyncSettings {
   String host;
   String share;
   String basePath;
+
+  /// The LOCAL folder every synced NAS root is placed INSIDE (NAS `albums`
+  /// -> `<localFolder>/albums`). Empty = never chosen, callers fall back to
+  /// [kSyncDefaultLocalFolder]. This exists because the target used to be
+  /// silently DERIVED (common parent of the configured library roots) --
+  /// which, with a single root at /storage/emulated/0/Music, resolved to
+  /// the internal-storage ROOT and scattered album folders there (reported
+  /// live). The target is now explicit, visible, and user-picked.
+  String localFolder;
 
   /// NAS root folder name -> whether the user has checked it for sync.
   Map<String, bool> roots;
@@ -26,8 +38,14 @@ class SyncSettings {
     this.host = kSyncDefaultHost,
     this.share = kSyncDefaultShare,
     this.basePath = kSyncDefaultBasePath,
+    this.localFolder = '',
     Map<String, bool>? roots,
   }) : roots = roots ?? <String, bool>{};
+
+  /// The folder syncs actually use: [localFolder], or the default when the
+  /// user has never picked one.
+  String get effectiveLocalFolder =>
+      localFolder.isEmpty ? kSyncDefaultLocalFolder : localFolder;
 
   /// Parses the `"sync"` subtree of config.json. Returns `null` when the key
   /// is absent or isn't a map -- i.e. sync has never been configured, which
@@ -43,6 +61,7 @@ class SyncSettings {
     final host = sync['host'];
     final share = sync['share'];
     final basePath = sync['basePath'];
+    final localFolder = sync['localFolder'];
     final rawRoots = sync['roots'];
 
     final roots = <String, bool>{};
@@ -58,6 +77,7 @@ class SyncSettings {
       basePath: basePath is String && basePath.isNotEmpty
           ? basePath
           : kSyncDefaultBasePath,
+      localFolder: localFolder is String ? localFolder : '',
       roots: roots,
     );
   }
@@ -66,6 +86,7 @@ class SyncSettings {
     'host': host,
     'share': share,
     'basePath': basePath,
+    'localFolder': localFolder,
     'roots': roots,
   };
 

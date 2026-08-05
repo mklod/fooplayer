@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0119
+// Last modified: 2026-08-05--0751
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'package:flutter/material.dart';
 
@@ -188,6 +188,7 @@ class SettingsDialog extends StatelessWidget {
               discoverRoots: seams.discoverRoots,
               cancelSync: seams.cancelSync,
               activity: seams.activity,
+              pickDirectory: pickDirectory,
             ),
           ),
         ),
