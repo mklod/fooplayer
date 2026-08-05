@@ -41,6 +41,26 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--2348
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Player glyphs uncircled.** The metro transport PNGs had the circle
+  baked into the pixels — new ring-free variants were generated from the
+  originals (ring erased radially, inner glyph rescaled to fill the
+  canvas) and the player page now uses them: bare ⏮ ▶/⏸ ⏭ at the same
+  large sizes. Shuffle and the ⋯ overflow lost their translucent circles
+  and grew (30px / 34px); shuffle-on is the same bare arrows in accent
+  blue. Desktop bar and mini player keep the circled originals. 1.0.0+12.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player: all five controls bare (no rings), shuffle/⋯ noticeably bigger; shuffle-on turns the arrows blue
+>   - Notes:
+
 ## Build 2026-08-04--1845
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install on phone; **tablet already updated over USB** — arm64 2011)
