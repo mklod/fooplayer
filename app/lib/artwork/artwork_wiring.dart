@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-08-05--0633
 //
 // Plan 4 (Album Artwork Lookup) -- THE MERGE SEAM.
 //
@@ -32,6 +32,28 @@ import 'artwork_store.dart';
 import 'picker_seams.dart';
 import 'providers.dart';
 import 'scoring.dart';
+
+/// Production [ArtworkServices.networkProbe]: one cheap HTTPS round trip to
+/// the same host the iTunes provider uses, hard-bounded at four seconds.
+/// True on ANY response (even an error status proves the network path
+/// works); false only when the request itself cannot complete.
+Future<bool> probeArtworkNetwork() async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+  try {
+    final request = await client
+        .getUrl(Uri.parse('https://itunes.apple.com/'))
+        .timeout(const Duration(seconds: 4));
+    final response = await request.close().timeout(
+      const Duration(seconds: 4),
+    );
+    await response.drain<void>();
+    return true;
+  } catch (_) {
+    return false;
+  } finally {
+    client.close(force: true);
+  }
+}
 
 /// Reads a local image the user picked with "Choose file...". Injected so
 /// widget tests never touch the filesystem.
@@ -342,6 +364,7 @@ class ArtworkWiring {
     remove: _pickerRemove,
     loadThumb: images.bytes,
     currentSelectionId: _currentSelectionId,
+    networkProbe: probeArtworkNetwork,
   );
 
   /// The picker's search -- ALWAYS [RateLimitPriority.interactive] (jumps

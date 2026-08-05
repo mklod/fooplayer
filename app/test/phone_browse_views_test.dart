@@ -18,6 +18,8 @@ import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/manifest_io.dart';
 import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
+import 'package:fooplayer_app/artwork/picker_seams.dart';
+import 'package:fooplayer_app/player/player_service.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/phone/browse_views.dart';
 import 'package:fooplayer_app/ui/phone/track_list_page.dart';
@@ -450,5 +452,42 @@ void main() {
       // Subtitle line: artist — album.
       expect(find.text('Muse — Album X'), findsNWidgets(2));
     });
+
+    testWidgets(
+      'long-press sheet carries Album artwork and queue actions when wired',
+      (tester) async {
+        // Reported live: artwork editing worked on the now-playing song but
+        // not on songs reached by BROWSING -- these pages never forwarded
+        // artwork/player, so their sheets silently omitted those entries.
+        final lib = fixtureLibrary();
+        final store = SpyPlaylistStore(lib);
+        final services = ArtworkServices(
+          search: (track, query, {forceRefresh = false}) async => const [],
+          apply: (track, albumKey, choice) async {},
+          remove: (track, albumKey) async {},
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildAppTheme(),
+            home: TrackListPage(
+              title: 'All',
+              library: lib,
+              store: store,
+              onPlayTrack: (_, _) {},
+              tracksOf: (l) => l.allTracks,
+              artwork: services,
+              player: PlayerService(),
+            ),
+          ),
+        );
+
+        await tester.longPress(find.text('First Song'));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('sheet-album-artwork')), findsOneWidget);
+        expect(find.byKey(const Key('sheet-play-next')), findsOneWidget);
+        expect(find.byKey(const Key('sheet-add-to-queue')), findsOneWidget);
+      },
+    );
   });
 }

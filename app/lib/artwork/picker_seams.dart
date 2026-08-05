@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-08-05--0633
 //
 // Plan 4 (Album Artwork Lookup) task A3 -- the *seams* the picker UI is
 // built on.
@@ -294,6 +294,15 @@ class ArtworkServices {
   final ArtworkCurrentFn currentSelectionId;
   final AlbumKeyFn albumKey;
 
+  /// Answers "can this app reach the internet at all right now?" -- the
+  /// picker consults it ONLY when a search returns zero candidates, to
+  /// tell "genuinely no artwork exists" apart from "every provider failed"
+  /// (providers degrade to empty rather than throw, by design, which made
+  /// the two cases indistinguishable -- reported live from the phone as
+  /// "no lookup"). Null (the default, and every test fixture) skips the
+  /// probe; production wiring supplies a real one.
+  final Future<bool> Function()? networkProbe;
+
   const ArtworkServices({
     required this.search,
     required this.apply,
@@ -302,5 +311,6 @@ class ArtworkServices {
     this.loadThumb = noArtworkThumbnails,
     this.currentSelectionId = _noCurrentArtwork,
     this.albumKey = albumKeyForTrack,
+    this.networkProbe,
   });
 }
