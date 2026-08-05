@@ -434,4 +434,80 @@ void main() {
       },
     );
   });
+
+  // Reported live: with a row highlighted, ArrowUp/ArrowDown did nothing --
+  // only Ctrl+A was ever handled by the list's Focus node. Visible order is
+  // Song E(t5), D(t4), C(t3), B(t2), A(t1) -- see fixtureLibrary's doc.
+  group('arrow-key selection', () {
+    testWidgets('ArrowDown/ArrowUp move a single selection row by row', (
+      tester,
+    ) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
+      await plainClick(tester, find.text('Song D'));
+      expect(lib.selectedTrackIds, {'t4'});
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t3'}); // Song C
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t2'}); // Song B
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t3'}); // back to Song C
+    });
+
+    testWidgets('arrows clamp at both ends of the list', (tester) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
+      await plainClick(tester, find.text('Song A')); // t1, last visible row
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t1'}); // no wrap, no crash
+
+      await plainClick(tester, find.text('Song E')); // t5, first row
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t5'});
+    });
+
+    testWidgets('Shift+ArrowDown extends the range from the anchor', (
+      tester,
+    ) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
+      await plainClick(tester, find.text('Song D')); // anchor t4
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+
+      expect(lib.selectedTrackIds, {'t4', 't3', 't2'});
+    });
+
+    testWidgets('with nothing selected, ArrowDown enters at the top', (
+      tester,
+    ) async {
+      final lib = fixtureLibrary();
+      await pumpTrackList(tester, lib, PlayerService());
+      // Focus the list without selecting a row (and without tapping a
+      // header cell, which would SORT): any pointer-down inside the list
+      // area grabs the shared FocusNode -- empty space below the five rows
+      // qualifies.
+      final listRect = tester.getRect(find.byType(ListView));
+      await tester.tapAt(listRect.bottomCenter - const Offset(0, 10));
+      await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 20));
+      expect(lib.selectedTrackIds, isEmpty);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      expect(lib.selectedTrackIds, {'t5'}); // Song E, first visible row
+    });
+  });
 }

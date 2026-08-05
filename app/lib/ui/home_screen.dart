@@ -1,4 +1,4 @@
-// Last modified: 2026-08-01--1946
+// Last modified: 2026-08-04--1703
 import 'dart:async';
 import 'dart:io';
 
@@ -22,6 +22,7 @@ import '../model/playlist_store.dart';
 import '../model/set_up_root.dart';
 import '../player/player_service.dart';
 import 'app_theme.dart';
+import 'artwork_view_dialog.dart';
 import 'drag_divider.dart';
 import 'embed_report_dialog.dart';
 import 'enrich_report_dialog.dart';
@@ -1060,17 +1061,29 @@ class _SelectedArtPreview extends StatelessWidget {
                 resolver: resolver,
                 track: track,
               );
-              if (services == null) return art;
+              final r = resolver;
+              if (services == null && r == null) return art;
               return MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   key: const Key('sidebar-art-preview-tap'),
-                  onTap: () => showArtworkPickerDialog(
-                    context,
-                    track: track,
-                    services: services,
-                    resolver: resolver,
-                  ),
+                  onTap: services == null
+                      ? null
+                      : () => showArtworkPickerDialog(
+                          context,
+                          track: track,
+                          services: services,
+                          resolver: resolver,
+                        ),
+                  // Right-click: LOOK at the artwork full-res (left-click
+                  // already owns changing it).
+                  onSecondaryTap: r == null
+                      ? null
+                      : () => showFullResArtworkDialog(
+                          context,
+                          track: track,
+                          resolver: r,
+                        ),
                   child: art,
                 ),
               );

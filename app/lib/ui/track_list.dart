@@ -197,9 +197,15 @@ class _TrackListViewState extends State<TrackListView> {
   /// [kDoubleTapTimeout] window to resolve.
   final FocusNode _focusNode = FocusNode(debugLabel: 'TrackListView');
 
+  /// Owned so arrow-key selection moves ([_moveSelection]) can keep the
+  /// newly-selected row on screen -- the ListView otherwise scrolls only by
+  /// mouse.
+  final ScrollController _scrollController = ScrollController();
+
   @override
   void dispose() {
     _focusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -213,13 +219,82 @@ class _TrackListViewState extends State<TrackListView> {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.keyA &&
         HardwareKeyboard.instance.isControlPressed) {
       widget.library.selectAll();
       return KeyEventResult.handled;
     }
+    // KeyDownEvent AND KeyRepeatEvent both walk: holding the key keeps
+    // moving, same as every native list control. (Reported live: with a
+    // row highlighted the arrow keys did nothing at all -- only Ctrl+A was
+    // ever handled here.)
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      _moveSelection(1);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      _moveSelection(-1);
+      return KeyEventResult.handled;
+    }
     return KeyEventResult.ignored;
+  }
+
+  /// Moves the selection one row in [delta]'s direction, with Explorer
+  /// semantics via [LibraryModel.selectTrackClick]: a plain arrow selects
+  /// the single neighboring row (and moves the range anchor there); with
+  /// Shift held it extends the range from the existing anchor instead.
+  ///
+  /// With a multi-row selection the walk starts from its leading edge in
+  /// the travel direction (bottom edge going down, top going up) -- for the
+  /// normal single-row selection that IS the selected row. No selection yet
+  /// selects the first (down) or last (up) visible row.
+  void _moveSelection(int delta) {
+    final library = widget.library;
+    final tracks = library.visibleTracks;
+    if (tracks.isEmpty) return;
+    final ids = [for (final t in tracks) t.contentId];
+    final selected = library.selectedTrackIds;
+    var lo = ids.length;
+    var hi = -1;
+    for (var i = 0; i < ids.length; i++) {
+      if (selected.contains(ids[i])) {
+        if (i < lo) lo = i;
+        if (i > hi) hi = i;
+      }
+    }
+    final int next;
+    if (hi < 0) {
+      // Nothing (visible) selected: enter the list at the near end.
+      next = delta > 0 ? 0 : ids.length - 1;
+    } else {
+      next = (delta > 0 ? hi + 1 : lo - 1).clamp(0, ids.length - 1);
+    }
+    library.selectTrackClick(
+      ids[next],
+      ctrl: false,
+      shift: HardwareKeyboard.instance.isShiftPressed,
+      visibleOrder: tracks,
+    );
+    _revealRow(next, tracks.length);
+  }
+
+  /// Scrolls just enough to keep row [index] fully on screen. Row extent is
+  /// derived from the live scroll geometry (total content / row count --
+  /// rows are uniform), so this needs no hardcoded row height.
+  void _revealRow(int index, int count) {
+    if (!_scrollController.hasClients || count == 0) return;
+    final pos = _scrollController.position;
+    final viewport = pos.viewportDimension;
+    final rowHeight = (pos.maxScrollExtent + viewport) / count;
+    final top = index * rowHeight;
+    final bottom = top + rowHeight;
+    if (top < pos.pixels) {
+      _scrollController.jumpTo(top);
+    } else if (bottom > pos.pixels + viewport) {
+      _scrollController.jumpTo(bottom - viewport);
+    }
   }
 
   @override
@@ -264,6 +339,7 @@ class _TrackListViewState extends State<TrackListView> {
                 ),
                 Expanded(
                   child: ListView.builder(
+                    controller: _scrollController,
                     itemCount: tracks.length,
                     itemBuilder: (context, i) {
                       final t = tracks[i];
