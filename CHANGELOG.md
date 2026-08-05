@@ -41,6 +41,36 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0056
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Dark mode.** Android follows the system setting — flip the phone to
+  dark and the whole app re-skins live, no restart (verified both
+  directions on the emulator). The dark palette mirrors the light theme's
+  iTunes grey-stepping in near-blacks: #1C1C1E window, stepped panels/bars,
+  light ink, the same blue accent, deep-blue selection fill;
+  brightness-aware Material scheme, status-bar icons, and phone chrome
+  follow. Desktop keeps the light iTunes look untouched. (Mechanism:
+  AppColors' tokens became mutable statics swapped in place — all 59
+  const usages de-consted analyzer-driven.)
+- **Queue opens at the playing track** (reported live: shuffling the whole
+  library buried the current row thousands of entries down and the Queue
+  button dropped you at the top). It now opens scrolled so the playing row
+  is first; after that the scroll is yours. 1.0.0+15.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Toggle system dark mode with the app open: everything re-skins live, both directions, nothing unreadable
+>   - Notes:
+> - [ ] Queue button during a big shuffle lands on the current track
+>   - Notes:
+> - [ ] Tablet (desktop layout, Android): dark mode also applies there — flag anything that looks off
+>   - Notes:
+
 ## Build 2026-08-05--0007
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
