@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1719
+// Last modified: 2026-08-04--1844
 //
 // Pure per-root sync planner: diffs a remote root's manifest + directory
 // listing against the local mirror's files + manifest + sync-state to
@@ -156,7 +156,30 @@ bool _isExcluded(String relPath) {
 }
 
 bool _isSidecar(String relPath) =>
-    relPath == '.artwork.json' || relPath.startsWith('.artwork/');
+    relPath == '.artwork.json' ||
+    relPath.startsWith('.artwork/') ||
+    _isFolderImage(relPath);
+
+/// The folder-image files artwork resolution reads beside audio files --
+/// `folder`/`cover`/`front` x `.jpg`/`.jpeg`/`.png`, case-insensitive
+/// (mirrors the app's `artworkSiblingBaseNames`/`artworkSiblingExtensions`
+/// in artwork/artwork_resolver.dart; kept in sync by hand since core can't
+/// import the app). Synced with sidecar semantics -- reported live: albums
+/// whose desktop art came from a `cover.jpg` showed NO art on the phone,
+/// because the manifest-joined audio walk never copied images at all.
+/// Deliberately name-exact rather than "any image": album folders also
+/// carry scans/booklets that no resolver ever reads.
+bool _isFolderImage(String relPath) {
+  final slash = relPath.lastIndexOf('/');
+  final name = (slash >= 0 ? relPath.substring(slash + 1) : relPath)
+      .toLowerCase();
+  final dot = name.lastIndexOf('.');
+  if (dot <= 0) return false;
+  const bases = {'folder', 'cover', 'front'};
+  const exts = {'.jpg', '.jpeg', '.png'};
+  return bases.contains(name.substring(0, dot)) &&
+      exts.contains(name.substring(dot));
+}
 
 String _lowerExtension(String relPath) {
   final slash = relPath.lastIndexOf('/');

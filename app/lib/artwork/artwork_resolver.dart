@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2208
+// Last modified: 2026-08-04--1844
 //
 // Display-side artwork resolution (Plan 4, task A2).
 //
@@ -389,6 +389,14 @@ class ArtworkResolver extends ChangeNotifier {
   /// `folder.jpg` / `cover.jpg` / `front.jpg` beside the audio file --
   /// checked asynchronously (an `existsSync` storm on an SMB share is
   /// exactly the kind of UI-thread stall this subsystem must not cause).
+  ///
+  /// Matched CASE-INSENSITIVELY via one directory listing rather than nine
+  /// exact-name exists() probes: the library carries `Folder.jpg` /
+  /// `COVER.JPG` variants that Windows matched for free (case-insensitive
+  /// filesystem) while Android -- case-sensitive -- silently missed, which
+  /// was half of the "art on desktop but not on the phone" report (the
+  /// other half: sync never copied folder images at all; see
+  /// core's sync_plan.dart `_isFolderImage`).
   Future<Uint8List?> _siblingBytes(ArtworkRequest req) async {
     final Directory dir;
     try {
@@ -396,14 +404,21 @@ class ArtworkResolver extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+    final byLowerName = <String, File>{};
+    try {
+      await for (final e in dir.list(followLinks: false)) {
+        if (e is File) byLowerName[p.basename(e.path).toLowerCase()] = e;
+      }
+    } catch (_) {
+      return null; // unreadable/vanished dir -- same as no candidates
+    }
     for (final base in artworkSiblingBaseNames) {
       for (final ext in artworkSiblingExtensions) {
-        final f = File(p.join(dir.path, '$base$ext'));
+        final f = byLowerName['$base$ext'];
+        if (f == null) continue;
         try {
-          if (await f.exists()) {
-            final data = await f.readAsBytes();
-            if (data.isNotEmpty) return data;
-          }
+          final data = await f.readAsBytes();
+          if (data.isNotEmpty) return data;
         } catch (_) {
           // Unreadable candidate: try the next name.
         }
