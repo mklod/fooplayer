@@ -41,6 +41,26 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0120
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Theme toggle in Settings** — new "Appearance" section with
+  System / Light / Dark (phone Settings page AND the desktop/tablet
+  Settings dialog). Explicit Light/Dark wins everywhere, including the
+  Windows desktop; System keeps the follow-the-OS behavior on Android and
+  light on desktop. Persisted in config (`theme` key) — verified live:
+  toggling re-skins instantly with the OS in light mode, and the choice
+  survives an app restart. 1.0.0+16.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Settings → Appearance: all three choices apply instantly and stick across restarts
+>   - Notes:
+
 ## Build 2026-08-05--0056
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
