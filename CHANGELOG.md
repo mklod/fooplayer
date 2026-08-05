@@ -41,6 +41,34 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--2358
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Background audio no longer dies after a track switch** (reported live:
+  "audio cut out randomly early in the song, in BG playback, til I …
+  pause/play [on the notification] and it resumes"). Two stacked causes:
+  mpv emits a transient `playing=false` at every end-of-file before the
+  next track's open flips it back, and the audio service was configured to
+  drop out of the foreground on pause — so every auto-advance while
+  backgrounded flapped the service out of/into the foreground, exactly
+  the window where Android demotes/freezes a process (the notification
+  tap is a MediaSession command whose foreground-start exemption
+  restored it, which is why that always worked). Now the playback service
+  stays foreground for the whole session, the EOF flicker is debounced
+  away (400ms — a false erased by the next track's true never escapes),
+  and explicit play/pause update the UI optimistically. 1.0.0+13.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Background playback across many auto-advances (screen off, 15+ min): no dropouts
+>   - Notes:
+> - [ ] Notification play/pause icon stays truthful across track switches
+>   - Notes:
+
 ## Build 2026-08-04--2348
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
