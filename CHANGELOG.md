@@ -41,6 +41,29 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--1725 (desktop)
+
+Daily driver rebuilt (`C:\dev\foobar-app`, windows-app @ `191f46d`) — launch via the usual "fooplayer" shortcut.
+
+### Changes
+
+- **Arrow keys move the library selection** (reported live: they did
+  nothing — only Ctrl+A was ever handled). ArrowUp/Down move the
+  highlighted row with Explorer semantics: Shift+arrow extends the range
+  from the anchor, holding the key walks, ends are clamped, and the list
+  scrolls just enough to keep the selection on screen.
+- **Right-click the bottom-left corner art preview → full-resolution
+  artwork viewer**: read-only modal with the real pixels (up to 85% of the
+  window) and a `WxH px` caption. Left-click still opens the picker.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Click a track, arrow up/down through the library; Shift+arrow grows the selection; list follows
+>   - Notes:
+> - [ ] With nothing playing and a track selected, right-click the corner cover → full-res popup
+>   - Notes:
+
 ## Build 2026-08-04--1655
 
 APK: https://dist.flana.app/fooplayer/index.html (newest release on top; tap-install)

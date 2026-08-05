@@ -4,6 +4,22 @@
 
 ## Next session starts here
 
+**2026-08-04 afternoon wave (all live feedback, all shipped):**
+(1) **Apple-Music-style Now Playing** (build 2026-08-04--1655, 1.0.0+10,
+merged `23bd532`): art pushed up, left-aligned title/artist/source-folder,
+circular shuffle+overflow, thumbless 7px seekbar with times beneath, three
+big transport buttons, and a persistent bottom shortcut bar
+(Library/Queue/Folders/Artists/Playlists) that pops the player and
+switches the shell view via the `phoneShellNavRequest` bus.
+(2) **Desktop arrow-key selection + right-click full-res artwork viewer**
+(merged `191f46d`, daily driver rebuilt from windows-app @ same commit,
+launch smoke-tested): arrows move/extend the selection with Explorer
+semantics and auto-scroll; right-clicking the corner art preview opens a
+read-only full-resolution modal with a WxH caption.
+Note: LAN sync SPEED is untouched all day (Mike asked) — transfers are
+still sequential single-file; parallel downloads + bigger chunks is the
+scoped-but-not-started speed pass.
+
 **Phone chrome readability pass SHIPPED (2026-08-04, build
 2026-08-04--0341, merged `78c6bb7`, 1.0.0+9).** Mike's live feedback:
 transport buttons black + tiny, everything on the phone too small. Root
