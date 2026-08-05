@@ -463,17 +463,18 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Unset -> the default target is displayed, not an empty gap.
+      // Unset -> the default target is displayed (as its friendly
+      // Android label), not an empty gap.
       expect(find.byKey(const Key('sync-local-folder')), findsOneWidget);
-      expect(
-        find.text('/storage/emulated/0/Music'),
-        findsOneWidget,
-      );
+      expect(find.text('Internal storage › Music'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('sync-local-folder-change')));
       await tester.pumpAndSettle();
 
-      expect(find.text('/storage/emulated/0/Music/phone'), findsOneWidget);
+      expect(
+        find.text('Internal storage › Music › phone'),
+        findsOneWidget,
+      );
       expect(saved, isNotEmpty);
       expect(saved.last.localFolder, '/storage/emulated/0/Music/phone');
     },

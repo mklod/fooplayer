@@ -1,9 +1,10 @@
-// Last modified: 2026-08-05--0751
+// Last modified: 2026-08-05--1055
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'package:flutter/material.dart';
 
 import 'adaptive.dart';
 import 'app_theme.dart';
+import 'friendly_paths.dart';
 import 'sync_view.dart';
 
 /// Production folder picker: file_selector's native OS directory dialog.
@@ -79,7 +80,7 @@ class LibraryRootsEditor extends StatelessWidget {
                     key: Key('root-tile-$root'),
                     dense: true,
                     title: Text(
-                      root,
+                      friendlyAndroidPath(root),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -228,10 +229,7 @@ class SettingsDialog extends StatelessWidget {
               onSetUpRoot: onSetUpRoot,
             ),
             const SizedBox(height: 16),
-            Text(
-              'APPEARANCE',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
+            Text('APPEARANCE', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 6),
             const ThemePreferencePicker(),
           ],

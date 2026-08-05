@@ -8,10 +8,11 @@
 // injected seams below; this widget never touches `dart:io` or a
 // `SyncTransport` directly, which is what makes it testable with fakes.
 //
-// Last modified: 2026-08-05--0751
+// Last modified: 2026-08-05--1055
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'friendly_paths.dart';
 import 'report_dialog.dart';
 import '../model/activity_model.dart';
 import '../sync/sync_engine.dart';
@@ -358,7 +359,7 @@ class _SyncViewState extends State<SyncView> {
           children: [
             Expanded(
               child: Text(
-                _settings.effectiveLocalFolder,
+                friendlyAndroidPath(_settings.effectiveLocalFolder),
                 key: const Key('sync-local-folder'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -375,7 +376,8 @@ class _SyncViewState extends State<SyncView> {
         ),
         Text(
           'Each NAS folder below is placed inside this folder — '
-          '"albums" becomes ${_settings.effectiveLocalFolder}/albums.',
+          '"albums" becomes '
+          '${friendlyAndroidPath(_settings.effectiveLocalFolder)} › albums.',
           style: TextStyle(fontSize: 11.5, color: AppColors.inkSecondary),
         ),
         const SizedBox(height: 20),
