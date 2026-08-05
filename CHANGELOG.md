@@ -41,6 +41,23 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0007
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Transport buttons at Apple-Music proportions** — pause was oversized
+  (68px against 48px neighbors). Now previous/next 44px, play/pause 48px,
+  wider 40px gaps: near-equal visual weight, pause just a touch larger,
+  per the reference. 1.0.0+14.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player transport reads like the Apple Music reference (balanced sizes, airy spacing)
+>   - Notes:
+
 ## Build 2026-08-04--2358
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
