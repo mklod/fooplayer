@@ -11,34 +11,108 @@ import 'package:flutter/material.dart';
 /// Corner radius shared by every dialog. See the dialogTheme below.
 const double kDialogRadius = 8;
 
+/// One complete set of the app's design tokens. Two exist -- [_lightPalette]
+/// (the original iTunes white/grey) and [_darkPalette] -- and
+/// [setAppBrightness] copies the active one into [AppColors]' mutable
+/// statics. See [AppColors]' doc for why mutation rather than Theme lookups.
+class _AppPalette {
+  final Color windowBg, panelBg, barBg, hairline;
+  final Color ink, inkSecondary, accent, selectionFill;
+  const _AppPalette({
+    required this.windowBg,
+    required this.panelBg,
+    required this.barBg,
+    required this.hairline,
+    required this.ink,
+    required this.inkSecondary,
+    required this.accent,
+    required this.selectionFill,
+  });
+}
+
+const _lightPalette = _AppPalette(
+  windowBg: Color(0xFFFAFAFA),
+  panelBg: Color(0xFFF2F2F4),
+  barBg: Color(0xFFECECEE),
+  hairline: Color(0xFFD9D9DE),
+  ink: Color(0xFF1D1D1F),
+  inkSecondary: Color(0xFF6E6E73),
+  accent: Color(0xFF0A84FF),
+  selectionFill: Color(0xFFDFEBFB),
+);
+
+/// The same iTunes restraint, inverted: near-black surfaces stepped the
+/// same way the light theme steps its greys, light ink, the SAME blue
+/// accent, and a deep-blue selection fill that keeps light ink readable.
+const _darkPalette = _AppPalette(
+  windowBg: Color(0xFF1C1C1E),
+  panelBg: Color(0xFF232326),
+  barBg: Color(0xFF2A2A2D),
+  hairline: Color(0xFF3A3A3E),
+  ink: Color(0xFFF2F2F4),
+  inkSecondary: Color(0xFF98989E),
+  accent: Color(0xFF0A84FF),
+  selectionFill: Color(0xFF16344F),
+);
+
+/// The active design tokens.
+///
+/// MUTABLE statics (not consts, not Theme lookups) as the dark-mode
+/// mechanism: every widget file already references `AppColors.x` directly,
+/// so swapping the values in place -- [setAppBrightness], called by the app
+/// root before (re)building the tree -- re-skins everything without
+/// threading a palette through dozens of constructors. The cost, paid
+/// deliberately: these can no longer appear inside `const` expressions, and
+/// a brightness change must rebuild the whole tree (which a theme change
+/// forces anyway).
 class AppColors {
   AppColors._();
 
   /// Main content background (track list, scaffold).
-  static const windowBg = Color(0xFFFAFAFA);
+  static Color windowBg = _lightPalette.windowBg;
 
   /// Sidebar and filter-panel background.
-  static const panelBg = Color(0xFFF2F2F4);
+  static Color panelBg = _lightPalette.panelBg;
 
   /// Now-playing bar background.
-  static const barBg = Color(0xFFECECEE);
+  static Color barBg = _lightPalette.barBg;
 
   /// Hairline dividers and the slider's inactive track.
-  static const hairline = Color(0xFFD9D9DE);
+  static Color hairline = _lightPalette.hairline;
 
   /// Primary text/icon color.
-  static const ink = Color(0xFF1D1D1F);
+  static Color ink = _lightPalette.ink;
 
   /// Secondary text (subtitles, dates, panel headers).
-  static const inkSecondary = Color(0xFF6E6E73);
+  static Color inkSecondary = _lightPalette.inkSecondary;
 
   /// The one splash of color: selection, active slider track, the
   /// currently-playing track's title, links. Used sparingly.
-  static const accent = Color(0xFF0A84FF);
+  static Color accent = _lightPalette.accent;
 
   /// Selected row/panel-entry fill -- paired with [ink] text, never
   /// white-on-blue.
-  static const selectionFill = Color(0xFFDFEBFB);
+  static Color selectionFill = _lightPalette.selectionFill;
+
+  /// Which palette is live -- for the few spots that branch on it
+  /// (system status-bar icon brightness, mostly).
+  static bool isDark = false;
+}
+
+/// Copies the palette for [brightness] into [AppColors]. Call BEFORE
+/// building/rebuilding the widget tree (main.dart's App root does, keyed on
+/// the platform brightness on Android; desktop stays light).
+void setAppBrightness(Brightness brightness) {
+  final p = brightness == Brightness.dark ? _darkPalette : _lightPalette;
+  AppColors.windowBg = p.windowBg;
+  AppColors.panelBg = p.panelBg;
+  AppColors.barBg = p.barBg;
+  AppColors.hairline = p.hairline;
+  AppColors.ink = p.ink;
+  AppColors.inkSecondary = p.inkSecondary;
+  AppColors.accent = p.accent;
+  AppColors.selectionFill = p.selectionFill;
+  AppColors.isDark = brightness == Brightness.dark;
 }
 
 /// Builds the app's single light theme from [AppColors].
@@ -58,21 +132,38 @@ ThemeData buildAppTheme({bool phone = false}) {
   final double rowSize = phone ? 15 : 13;
   final double subSize = phone ? 13 : 11.5;
   final double labelSize = phone ? 12 : 11;
-  const colorScheme = ColorScheme.light(
-    brightness: Brightness.light,
-    primary: AppColors.accent,
-    onPrimary: Colors.white,
-    secondary: AppColors.accent,
-    onSecondary: Colors.white,
-    error: Color(0xFFD70015),
-    onError: Colors.white,
-    surface: AppColors.windowBg,
-    onSurface: AppColors.ink,
-    onSurfaceVariant: AppColors.inkSecondary,
-    surfaceContainerHighest: AppColors.panelBg,
-    outline: AppColors.hairline,
-    outlineVariant: AppColors.hairline,
-  );
+  final colorScheme = AppColors.isDark
+      ? ColorScheme.dark(
+          primary: AppColors.accent,
+          onPrimary: Colors.white,
+          secondary: AppColors.accent,
+          onSecondary: Colors.white,
+          // iOS's dark-mode system red -- the light theme's D70015 is too
+          // dim against near-black surfaces.
+          error: const Color(0xFFFF453A),
+          onError: Colors.white,
+          surface: AppColors.windowBg,
+          onSurface: AppColors.ink,
+          onSurfaceVariant: AppColors.inkSecondary,
+          surfaceContainerHighest: AppColors.panelBg,
+          outline: AppColors.hairline,
+          outlineVariant: AppColors.hairline,
+        )
+      : ColorScheme.light(
+          brightness: Brightness.light,
+          primary: AppColors.accent,
+          onPrimary: Colors.white,
+          secondary: AppColors.accent,
+          onSecondary: Colors.white,
+          error: const Color(0xFFD70015),
+          onError: Colors.white,
+          surface: AppColors.windowBg,
+          onSurface: AppColors.ink,
+          onSurfaceVariant: AppColors.inkSecondary,
+          surfaceContainerHighest: AppColors.panelBg,
+          outline: AppColors.hairline,
+          outlineVariant: AppColors.hairline,
+        );
 
   final base = ThemeData(
     useMaterial3: true,
@@ -133,7 +224,7 @@ ThemeData buildAppTheme({bool phone = false}) {
       ),
     ),
     dividerColor: AppColors.hairline,
-    dividerTheme: const DividerThemeData(
+    dividerTheme: DividerThemeData(
       color: AppColors.hairline,
       thickness: 1,
       space: 1,
@@ -166,15 +257,15 @@ ThemeData buildAppTheme({bool phone = false}) {
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
-        borderSide: const BorderSide(color: AppColors.hairline),
+        borderSide: BorderSide(color: AppColors.hairline),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
-        borderSide: const BorderSide(color: AppColors.hairline),
+        borderSide: BorderSide(color: AppColors.hairline),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
-        borderSide: const BorderSide(color: AppColors.accent, width: 1.5),
+        borderSide: BorderSide(color: AppColors.accent, width: 1.5),
       ),
     ),
     iconButtonTheme: IconButtonThemeData(

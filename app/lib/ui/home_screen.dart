@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1703
+// Last modified: 2026-08-05--0055
 import 'dart:async';
 import 'dart:io';
 
@@ -128,13 +128,19 @@ class HomeScreen extends StatelessWidget {
       // track count. SafeArea is a no-op on desktop, where these insets are
       // all zero.
       body: AnnotatedRegion<SystemUiOverlayStyle>(
-        // Dark status-bar icons: this UI is white, and Android's default for
-        // a full-screen app is white-on-white.
-        value: SystemUiOverlayStyle.dark.copyWith(
-          statusBarColor: Colors.transparent,
-          systemNavigationBarColor: AppColors.panelBg,
-          systemNavigationBarIconBrightness: Brightness.dark,
-        ),
+        // Status-bar icons contrast with the active palette: dark icons on
+        // the light UI, light icons in dark mode.
+        value:
+            (AppColors.isDark
+                    ? SystemUiOverlayStyle.light
+                    : SystemUiOverlayStyle.dark)
+                .copyWith(
+                  statusBarColor: Colors.transparent,
+                  systemNavigationBarColor: AppColors.panelBg,
+                  systemNavigationBarIconBrightness: AppColors.isDark
+                      ? Brightness.light
+                      : Brightness.dark,
+                ),
         child: SafeArea(
           child: Column(
             children: [
@@ -900,7 +906,7 @@ class _PlaylistTile extends StatelessWidget {
         trailing: active
             ? IconButton(
                 key: Key('clear-playlist-${playlist.name}'),
-                icon: const Icon(
+                icon: Icon(
                   Icons.close,
                   size: 14,
                   color: AppColors.inkSecondary,
@@ -978,7 +984,7 @@ class _SearchFieldState extends State<_SearchField> {
               ? null
               : IconButton(
                   key: const Key('search-clear'),
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.close,
                     size: 16,
                     color: AppColors.inkSecondary,

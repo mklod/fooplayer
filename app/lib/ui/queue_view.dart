@@ -21,7 +21,7 @@
 // inline. Every row still reserves that column's width even on the current
 // row (which has no remove button), so every row's Album/Time line up.
 //
-// Last modified: 2026-07-30--0201
+// Last modified: 2026-08-05--0055
 
 import 'package:flutter/material.dart';
 
@@ -42,7 +42,7 @@ const double _kDurationColumnWidth = 44;
 const double _kRemoveColumnWidth = 32;
 const int _kSongFlex = 5;
 const int _kAlbumFlex = 2;
-const _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
+final _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
 
 /// Matches track_list.dart's private `_fmtDuration` -- foobar-style `m:ss`,
 /// blank when the duration isn't known yet.
@@ -54,7 +54,7 @@ String _fmtDuration(int? ms) {
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
-class QueueView extends StatelessWidget {
+class QueueView extends StatefulWidget {
   final PlayerService player;
 
   /// Rendered above the list on the desktop, where there is room for a
@@ -75,6 +75,50 @@ class QueueView extends StatelessWidget {
   });
 
   @override
+  State<QueueView> createState() => _QueueViewState();
+}
+
+class _QueueViewState extends State<QueueView> {
+  PlayerService get player => widget.player;
+  bool get showHeader => widget.showHeader;
+  ArtworkResolver? get artworkResolver => widget.artworkResolver;
+
+  /// Owned so the view can open AT the playing track -- reported live:
+  /// shuffling the whole library queues thousands of rows, and the Queue
+  /// button dropped the user at row zero with the current track somewhere
+  /// far below. Once, on open; after that the user owns the scroll (a
+  /// track change while they are reading the list must not yank it).
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToCurrent());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// Scrolls so the playing row sits at the top of the viewport. Row extent
+  /// is derived from live scroll geometry (uniform rows), same technique as
+  /// the track list's arrow-key reveal.
+  void _jumpToCurrent() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final queue = player.queueController.queue;
+    final current = player.queueController.index;
+    if (queue.isEmpty || current <= 0) return;
+    final pos = _scrollController.position;
+    final rowHeight =
+        (pos.maxScrollExtent + pos.viewportDimension) / queue.length;
+    _scrollController.jumpTo(
+      (current * rowHeight).clamp(0.0, pos.maxScrollExtent),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: player,
@@ -83,7 +127,7 @@ class QueueView extends StatelessWidget {
         final current = player.queueController.index;
 
         if (queue.isEmpty) {
-          return const Center(
+          return Center(
             key: Key('queue-empty'),
             child: Padding(
               padding: EdgeInsets.all(32),
@@ -105,6 +149,7 @@ class QueueView extends StatelessWidget {
             Expanded(
               child: ReorderableListView.builder(
                 key: const Key('queue-list'),
+                scrollController: _scrollController,
                 itemCount: queue.length,
                 buildDefaultDragHandles: false,
                 // onReorderItem, not onReorder: the older callback reports
@@ -135,7 +180,7 @@ class QueueView extends StatelessWidget {
           const SizedBox(width: 10),
           Text(
             remaining == 0 ? 'nothing after this' : '$remaining to come',
-            style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+            style: TextStyle(fontSize: 12, color: AppColors.inkSecondary),
           ),
           const Spacer(),
           TextButton(
@@ -154,7 +199,7 @@ class QueueView extends StatelessWidget {
   /// Time stays aligned with the rows below it, which reserve that width for
   /// the remove button.
   Widget _columnHeader() {
-    return const DecoratedBox(
+    return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: AppColors.hairline)),
       ),
@@ -188,10 +233,10 @@ class QueueView extends StatelessWidget {
     // queue has no stable curated position worth numbering, but the column
     // still carries a row identifier, left-aligned the same way # is.
     final leading = isCurrent
-        ? const Icon(Icons.volume_up, size: 18, color: AppColors.accent)
+        ? Icon(Icons.volume_up, size: 18, color: AppColors.accent)
         : ReorderableDragStartListener(
             index: i,
-            child: const Icon(
+            child: Icon(
               Icons.drag_handle,
               size: 18,
               color: AppColors.inkSecondary,

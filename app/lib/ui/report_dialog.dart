@@ -98,7 +98,7 @@ class ReportNote extends StatelessWidget {
     padding: const EdgeInsets.only(top: 4),
     child: Text(
       text,
-      style: const TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+      style: TextStyle(fontSize: 12, color: AppColors.inkSecondary),
     ),
   );
 }
@@ -150,7 +150,7 @@ class ReportReasons extends StatelessWidget {
                 Expanded(
                   child: Text(
                     reason.key,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       color: AppColors.inkSecondary,
                     ),

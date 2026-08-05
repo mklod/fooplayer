@@ -200,4 +200,23 @@ void main() {
 
     expect(find.text('Song b'), findsOneWidget);
   });
+
+  testWidgets('opens scrolled to the playing track, not row zero', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(400, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final p = _FakePlayer()
+      ..queueController.setQueue(
+        [for (var i = 0; i < 80; i++) _t('t$i')],
+        60,
+      );
+    await _pump(tester, p);
+    await tester.pumpAndSettle();
+
+    // Far-down current track is on screen without any user scrolling; the
+    // head of the queue is not.
+    expect(find.text('Song t60'), findsOneWidget);
+    expect(find.text('Song t0'), findsNothing);
+  });
 }

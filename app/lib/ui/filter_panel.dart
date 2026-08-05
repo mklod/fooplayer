@@ -168,7 +168,7 @@ class FilterPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                       onTap: () =>
                           onHeaderSegmentTap!(headerSegments!.length - 2),
-                      child: const Padding(
+                      child: Padding(
                         padding: EdgeInsets.only(right: 4),
                         child: Icon(
                           Icons.arrow_upward,
@@ -199,7 +199,7 @@ class FilterPanel extends StatelessWidget {
                   key: const Key('filter-clear'),
                   borderRadius: BorderRadius.circular(10),
                   onTap: onClearHeader ?? () => onSelect(const {}),
-                  child: const Padding(
+                  child: Padding(
                     padding: EdgeInsets.all(4),
                     child: Icon(
                       Icons.close,

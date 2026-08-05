@@ -363,7 +363,7 @@ class _VolumeGroup extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.volume_up, size: 16, color: AppColors.inkSecondary),
+        Icon(Icons.volume_up, size: 16, color: AppColors.inkSecondary),
         const SizedBox(width: 6),
         SizedBox(
           width: 100,
@@ -422,7 +422,7 @@ class _LcdCluster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const timeStyle = TextStyle(fontSize: 11, color: AppColors.inkSecondary);
+    final timeStyle = TextStyle(fontSize: 11, color: AppColors.inkSecondary);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -560,7 +560,7 @@ class _CompactBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const timeStyle = TextStyle(fontSize: 10.5, color: AppColors.inkSecondary);
+    final timeStyle = TextStyle(fontSize: 10.5, color: AppColors.inkSecondary);
     return SizedBox(
       height: 56,
       child: Row(
@@ -669,7 +669,7 @@ class NowPlayingBar extends StatelessWidget {
           // the library, and a second rule between the two bars made the
           // bottom of the window look like it had been assembled out of
           // spare parts.
-          decoration: const BoxDecoration(color: AppColors.barBg),
+          decoration: BoxDecoration(color: AppColors.barBg),
           // The seek/volume sliders get their visible-against-barBg
           // inactive track and accent-colored active track/thumb from the
           // app theme's global SliderThemeData -- no local override here,

@@ -111,7 +111,7 @@ class FoldersView extends StatelessWidget {
                       key: const Key('folders-breadcrumb'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         color: AppColors.inkSecondary,
                       ),
