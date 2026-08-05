@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1844
+// Last modified: 2026-08-04--2348
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -17,12 +17,12 @@ import '../app_theme.dart';
 import '../now_playing_bar.dart'
     show
         AlbumArt,
-        kIconPlay,
-        kIconPause,
-        kIconNext,
-        kIconPrevious,
-        kIconShuffleOff,
-        kIconShuffleOn;
+        kIconPlayBare,
+        kIconPauseBare,
+        kIconNextBare,
+        kIconPreviousBare,
+        kIconShuffleOffBare,
+        kIconShuffleOnBare;
 import 'metro_icon.dart';
 import 'phone_shell.dart' show PhoneView, PhoneViewInfo, phoneShellNavRequest;
 import 'track_context_sheet.dart';
@@ -212,29 +212,6 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
     return p.basename(p.dirname(p.join(t.rootPath, t.relPath)));
   }
 
-  /// One of the title row's circular actions -- a small translucent
-  /// circle with a white glyph, per the reference design.
-  Widget _circleAction({
-    Key? key,
-    required String tooltip,
-    required Widget icon,
-    VoidCallback? onPressed,
-  }) {
-    return Material(
-      color: Colors.white.withValues(alpha: 0.14),
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: IconButton(
-        key: key,
-        tooltip: tooltip,
-        onPressed: onPressed,
-        icon: icon,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -414,23 +391,24 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 ),
                                               ),
                                               const SizedBox(width: 12),
-                                              _circleAction(
+                                              IconButton(
                                                 key: const Key('np-shuffle'),
                                                 tooltip: 'Shuffle',
                                                 onPressed:
                                                     widget.player.toggleShuffle,
+                                                iconSize: 30,
                                                 icon: MetroIcon(
                                                   widget.player.shuffle
-                                                      ? kIconShuffleOn
-                                                      : kIconShuffleOff,
-                                                  size: 20,
+                                                      ? kIconShuffleOnBare
+                                                      : kIconShuffleOffBare,
+                                                  size: 30,
                                                   color: widget.player.shuffle
                                                       ? AppColors.accent
                                                       : Colors.white,
                                                 ),
                                               ),
-                                              const SizedBox(width: 10),
-                                              _circleAction(
+                                              const SizedBox(width: 4),
+                                              IconButton(
                                                 key: const Key('np-more'),
                                                 tooltip: 'More',
                                                 onPressed: () =>
@@ -438,7 +416,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 icon: const Icon(
                                                   Icons.more_horiz,
                                                   color: Colors.white,
-                                                  size: 22,
+                                                  size: 34,
                                                 ),
                                               ),
                                             ],
@@ -511,7 +489,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 tooltip: 'Previous',
                                                 iconSize: 48,
                                                 icon: const MetroIcon(
-                                                  kIconPrevious,
+                                                  kIconPreviousBare,
                                                   size: 48,
                                                   color: Colors.white,
                                                 ),
@@ -526,8 +504,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 iconSize: 68,
                                                 icon: MetroIcon(
                                                   widget.player.playing
-                                                      ? kIconPause
-                                                      : kIconPlay,
+                                                      ? kIconPauseBare
+                                                      : kIconPlayBare,
                                                   size: 68,
                                                   color: Colors.white,
                                                 ),
@@ -540,7 +518,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                                 tooltip: 'Next',
                                                 iconSize: 48,
                                                 icon: const MetroIcon(
-                                                  kIconNext,
+                                                  kIconNextBare,
                                                   size: 48,
                                                   color: Colors.white,
                                                 ),

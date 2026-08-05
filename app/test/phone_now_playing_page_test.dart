@@ -19,12 +19,12 @@ import 'package:fooplayer_app/ui/app_theme.dart';
 import 'package:fooplayer_app/ui/now_playing_bar.dart'
     show
         AlbumArt,
-        kIconPlay,
-        kIconPause,
-        kIconNext,
-        kIconPrevious,
-        kIconShuffleOff,
-        kIconShuffleOn;
+        kIconPlayBare,
+        kIconPauseBare,
+        kIconNextBare,
+        kIconPreviousBare,
+        kIconShuffleOffBare,
+        kIconShuffleOnBare;
 import 'package:fooplayer_app/ui/phone/now_playing_page.dart';
 import 'package:fooplayer_app/ui/phone/phone_shell.dart'
     show PhoneView, phoneShellNavRequest;
@@ -172,11 +172,11 @@ void main() {
       );
 
       // Shuffle and overflow moved up to the title row, still present.
-      expect(metroIcon(kIconShuffleOff), findsOneWidget);
-      expect(metroIcon(kIconPrevious), findsOneWidget);
-      expect(metroIcon(kIconPlay), findsOneWidget); // not playing
-      expect(metroIcon(kIconPause), findsNothing);
-      expect(metroIcon(kIconNext), findsOneWidget);
+      expect(metroIcon(kIconShuffleOffBare), findsOneWidget);
+      expect(metroIcon(kIconPreviousBare), findsOneWidget);
+      expect(metroIcon(kIconPlayBare), findsOneWidget); // not playing
+      expect(metroIcon(kIconPauseBare), findsNothing);
+      expect(metroIcon(kIconNextBare), findsOneWidget);
       expect(find.byKey(const Key('np-more')), findsOneWidget);
 
       // Nothing else on this screen.
@@ -344,14 +344,14 @@ void main() {
   testWidgets('play/pause glyph follows playing state', (tester) async {
     final player = await pumpPage(tester);
 
-    expect(metroIcon(kIconPlay), findsOneWidget);
+    expect(metroIcon(kIconPlayBare), findsOneWidget);
 
     player.playing = true;
     await player.setVolume(1.0);
     await tester.pumpAndSettle();
 
-    expect(metroIcon(kIconPlay), findsNothing);
-    expect(metroIcon(kIconPause), findsOneWidget);
+    expect(metroIcon(kIconPlayBare), findsNothing);
+    expect(metroIcon(kIconPauseBare), findsOneWidget);
   });
 
   testWidgets('transport buttons hit the player via spy-safe paths', (
@@ -397,8 +397,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(player.shuffle, isTrue);
-    expect(metroIcon(kIconShuffleOff), findsNothing);
-    expect(metroIcon(kIconShuffleOn), findsOneWidget);
+    expect(metroIcon(kIconShuffleOffBare), findsNothing);
+    expect(metroIcon(kIconShuffleOnBare), findsOneWidget);
   });
 
   testWidgets('np-more opens the existing track context sheet', (
