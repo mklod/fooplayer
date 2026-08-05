@@ -41,6 +41,22 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0221
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Player vertical rhythm**: the title/artist/folder block sits closer
+  under the artwork, and the transport row gets noticeably more air below
+  the seek bar/times (16→36px). 1.0.0+17.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Player spacing feels right: art hugs the text, controls breathe
+>   - Notes:
+
 ## Build 2026-08-05--0120
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
