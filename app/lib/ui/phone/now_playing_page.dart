@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0005
+// Last modified: 2026-08-05--0220
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -338,8 +338,8 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                               ),
                                             ),
                                           ),
-                                          const Spacer(flex: 3),
-                                          const SizedBox(height: 20),
+                                          const Spacer(flex: 2),
+                                          const SizedBox(height: 12),
                                           // Left-aligned metadata block with the two
                                           // circular actions on its right -- the
                                           // reference design's title row (its star and
@@ -476,7 +476,7 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
                                               ),
                                             ],
                                           ),
-                                          const SizedBox(height: 16),
+                                          const SizedBox(height: 36),
                                           // Exactly three transport controls, large,
                                           // centered -- shuffle and more moved up to
                                           // the title row.
