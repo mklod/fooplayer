@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1654
+// Last modified: 2026-08-04--1844
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
@@ -270,289 +270,313 @@ class _NowPlayingPageState extends State<NowPlayingPage> {
               ),
             ),
             child: SafeArea(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Stack(
-                      children: [
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            // Per spec: large art is min(width - 56, 400).
-                            final artSize = math
-                                .min(constraints.maxWidth - 56, 400.0)
-                                .toDouble();
-                            // Scroll fallback: centered when everything fits (the
-                            // normal portrait-phone case), scrollable instead of
-                            // RenderFlex-overflowing when it doesn't (landscape /
-                            // tiny windows).
-                            return SingleChildScrollView(
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  minHeight: constraints.maxHeight,
-                                ),
-                                // Gives the Column a bounded height even inside
-                                // the scroll view, so its Spacers can flex; when
-                                // content genuinely exceeds the viewport they
-                                // collapse to zero and it scrolls.
-                                child: IntrinsicHeight(
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 24,
-                                      vertical: 16,
-                                    ),
-                                    child: Column(
-                                      // Top-anchored, Apple-Music-style: art high,
-                                      // the control block low, flexible breathing
-                                      // room between (Spacers collapse to zero when
-                                      // the scroll fallback kicks in -- fine).
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        // Room for the close chevron overlaid above.
-                                        const SizedBox(height: 40),
-                                        Center(
-                                          child: Container(
-                                            width: artSize,
-                                            height: artSize,
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.black
-                                                      .withValues(alpha: 0.35),
-                                                  blurRadius: 24,
-                                                  offset: const Offset(0, 8),
-                                                ),
-                                              ],
-                                            ),
-                                            child: ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              child: AlbumArt(
-                                                contentId: t.contentId,
-                                                file: File(
-                                                  p.join(t.rootPath, t.relPath),
-                                                ),
-                                                size: artSize,
-                                                resolver:
-                                                    widget.artworkResolver,
-                                                track: t,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                        const Spacer(flex: 3),
-                                        const SizedBox(height: 20),
-                                        // Left-aligned metadata block with the two
-                                        // circular actions on its right -- the
-                                        // reference design's title row (its star and
-                                        // dots become our shuffle and more).
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.center,
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    t.title,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 21,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                      color: Colors.white,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    t.artist,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 15,
-                                                      color: Colors.white70,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    _sourceFolder(t),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 12.5,
-                                                      color: Colors.white54,
-                                                    ),
+              // Swipe DOWN anywhere = dismiss, same as the top-left chevron.
+              // The content scroll view rejects vertical drags whenever the
+              // content fits the screen (ClampingScrollPhysics'
+              // shouldAcceptUserOffset -- the normal portrait case), so this
+              // detector receives them; in the rare overflow case scrolling
+              // wins and the chevron/Back still dismiss.
+              child: GestureDetector(
+                key: const Key('np-swipe-dismiss'),
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragEnd: (details) {
+                  if ((details.primaryVelocity ?? 0) > 600) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          LayoutBuilder(
+                            builder: (context, constraints) {
+                              // Per spec: large art is min(width - 56, 400).
+                              final artSize = math
+                                  .min(constraints.maxWidth - 56, 400.0)
+                                  .toDouble();
+                              // Scroll fallback: centered when everything fits (the
+                              // normal portrait-phone case), scrollable instead of
+                              // RenderFlex-overflowing when it doesn't (landscape /
+                              // tiny windows).
+                              return SingleChildScrollView(
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    minHeight: constraints.maxHeight,
+                                  ),
+                                  // Gives the Column a bounded height even inside
+                                  // the scroll view, so its Spacers can flex; when
+                                  // content genuinely exceeds the viewport they
+                                  // collapse to zero and it scrolls.
+                                  child: IntrinsicHeight(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 24,
+                                        vertical: 16,
+                                      ),
+                                      child: Column(
+                                        // Top-anchored, Apple-Music-style: art high,
+                                        // the control block low, flexible breathing
+                                        // room between (Spacers collapse to zero when
+                                        // the scroll fallback kicks in -- fine).
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          // Room for the close chevron overlaid above.
+                                          const SizedBox(height: 40),
+                                          Center(
+                                            child: Container(
+                                              width: artSize,
+                                              height: artSize,
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(
+                                                          alpha: 0.35,
+                                                        ),
+                                                    blurRadius: 24,
+                                                    offset: const Offset(0, 8),
                                                   ),
                                                 ],
                                               ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            _circleAction(
-                                              key: const Key('np-shuffle'),
-                                              tooltip: 'Shuffle',
-                                              onPressed:
-                                                  widget.player.toggleShuffle,
-                                              icon: MetroIcon(
-                                                widget.player.shuffle
-                                                    ? kIconShuffleOn
-                                                    : kIconShuffleOff,
-                                                size: 20,
-                                                color: widget.player.shuffle
-                                                    ? AppColors.accent
-                                                    : Colors.white,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            _circleAction(
-                                              key: const Key('np-more'),
-                                              tooltip: 'More',
-                                              onPressed: () =>
-                                                  _openMore(context, t),
-                                              icon: const Icon(
-                                                Icons.more_horiz,
-                                                color: Colors.white,
-                                                size: 22,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 20),
-                                        // Fat rounded fill, NO thumb dot (the
-                                        // reference look). Dragging still seeks --
-                                        // the gesture never needed a thumb.
-                                        SliderTheme(
-                                          data: SliderTheme.of(context).copyWith(
-                                            activeTrackColor: Colors.white,
-                                            inactiveTrackColor: Colors.white24,
-                                            trackHeight: 7,
-                                            thumbShape:
-                                                SliderComponentShape.noThumb,
-                                            overlayShape:
-                                                SliderComponentShape.noOverlay,
-                                            trackShape:
-                                                const RoundedRectSliderTrackShape(),
-                                          ),
-                                          child: Slider(
-                                            key: const Key('np-seek'),
-                                            value: total.inMilliseconds == 0
-                                                ? 0
-                                                : (pos.inMilliseconds /
-                                                          total.inMilliseconds)
-                                                      .clamp(0.0, 1.0),
-                                            onChanged: (v) => widget.player.seek(
-                                              Duration(
-                                                milliseconds:
-                                                    (v * total.inMilliseconds)
-                                                        .round(),
+                                              child: ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                child: AlbumArt(
+                                                  contentId: t.contentId,
+                                                  file: File(
+                                                    p.join(
+                                                      t.rootPath,
+                                                      t.relPath,
+                                                    ),
+                                                  ),
+                                                  size: artSize,
+                                                  resolver:
+                                                      widget.artworkResolver,
+                                                  track: t,
+                                                ),
                                               ),
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        // Times directly below the bar: current on
-                                        // the left, total on the right.
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              _fmt(pos),
-                                              maxLines: 1,
-                                              softWrap: false,
-                                              style: timeStyle,
-                                            ),
-                                            Text(
-                                              _fmt(total),
-                                              maxLines: 1,
-                                              softWrap: false,
-                                              style: timeStyle,
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 16),
-                                        // Exactly three transport controls, large,
-                                        // centered -- shuffle and more moved up to
-                                        // the title row.
-                                        Row(
-                                          key: const Key('np-transport'),
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            IconButton(
-                                              tooltip: 'Previous',
-                                              iconSize: 48,
-                                              icon: const MetroIcon(
-                                                kIconPrevious,
-                                                size: 48,
-                                                color: Colors.white,
+                                          const Spacer(flex: 3),
+                                          const SizedBox(height: 20),
+                                          // Left-aligned metadata block with the two
+                                          // circular actions on its right -- the
+                                          // reference design's title row (its star and
+                                          // dots become our shuffle and more).
+                                          Row(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
+                                            children: [
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      t.title,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 21,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                        color: Colors.white,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      t.artist,
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 15,
+                                                        color: Colors.white70,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 2),
+                                                    Text(
+                                                      _sourceFolder(t),
+                                                      maxLines: 1,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
+                                                      style: const TextStyle(
+                                                        fontSize: 12.5,
+                                                        color: Colors.white54,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
-                                              onPressed: widget.player.previous,
-                                            ),
-                                            const SizedBox(width: 28),
-                                            IconButton(
-                                              tooltip: widget.player.playing
-                                                  ? 'Pause'
-                                                  : 'Play',
-                                              iconSize: 68,
-                                              icon: MetroIcon(
-                                                widget.player.playing
-                                                    ? kIconPause
-                                                    : kIconPlay,
-                                                size: 68,
-                                                color: Colors.white,
+                                              const SizedBox(width: 12),
+                                              _circleAction(
+                                                key: const Key('np-shuffle'),
+                                                tooltip: 'Shuffle',
+                                                onPressed:
+                                                    widget.player.toggleShuffle,
+                                                icon: MetroIcon(
+                                                  widget.player.shuffle
+                                                      ? kIconShuffleOn
+                                                      : kIconShuffleOff,
+                                                  size: 20,
+                                                  color: widget.player.shuffle
+                                                      ? AppColors.accent
+                                                      : Colors.white,
+                                                ),
                                               ),
-                                              onPressed:
-                                                  widget.player.togglePlayPause,
-                                            ),
-                                            const SizedBox(width: 28),
-                                            IconButton(
-                                              tooltip: 'Next',
-                                              iconSize: 48,
-                                              icon: const MetroIcon(
-                                                kIconNext,
-                                                size: 48,
-                                                color: Colors.white,
+                                              const SizedBox(width: 10),
+                                              _circleAction(
+                                                key: const Key('np-more'),
+                                                tooltip: 'More',
+                                                onPressed: () =>
+                                                    _openMore(context, t),
+                                                icon: const Icon(
+                                                  Icons.more_horiz,
+                                                  color: Colors.white,
+                                                  size: 22,
+                                                ),
                                               ),
-                                              onPressed: widget.player.next,
+                                            ],
+                                          ),
+                                          const SizedBox(height: 20),
+                                          // Fat rounded fill, NO thumb dot (the
+                                          // reference look). Dragging still seeks --
+                                          // the gesture never needed a thumb.
+                                          SliderTheme(
+                                            data: SliderTheme.of(context).copyWith(
+                                              activeTrackColor: Colors.white,
+                                              inactiveTrackColor:
+                                                  Colors.white24,
+                                              trackHeight: 7,
+                                              thumbShape:
+                                                  SliderComponentShape.noThumb,
+                                              overlayShape: SliderComponentShape
+                                                  .noOverlay,
+                                              trackShape:
+                                                  const RoundedRectSliderTrackShape(),
                                             ),
-                                          ],
-                                        ),
-                                        const Spacer(flex: 2),
-                                      ],
+                                            child: Slider(
+                                              key: const Key('np-seek'),
+                                              value: total.inMilliseconds == 0
+                                                  ? 0
+                                                  : (pos.inMilliseconds /
+                                                            total
+                                                                .inMilliseconds)
+                                                        .clamp(0.0, 1.0),
+                                              onChanged: (v) => widget.player.seek(
+                                                Duration(
+                                                  milliseconds:
+                                                      (v * total.inMilliseconds)
+                                                          .round(),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          // Times directly below the bar: current on
+                                          // the left, total on the right.
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                _fmt(pos),
+                                                maxLines: 1,
+                                                softWrap: false,
+                                                style: timeStyle,
+                                              ),
+                                              Text(
+                                                _fmt(total),
+                                                maxLines: 1,
+                                                softWrap: false,
+                                                style: timeStyle,
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 16),
+                                          // Exactly three transport controls, large,
+                                          // centered -- shuffle and more moved up to
+                                          // the title row.
+                                          Row(
+                                            key: const Key('np-transport'),
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              IconButton(
+                                                tooltip: 'Previous',
+                                                iconSize: 48,
+                                                icon: const MetroIcon(
+                                                  kIconPrevious,
+                                                  size: 48,
+                                                  color: Colors.white,
+                                                ),
+                                                onPressed:
+                                                    widget.player.previous,
+                                              ),
+                                              const SizedBox(width: 28),
+                                              IconButton(
+                                                tooltip: widget.player.playing
+                                                    ? 'Pause'
+                                                    : 'Play',
+                                                iconSize: 68,
+                                                icon: MetroIcon(
+                                                  widget.player.playing
+                                                      ? kIconPause
+                                                      : kIconPlay,
+                                                  size: 68,
+                                                  color: Colors.white,
+                                                ),
+                                                onPressed: widget
+                                                    .player
+                                                    .togglePlayPause,
+                                              ),
+                                              const SizedBox(width: 28),
+                                              IconButton(
+                                                tooltip: 'Next',
+                                                iconSize: 48,
+                                                icon: const MetroIcon(
+                                                  kIconNext,
+                                                  size: 48,
+                                                  color: Colors.white,
+                                                ),
+                                                onPressed: widget.player.next,
+                                              ),
+                                            ],
+                                          ),
+                                          const Spacer(flex: 2),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
-                        Positioned(
-                          top: 4,
-                          left: 4,
-                          child: IconButton(
-                            key: const Key('np-close'),
-                            tooltip: 'Close',
-                            icon: const Icon(
-                              Icons.keyboard_arrow_down,
-                              color: Colors.white70,
-                              size: 28,
-                            ),
-                            onPressed: () => Navigator.of(context).pop(),
+                              );
+                            },
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            top: 4,
+                            left: 4,
+                            child: IconButton(
+                              key: const Key('np-close'),
+                              tooltip: 'Close',
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down,
+                                color: Colors.white70,
+                                size: 28,
+                              ),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  _navBar(context),
-                ],
+                    _navBar(context),
+                  ],
+                ),
               ),
             ),
           );

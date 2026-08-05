@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1654
+// Last modified: 2026-08-04--1844
 //
 // Now Playing, Apple-Music-style layout: full-bleed, artwork-tinted, no
 // AppBar (np-close chevron dismisses). Left-aligned title/artist/source-
@@ -216,6 +216,46 @@ void main() {
     );
     expect(theme.data.thumbShape, SliderComponentShape.noThumb);
     expect(theme.data.trackHeight, 7);
+  });
+
+  testWidgets('swipe down dismisses the page, like the chevron', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final player = PlayerService();
+    player.queueController.setQueue(fixtureTracks(), 0);
+    await player.setVolume(1.0);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () => Navigator.of(
+                  context,
+                ).push(NowPlayingPage.route(player: player)),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NowPlayingPage), findsOneWidget);
+
+    await tester.fling(
+      find.byKey(const Key('np-tint')),
+      const Offset(0, 400),
+      1200,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NowPlayingPage), findsNothing);
+    expect(find.text('open'), findsOneWidget);
   });
 
   testWidgets(

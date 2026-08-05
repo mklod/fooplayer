@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1719
+// Last modified: 2026-08-04--1844
 import 'dart:convert';
 import 'dart:io';
 import 'package:fooplayer_core/fooplayer_core.dart';
@@ -268,6 +268,42 @@ void main() {
       );
       expect(unchanged.sidecarCopies, isEmpty);
       expect(unchanged.isEmpty, isTrue);
+    });
+
+    test('folder images (folder/cover/front x jpg/jpeg/png) sync like '
+        'sidecars, case-insensitively; other images are ignored', () {
+      // Reported live: albums whose desktop art came from a cover.jpg
+      // showed no art on the phone -- images were never copied at all.
+      final plan = planRootSync(
+        remoteManifest: mf({'idA': ['Album/a.mp3']}),
+        remoteListing: [
+          rf('Album/a.mp3'),
+          rf('Album/cover.jpg', size: 200),
+          rf('Album/Folder.PNG', size: 300), // case variant still matches
+          rf('Album/front.jpeg', size: 400),
+          rf('Album/scan001.jpg', size: 999), // booklet scan: not artwork
+          rf('Album/back.png', size: 999), // not a resolver name
+        ],
+        localManifest: mf({}),
+        localFiles: {},
+        state: SyncState({}),
+      );
+      expect(plan.copies.map((f) => f.relPath), ['Album/a.mp3']);
+      expect(
+        plan.sidecarCopies.map((f) => f.relPath).toSet(),
+        {'Album/cover.jpg', 'Album/Folder.PNG', 'Album/front.jpeg'},
+      );
+
+      // A synced-state match skips the recopy, same as .artwork.json.
+      final unchanged = planRootSync(
+        remoteManifest: mf({}),
+        remoteListing: [rf('Album/cover.jpg', size: 200)],
+        localManifest: mf({}),
+        localFiles: {},
+        state: SyncState(
+            {'Album/cover.jpg': SyncStateEntry(mtimeMs: 1000, size: 200)}),
+      );
+      expect(unchanged.sidecarCopies, isEmpty);
     });
 
     test('a file that is neither audio, sidecar, nor excluded is ignored '
