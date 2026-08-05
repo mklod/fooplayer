@@ -41,6 +41,38 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0752
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Sync target is now explicit and user-picked** (reported live: synced
+  NAS folders landed at internal-storage ROOT instead of Music). The old
+  behavior silently derived the target as the common parent of the
+  library roots — with one root at `/storage/emulated/0/Music`, that
+  resolved to `/storage/emulated/0/`. The Sync page now has a **"Sync
+  to"** section at the top of the folder list: the target path shown
+  plainly, a **Change…** button (native folder picker), and an explainer
+  ("albums" becomes `<target>/albums`). Default `/storage/emulated/0/
+  Music`; persisted in config; the roots section is now "NAS folders to
+  sync". Devices that already synced keep pointing at their existing
+  files until you change it. 1.0.0+19.
+
+**Cleanup on the phone (one-time):** with a file manager, MOVE the
+stray folders (`albums`, `loose tracks - old`, …) from internal-storage
+root into `Music/`, then set "Sync to" to `Music`. Each folder carries
+its own `.sync_state.json`, so the move is free — the next sync
+recognizes everything and re-downloads nothing.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Sync page shows "Sync to" with your chosen folder; Change… opens the system picker and the choice sticks
+>   - Notes:
+> - [ ] After moving the stray folders into Music and pointing Sync to at it: next sync reports 0 copied (no re-download)
+>   - Notes:
+
 ## Build 2026-08-05--0634
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
