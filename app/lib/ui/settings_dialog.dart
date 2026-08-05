@@ -1,8 +1,9 @@
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-05--0119
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'package:flutter/material.dart';
 
 import 'adaptive.dart';
+import 'app_theme.dart';
 import 'sync_view.dart';
 
 /// Production folder picker: file_selector's native OS directory dialog.
@@ -206,20 +207,33 @@ class SettingsDialog extends StatelessWidget {
       title: const Text('Library roots'),
       content: SizedBox(
         width: 480,
-        child: LibraryRootsEditor(
-          roots: roots,
-          rootsMissingManifest: rootsMissingManifest,
-          rootsFailed: rootsFailed,
-          pickDirectory: pickDirectory,
-          onAddRoot: onAddRoot,
-          onRemoveRoot: onRemoveRoot,
-          // BUG FIX: this dialog used to build LibraryRootsEditor without
-          // forwarding its own onSetUpRoot at all, so a tablet (which runs
-          // this same panel-layout dialog, not the phone Settings page --
-          // see adaptive.dart's useDesktopLayout) never saw the "Set up"
-          // affordance for a freshly-added, not-yet-scanned root, however
-          // many callers passed one in.
-          onSetUpRoot: onSetUpRoot,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LibraryRootsEditor(
+              roots: roots,
+              rootsMissingManifest: rootsMissingManifest,
+              rootsFailed: rootsFailed,
+              pickDirectory: pickDirectory,
+              onAddRoot: onAddRoot,
+              onRemoveRoot: onRemoveRoot,
+              // BUG FIX: this dialog used to build LibraryRootsEditor
+              // without forwarding its own onSetUpRoot at all, so a tablet
+              // (which runs this same panel-layout dialog, not the phone
+              // Settings page -- see adaptive.dart's useDesktopLayout)
+              // never saw the "Set up" affordance for a freshly-added,
+              // not-yet-scanned root, however many callers passed one in.
+              onSetUpRoot: onSetUpRoot,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'APPEARANCE',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 6),
+            const ThemePreferencePicker(),
+          ],
         ),
       ),
       actions: [

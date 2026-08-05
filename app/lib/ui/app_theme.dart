@@ -99,6 +99,57 @@ class AppColors {
   static bool isDark = false;
 }
 
+/// The user's theme choice, one of 'system' | 'light' | 'dark'.
+///
+/// Process-global (same pattern as phoneShellNavRequest): main() seeds it
+/// from config.json's `theme` key and persists every change back; the
+/// settings surfaces write it directly; BrightnessRoot listens and
+/// re-applies the palette. Tests that write it must restore 'system'.
+final ValueNotifier<String> themePreference = ValueNotifier<String>('system');
+
+/// What [themePreference] + the platform actually mean: an explicit
+/// 'dark'/'light' wins everywhere (including the Windows desktop);
+/// 'system' follows the OS setting on Android and stays light on desktop
+/// (whose OS-dark integration was deliberately not wired).
+bool resolveDarkPreference(
+  String preference,
+  Brightness platformBrightness, {
+  required bool isAndroid,
+}) => switch (preference) {
+  'dark' => true,
+  'light' => false,
+  _ => isAndroid && platformBrightness == Brightness.dark,
+};
+
+/// The System / Light / Dark chooser both settings surfaces embed (the
+/// phone Settings page and the desktop/tablet Settings dialog). Writes
+/// [themePreference] directly; BrightnessRoot does the rest.
+class ThemePreferencePicker extends StatelessWidget {
+  const ThemePreferencePicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: themePreference,
+      builder: (context, value, _) => Align(
+        alignment: Alignment.centerLeft,
+        child: SegmentedButton<String>(
+          key: const Key('theme-preference'),
+          segments: const [
+            ButtonSegment(value: 'system', label: Text('System')),
+            ButtonSegment(value: 'light', label: Text('Light')),
+            ButtonSegment(value: 'dark', label: Text('Dark')),
+          ],
+          selected: {value},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) =>
+              themePreference.value = selection.first,
+        ),
+      ),
+    );
+  }
+}
+
 /// Copies the palette for [brightness] into [AppColors]. Call BEFORE
 /// building/rebuilding the widget tree (main.dart's App root does, keyed on
 /// the platform brightness on Android; desktop stays light).

@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0055
+// Last modified: 2026-08-05--0119
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -180,6 +180,16 @@ void main() async {
   if (needsMigrationWrite(rawConfig)) {
     _writeConfig(config, dataDir);
   }
+
+  // Theme preference ('system' | 'light' | 'dark'): seed the global from
+  // config, persist every settings-surface change back. BrightnessRoot
+  // (below) listens and re-applies the palette live.
+  final storedTheme = config['theme'];
+  if (storedTheme is String) themePreference.value = storedTheme;
+  themePreference.addListener(() {
+    config['theme'] = themePreference.value;
+    _writeConfig(config, dataDir);
+  });
 
   // Ask for storage before the first load, on Android. Without it the app can
   // LIST a music folder and open nothing in it -- which presents as an empty
@@ -737,11 +747,13 @@ class _BrightnessRootState extends State<BrightnessRoot>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    themePreference.addListener(_onPreferenceChanged);
     _apply();
   }
 
   @override
   void dispose() {
+    themePreference.removeListener(_onPreferenceChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -749,11 +761,14 @@ class _BrightnessRootState extends State<BrightnessRoot>
   @override
   void didChangePlatformBrightness() => setState(_apply);
 
+  void _onPreferenceChanged() => setState(_apply);
+
   void _apply() {
-    final dark =
-        isAndroidPlatform() &&
-        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-            Brightness.dark;
+    final dark = resolveDarkPreference(
+      themePreference.value,
+      WidgetsBinding.instance.platformDispatcher.platformBrightness,
+      isAndroid: isAndroidPlatform(),
+    );
     setAppBrightness(dark ? Brightness.dark : Brightness.light);
   }
 
