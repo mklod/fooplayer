@@ -8,7 +8,7 @@
 // injected seams below; this widget never touches `dart:io` or a
 // `SyncTransport` directly, which is what makes it testable with fakes.
 //
-// Last modified: 2026-08-04--0330
+// Last modified: 2026-08-05--0751
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -80,6 +80,11 @@ class SyncView extends StatefulWidget {
   /// See [SyncUiSeams.activity]'s doc.
   final ActivityModel? activity;
 
+  /// Native directory picker for the "Sync to" folder. Null hides the
+  /// Change... button (bare test fixtures); both production settings
+  /// surfaces pass their own picker through.
+  final Future<String?> Function()? pickDirectory;
+
   const SyncView({
     super.key,
     required this.settings,
@@ -89,6 +94,7 @@ class SyncView extends StatefulWidget {
     required this.discoverRoots,
     required this.cancelSync,
     this.activity,
+    this.pickDirectory,
   });
 
   @override
@@ -129,6 +135,7 @@ class _SyncViewState extends State<SyncView> {
       host: widget.settings.host,
       share: widget.settings.share,
       basePath: widget.settings.basePath,
+      localFolder: widget.settings.localFolder,
       roots: Map<String, bool>.of(widget.settings.roots),
     );
     _hostController = TextEditingController(text: _settings.host);
@@ -228,6 +235,21 @@ class _SyncViewState extends State<SyncView> {
     });
   }
 
+  Future<void> _changeLocalFolder() async {
+    final pick = widget.pickDirectory;
+    if (pick == null) return;
+    final String? path;
+    try {
+      path = await pick();
+    } catch (_) {
+      return; // dismissed/failed native dialog -- keep the current target
+    }
+    if (path == null || path.isEmpty || !mounted) return;
+    final chosen = path;
+    setState(() => _settings.localFolder = chosen);
+    _save();
+  }
+
   void _toggleRoot(String name, bool? checked) {
     setState(() => _settings.roots[name] = checked ?? false);
     _save();
@@ -324,7 +346,41 @@ class _SyncViewState extends State<SyncView> {
         ),
         const SizedBox(height: 20),
         Text(
-          'Roots to sync',
+          'Sync to',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.inkSecondary,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                _settings.effectiveLocalFolder,
+                key: const Key('sync-local-folder'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: AppColors.ink),
+              ),
+            ),
+            if (widget.pickDirectory != null)
+              TextButton(
+                key: const Key('sync-local-folder-change'),
+                onPressed: _changeLocalFolder,
+                child: const Text('Change…'),
+              ),
+          ],
+        ),
+        Text(
+          'Each NAS folder below is placed inside this folder — '
+          '"albums" becomes ${_settings.effectiveLocalFolder}/albums.',
+          style: TextStyle(fontSize: 11.5, color: AppColors.inkSecondary),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'NAS folders to sync',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
@@ -417,10 +473,7 @@ class _SyncViewState extends State<SyncView> {
                       key: const Key('sync-progress-line'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.ink,
-                      ),
+                      style: TextStyle(fontSize: 12, color: AppColors.ink),
                     ),
                     if (job.hasProgress) ...[
                       const SizedBox(height: 6),
@@ -542,10 +595,7 @@ class SyncReportDialog extends StatelessWidget {
               padding: const EdgeInsets.only(top: 2, left: 8),
               child: Text(
                 '${f.relPath}: ${f.reason}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppColors.inkSecondary,
-                ),
+                style: TextStyle(fontSize: 12, color: AppColors.inkSecondary),
               ),
             ),
         ],

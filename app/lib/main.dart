@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0633
+// Last modified: 2026-08-05--0751
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -268,12 +268,18 @@ void main() async {
     _writeConfig(config, dataDir);
   }
 
-  // Where a sync lands. Same resolution as the playlists home, but with a
-  // concrete fallback for the one case that has neither a configured root
-  // nor a `libraryHome` override yet: the very first sync ever run, before
-  // this device has any music folder configured at all.
-  String syncLocalHomePath() =>
-      currentLibraryHome() ?? '/storage/emulated/0/Music';
+  // Where a sync lands: the user's explicit "Sync to" folder. The target
+  // used to be DERIVED (common parent of the library roots) -- which, with
+  // a single root at /storage/emulated/0/Music, resolved to the
+  // internal-storage ROOT and scattered synced albums there (reported
+  // live). One-time seed below keeps devices that already synced under the
+  // old derivation pointing at their existing files; everyone else gets
+  // /storage/emulated/0/Music until they pick something in the Sync UI.
+  if (syncSettings.localFolder.isEmpty && syncSettings.roots.isNotEmpty) {
+    syncSettings.localFolder = currentLibraryHome() ?? kSyncDefaultLocalFolder;
+    saveSyncSettings(syncSettings);
+  }
+  String syncLocalHomePath() => syncSettings.effectiveLocalFolder;
 
   // Every SmbTransport/PlaylistReconciler/SyncEngine below is constructed
   // freshly INSIDE these closures and closed again before returning --

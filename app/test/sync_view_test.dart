@@ -7,7 +7,7 @@
 // a fake -- no real SmbTransport, no platform channel, anywhere in this
 // file.
 //
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-05--0751
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -33,6 +33,7 @@ Future<void> _pumpSyncView(
   Future<List<String>> Function()? discoverRoots,
   Future<void> Function()? cancelSync,
   ActivityModel? activity,
+  Future<String?> Function()? pickDirectory,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -46,6 +47,7 @@ Future<void> _pumpSyncView(
             discoverRoots: discoverRoots ?? () async => const [],
             cancelSync: cancelSync ?? () async {},
             activity: activity,
+            pickDirectory: pickDirectory,
           ),
         ),
       ),
@@ -445,4 +447,54 @@ void main() {
       expect(find.byKey(const Key('sync-report-dialog')), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'Sync to shows the target folder; Change… picks one and saves it',
+    (tester) async {
+      // The target used to be silently derived from the library roots --
+      // which scattered synced albums into the internal-storage ROOT on a
+      // real phone. It is now explicit, visible, and user-picked.
+      final saved = <SyncSettings>[];
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: saved.add,
+        pickDirectory: () async => '/storage/emulated/0/Music/phone',
+      );
+      await tester.pumpAndSettle();
+
+      // Unset -> the default target is displayed, not an empty gap.
+      expect(find.byKey(const Key('sync-local-folder')), findsOneWidget);
+      expect(
+        find.text('/storage/emulated/0/Music'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('sync-local-folder-change')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('/storage/emulated/0/Music/phone'), findsOneWidget);
+      expect(saved, isNotEmpty);
+      expect(saved.last.localFolder, '/storage/emulated/0/Music/phone');
+    },
+  );
+
+  testWidgets('no picker seam -> no Change… button', (tester) async {
+    await _pumpSyncView(
+      tester,
+      settings: _fixtureSettings(),
+      onSave: (_) {},
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('sync-local-folder-change')), findsNothing);
+  });
+
+  test('localFolder round-trips through toJson/fromConfig', () {
+    final s = SyncSettings(localFolder: '/storage/emulated/0/Music');
+    final parsed = SyncSettings.fromConfig({'sync': s.toJson()})!;
+    expect(parsed.localFolder, '/storage/emulated/0/Music');
+    expect(parsed.effectiveLocalFolder, '/storage/emulated/0/Music');
+    // Unset -> the documented default.
+    expect(SyncSettings().effectiveLocalFolder, kSyncDefaultLocalFolder);
+  });
 }
