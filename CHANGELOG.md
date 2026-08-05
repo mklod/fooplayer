@@ -41,6 +41,32 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-05--0634
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Artwork editing now works on songs you browse to** (reported live:
+  worked on the now-playing song, dead on any other). The browse
+  surfaces — Folders view and the Artists/Albums/Playlists drill-down
+  pages — never forwarded the artwork services or the player into the
+  long-press sheet, so those sheets silently omitted **Album artwork**
+  AND **Play next / Add to queue**; only the home feed and the player's
+  ⋯ were wired. All threaded through now (regression test pins the sheet
+  contents).
+- **Picker failures are diagnosable**: error strips now include the
+  actual exception text; "Choose file…" is guarded (a throwing platform
+  picker used to look like a dead button); and an empty search result now
+  runs a quick connectivity probe so "providers unreachable — no internet
+  access" is distinguished from a genuine "No artwork found." 1.0.0+18.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Long-press a song in Folders/Artists/Albums/Playlists: sheet shows Album artwork + Play next + Add to queue; picker's lookup/file/URL all work
+>   - Notes:
+
 ## Build 2026-08-05--0221
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
