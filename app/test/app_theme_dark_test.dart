@@ -47,4 +47,35 @@ void main() {
       greaterThan(dark.scaffoldBackgroundColor.computeLuminance()),
     );
   });
+
+  test('resolveDarkPreference: explicit wins everywhere, system is '
+      'Android-only', () {
+    expect(resolveDarkPreference('dark', Brightness.light, isAndroid: false),
+        isTrue);
+    expect(resolveDarkPreference('light', Brightness.dark, isAndroid: true),
+        isFalse);
+    expect(resolveDarkPreference('system', Brightness.dark, isAndroid: true),
+        isTrue);
+    expect(resolveDarkPreference('system', Brightness.light, isAndroid: true),
+        isFalse);
+    // Desktop 'system' never goes dark -- its OS integration isn't wired.
+    expect(resolveDarkPreference('system', Brightness.dark, isAndroid: false),
+        isFalse);
+  });
+
+  testWidgets('the settings picker writes themePreference', (tester) async {
+    addTearDown(() => themePreference.value = 'system');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: const Scaffold(body: ThemePreferencePicker()),
+      ),
+    );
+    await tester.tap(find.text('Dark'));
+    await tester.pump();
+    expect(themePreference.value, 'dark');
+    await tester.tap(find.text('System'));
+    await tester.pump();
+    expect(themePreference.value, 'system');
+  });
 }
