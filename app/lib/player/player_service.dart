@@ -1,3 +1,5 @@
+// Last modified: 2026-08-04--2358
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
@@ -65,15 +67,56 @@ class PlayerService extends ChangeNotifier {
       notifyListeners();
     });
     player.stream.duration.listen(handleDurationChange);
-    player.stream.playing.listen((v) {
-      playing = v;
-      notifyListeners();
-    });
+    player.stream.playing.listen(handlePlayingChange);
     player.stream.completed.listen((done) {
       if (done) next();
     });
     _player = player;
     return player;
+  }
+
+  /// The engine's `playing` stream, with one deliberate asymmetry: `true`
+  /// applies immediately, `false` is debounced by [_pauseDebounce].
+  ///
+  /// mpv emits a transient playing=false at every end-of-file, BEFORE
+  /// `completed` fires and the next track's `open(play: true)` flips it
+  /// back -- so every auto-advance used to broadcast a pause+play flicker
+  /// through the media session. With the audio service configured to drop
+  /// out of the foreground on pause (see audio_handler.dart's config,
+  /// since changed), that flicker while backgrounded handed Android a
+  /// window to demote the process: audio then died "randomly early in the
+  /// song" until a notification pause/play (a MediaSession command, exempt
+  /// from background foreground-start limits) restored it. A false that
+  /// survives the debounce window is a real pause and is broadcast
+  /// normally; one erased by a quick true (the next track starting) never
+  /// escapes this class at all.
+  @visibleForTesting
+  void handlePlayingChange(bool v) {
+    if (v) {
+      _pauseBroadcast?.cancel();
+      _pauseBroadcast = null;
+      _setPlaying(true);
+      return;
+    }
+    _pauseBroadcast?.cancel();
+    _pauseBroadcast = Timer(_pauseDebounce, () {
+      _pauseBroadcast = null;
+      _setPlaying(false);
+    });
+  }
+
+  /// How long a `playing=false` from the engine must persist before it is
+  /// believed. Longer than any local-file track-to-track open (tens of ms);
+  /// far shorter than anything a human would notice on a genuine pause --
+  /// and [pause]/[togglePlayPause] set the flag optimistically anyway, so
+  /// user-initiated pauses never wait on this at all.
+  static const _pauseDebounce = Duration(milliseconds: 400);
+  Timer? _pauseBroadcast;
+
+  void _setPlaying(bool v) {
+    if (playing == v) return;
+    playing = v;
+    notifyListeners();
   }
 
   /// The `player.stream.duration` listener body (see [_ensurePlayer]),
@@ -126,7 +169,14 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> togglePlayPause() async {
-    await _player?.playOrPause();
+    if (_player == null) return;
+    // Explicit rather than playOrPause: routes through [play]/[pause] so
+    // the optimistic flag update below applies on both halves.
+    if (playing) {
+      await pause();
+    } else {
+      await play();
+    }
   }
 
   /// Explicit transport, for callers that know which they mean.
@@ -135,9 +185,20 @@ class PlayerService extends ChangeNotifier {
   /// commands, and Android may send either when it thinks state has drifted.
   /// Answering both with a toggle turns a redundant "play" into a pause --
   /// the button does the opposite of what it says.
-  Future<void> play() async => _player?.play();
+  /// Optimistic on both: the flag flips before the engine confirms, so the
+  /// UI's play/pause glyphs never lag the tap behind [handlePlayingChange]'s
+  /// pause debounce. The engine's stream then merely re-states the value.
+  Future<void> play() async {
+    if (_player == null) return;
+    _setPlaying(true);
+    await _player!.play();
+  }
 
-  Future<void> pause() async => _player?.pause();
+  Future<void> pause() async {
+    if (_player == null) return;
+    _setPlaying(false);
+    await _player!.pause();
+  }
 
   Future<void> next() async {
     if (queueController.advance() != null) {
@@ -214,6 +275,7 @@ class PlayerService extends ChangeNotifier {
 
   @override
   Future<void> dispose() async {
+    _pauseBroadcast?.cancel();
     await _player?.dispose();
     super.dispose();
   }
