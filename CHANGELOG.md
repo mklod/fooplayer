@@ -41,6 +41,37 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-04--1845
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install on phone; **tablet already updated over USB** — arm64 2011)
+
+### Changes
+
+- **Artwork on desktop but not on the phone — fixed, two stacked causes**
+  (confirmed on The Streets "Computers and Blues" + the Japanese edition;
+  systemic for every album whose art is a folder image):
+  1. LAN sync **never copied folder images at all** — the planner's
+     manifest-joined walk moved audio and `.artwork` sidecars only, so
+     `cover.jpg` never left the NAS. `folder`/`cover`/`front` ×
+     `.jpg`/`.jpeg`/`.png` now sync with the same state-tracked sidecar
+     semantics (name-exact, so booklet scans stay home). **Run a sync on
+     each device to pull the images down.**
+  2. The artwork resolver probed exact lowercase filenames — Windows'
+     case-insensitive filesystem forgave `Folder.jpg`/`COVER.JPG`, Android
+     never did. The sibling lookup now lists the directory once and
+     matches case-insensitively.
+- **Swipe down anywhere on the player = dismiss**, same as the top-left
+  chevron (the scroll view yields the gesture whenever the content fits
+  the screen). 1.0.0+11.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] After a sync: The Streets albums (and other folder-image albums) show art on phone/tablet
+>   - Notes:
+> - [ ] Swipe down on the player closes it; seek drag still works
+>   - Notes:
+
 ## Build 2026-08-04--1725 (desktop)
 
 Daily driver rebuilt (`C:\dev\foobar-app`, windows-app @ `191f46d`) — launch via the usual "fooplayer" shortcut.
