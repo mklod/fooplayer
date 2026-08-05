@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0340
+// Last modified: 2026-08-05--0633
 //
 // Phone-shell filtered track list page (Plan 2b, task P3): the page an
 // Artists/Albums/Playlists entry taps through to, plus the feed-style row
@@ -6,9 +6,11 @@
 // full-screen route with its own AppBar, taking only the models it needs.
 import 'package:flutter/material.dart';
 
+import '../../artwork/picker_seams.dart' show ArtworkServices;
 import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
+import '../../player/player_service.dart';
 import '../app_theme.dart';
 import 'track_context_sheet.dart';
 
@@ -109,6 +111,15 @@ class TrackListPage extends StatelessWidget {
   final PlaylistStore store;
   final List<Track> Function(LibraryModel library) tracksOf;
 
+  /// Threaded into the long-press context sheet. BOTH were simply never
+  /// passed from the browse pages (reported live: artwork editing "works
+  /// on the now-playing song but not on other songs" -- the Album artwork
+  /// entry, and Play next / Add to queue with it, only existed on sheets
+  /// opened from the home feed or the player). Null keeps the old reduced
+  /// sheet, which is what fixtures that don't care rely on.
+  final ArtworkServices? artwork;
+  final PlayerService? player;
+
   /// Starts playback of [tracks] from [index]. Injected (rather than a
   /// PlayerService dependency) so widget tests never construct a real
   /// media_kit Player -- at merge the phone shell wires
@@ -122,6 +133,8 @@ class TrackListPage extends StatelessWidget {
     required this.store,
     required this.tracksOf,
     required this.onPlayTrack,
+    this.artwork,
+    this.player,
   });
 
   @override
@@ -146,6 +159,8 @@ class TrackListPage extends StatelessWidget {
                 track: tracks[i],
                 library: library,
                 store: store,
+                artwork: artwork,
+                player: player,
               ),
             ),
           );

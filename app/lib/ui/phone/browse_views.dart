@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0340
+// Last modified: 2026-08-05--0633
 //
 // Phone-shell browse views (Plan 2b, task P3): Folders / Artists / Albums /
 // Playlists -- the drawer destinations other than the Library feed. Each is
@@ -8,10 +8,12 @@
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
+import '../../artwork/picker_seams.dart' show ArtworkServices;
 import '../../model/filtering.dart';
 import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
+import '../../player/player_service.dart';
 import '../app_theme.dart';
 import '../playlist_dialogs.dart';
 import 'track_context_sheet.dart';
@@ -36,11 +38,19 @@ class FoldersView extends StatelessWidget {
   final PlaylistStore store;
   final PlayTrackCallback onPlayTrack;
 
+  /// Forwarded into every long-press context sheet (and, for the
+  /// drill-down views, into the TrackListPage they push) -- see
+  /// TrackListPage.artwork's doc for the bug this closed.
+  final ArtworkServices? artwork;
+  final PlayerService? player;
+
   const FoldersView({
     super.key,
     required this.library,
     required this.store,
     required this.onPlayTrack,
+    this.artwork,
+    this.player,
   });
 
   @override
@@ -151,6 +161,8 @@ class FoldersView extends StatelessWidget {
                       track: tracks[ti],
                       library: library,
                       store: store,
+                      artwork: artwork,
+                      player: player,
                     ),
                   );
                 },
@@ -180,11 +192,19 @@ class ArtistsView extends StatelessWidget {
   final PlaylistStore store;
   final PlayTrackCallback onPlayTrack;
 
+  /// Forwarded into every long-press context sheet (and, for the
+  /// drill-down views, into the TrackListPage they push) -- see
+  /// TrackListPage.artwork's doc for the bug this closed.
+  final ArtworkServices? artwork;
+  final PlayerService? player;
+
   const ArtistsView({
     super.key,
     required this.library,
     required this.store,
     required this.onPlayTrack,
+    this.artwork,
+    this.player,
   });
 
   @override
@@ -238,11 +258,19 @@ class AlbumsView extends StatelessWidget {
   final PlaylistStore store;
   final PlayTrackCallback onPlayTrack;
 
+  /// Forwarded into every long-press context sheet (and, for the
+  /// drill-down views, into the TrackListPage they push) -- see
+  /// TrackListPage.artwork's doc for the bug this closed.
+  final ArtworkServices? artwork;
+  final PlayerService? player;
+
   const AlbumsView({
     super.key,
     required this.library,
     required this.store,
     required this.onPlayTrack,
+    this.artwork,
+    this.player,
   });
 
   @override
@@ -292,11 +320,19 @@ class PlaylistsView extends StatelessWidget {
   final PlaylistStore store;
   final PlayTrackCallback onPlayTrack;
 
+  /// Forwarded into every long-press context sheet (and, for the
+  /// drill-down views, into the TrackListPage they push) -- see
+  /// TrackListPage.artwork's doc for the bug this closed.
+  final ArtworkServices? artwork;
+  final PlayerService? player;
+
   const PlaylistsView({
     super.key,
     required this.library,
     required this.store,
     required this.onPlayTrack,
+    this.artwork,
+    this.player,
   });
 
   Future<void> _create(BuildContext context) async {

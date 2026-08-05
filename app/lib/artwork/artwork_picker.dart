@@ -1,4 +1,4 @@
-// Last modified: 2026-07-25--2214
+// Last modified: 2026-08-05--0633
 //
 // Plan 4 (Album Artwork Lookup) task A3 -- ONE picker widget, two chromes.
 //
@@ -175,15 +175,44 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       setState(() {
         _loading = false;
         _candidates = const [];
-        _error = 'Artwork search failed.';
+        _error = 'Artwork search failed — ${_diag(e)}';
       });
       return;
+    }
+    // Zero candidates is ALSO what every provider failing looks like (they
+    // degrade to empty rather than throw) -- when a probe is wired, tell
+    // the difference so a phone with no route to the providers says so
+    // instead of a misleading "No artwork found."
+    String? emptyDiagnosis;
+    final probe = widget.services.networkProbe;
+    if (found.isEmpty && probe != null) {
+      bool reachable;
+      try {
+        reachable = await probe();
+      } catch (_) {
+        reachable = false;
+      }
+      if (!reachable) {
+        emptyDiagnosis =
+            'The artwork providers are unreachable — this app has no '
+            'internet access right now.';
+      }
     }
     if (!mounted || req != _request) return;
     setState(() {
       _loading = false;
       _candidates = found;
+      _error = emptyDiagnosis;
     });
+  }
+
+  /// One readable line out of an exception, for the error strip -- the
+  /// generic messages used to hide exactly the detail (SocketException,
+  /// MissingPluginException, permission denials) that would have made the
+  /// phone reports diagnosable.
+  static String _diag(Object e) {
+    final text = e.toString().replaceAll('\n', ' ');
+    return text.length > 140 ? '${text.substring(0, 140)}…' : text;
   }
 
   void _finish(ArtworkPickerOutcome outcome) {
@@ -216,7 +245,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'Could not save that artwork.';
+        _error = 'Could not save that artwork — ${_diag(e)}';
       });
       return;
     }
@@ -244,7 +273,7 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'Could not remove the artwork.';
+        _error = 'Could not remove the artwork — ${_diag(e)}';
       });
       return;
     }
@@ -255,7 +284,16 @@ class _ArtworkPickerState extends State<ArtworkPicker> {
 
   Future<void> _chooseFile() async {
     if (_busy) return;
-    final path = await widget.services.pickFile();
+    final String? path;
+    try {
+      path = await widget.services.pickFile();
+    } catch (e) {
+      // Without this, a throwing platform picker made the button look
+      // simply dead -- the exception escaped into an unhandled future.
+      if (!mounted) return;
+      setState(() => _error = 'Could not open the file picker — ${_diag(e)}');
+      return;
+    }
     if (!mounted || path == null || path.isEmpty) return;
     await _apply(ArtworkChoice(source: ArtworkSource.local, localPath: path));
   }

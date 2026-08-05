@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0119
+// Last modified: 2026-08-05--0633
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -945,21 +945,29 @@ class FooPlayerApp extends StatelessWidget {
                 library: library,
                 store: store,
                 onPlayTrack: player.playFrom,
+                artwork: artworkServices,
+                player: player,
               ),
               PhoneView.artists: (_) => ArtistsView(
                 library: library,
                 store: store,
                 onPlayTrack: player.playFrom,
+                artwork: artworkServices,
+                player: player,
               ),
               PhoneView.albums: (_) => AlbumsView(
                 library: library,
                 store: store,
                 onPlayTrack: player.playFrom,
+                artwork: artworkServices,
+                player: player,
               ),
               PhoneView.playlists: (_) => PlaylistsView(
                 library: library,
                 store: store,
                 onPlayTrack: player.playFrom,
+                artwork: artworkServices,
+                player: player,
               ),
               // Settings as a page (plan: "reuses existing SettingsDialog
               // content"): same roots editor + prefs the desktop dialog
