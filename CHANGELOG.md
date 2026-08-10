@@ -41,6 +41,25 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-10--1502
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Crisp no-artwork placeholder** (reported live: the stock music-note
+  glyph looked badly anti-aliased). It was a single 256px PNG upscaled
+  ~5× on the player's large tile; it's now a vector icon-font glyph that
+  rasterizes at the exact display size — pixel-sharp from queue rows to
+  the full player, and it takes the palette's secondary ink so dark mode
+  themes it automatically. 1.0.0+21.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] No-artwork tracks show a sharp note glyph at every size, both themes
+>   - Notes:
+
 ## Build 2026-08-05--1056
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
