@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--2348
+// Last modified: 2026-08-10--1505
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -177,14 +177,16 @@ class _AlbumArtState extends State<AlbumArt> {
       border: Border.all(color: AppColors.hairline),
     ),
     child: Center(
-      child: Image.asset(
-        kPlaceholderArt,
-        width: widget.size * 0.5,
-        height: widget.size * 0.5,
-        fit: BoxFit.contain,
-        // Small thumbnails would otherwise resample the 256px asset every
-        // frame; the cache keys on the decoded size.
-        filterQuality: FilterQuality.medium,
+      // A VECTOR glyph, not the old 256px placeholder_art.png -- that
+      // bitmap upscaled ~5x on the phone player's large tile and read as
+      // a smeared, badly anti-aliased note (reported live). An icon-font
+      // glyph rasterizes at the exact display size, so it is pixel-crisp
+      // at 24px in a queue row and at 400dp on the player alike -- and
+      // takes the palette's secondary ink, so dark mode gets it for free.
+      child: Icon(
+        Icons.music_note,
+        size: widget.size * 0.5,
+        color: AppColors.inkSecondary,
       ),
     ),
   );
