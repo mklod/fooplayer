@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--2123
+// Last modified: 2026-08-15--2134
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -172,7 +172,13 @@ class SyncEngine {
     // gets reused (or a stray cancel() called before run() even started)
     // would report every subsequent root as 'cancelled' forever.
     _cancelled = false;
-    activity.start(ActivityIds.sync, 'Syncing');
+    // Phase narration (reported live via a Tailscale-remote screenshot:
+    // a bare indeterminate 'Syncing' spinner sat unchanged through the
+    // whole pre-download stretch -- probe, playlist reconcile, per-root
+    // listing -- which over a slow remote link takes long enough to read
+    // as hung). ActivityModel.start on the same id re-labels in place, so
+    // each phase below is one cheap call that keeps the strip moving.
+    activity.start(ActivityIds.sync, 'Contacting NAS');
     try {
       bool reachable;
       try {
@@ -211,6 +217,7 @@ class SyncEngine {
       final playlistNotes = <String>[];
       final activeReconciler = reconciler;
       if (activeReconciler != null) {
+        activity.start(ActivityIds.sync, 'Syncing playlists');
         final notes = await activeReconciler.run();
         playlistNotes.addAll(notes);
         // Only a reconcile that actually changed something needs the
@@ -233,10 +240,16 @@ class SyncEngine {
         // yet is simply never attempted -- no network round-trip, no
         // manifest touch -- matching cancel()'s doc above.
         if (_cancelled) break;
+        // Re-labelled again by the byte-progress reporter once downloads
+        // start; this covers the remote-manifest read + tree listing +
+        // planning stretch, which over a remote link is seconds-to-minutes
+        // of otherwise silent work.
+        activity.start(ActivityIds.sync, 'Checking $rootName');
         results.add(await _syncRoot(rootName));
       }
 
       if (rootNames.isNotEmpty) {
+        activity.start(ActivityIds.sync, 'Updating library');
         await library.rescan(quiet: true);
       }
 
