@@ -1256,6 +1256,46 @@ void main() {
     );
   });
 
+  group('SyncEngine.run -- phase narration', () {
+    test(
+      'the sync job re-labels through every silent phase, so a slow remote '
+      'link shows motion instead of a bare Syncing spinner',
+      () async {
+        // Reported live (Tailscale-remote screenshot): the whole
+        // pre-download stretch sat under one unchanged indeterminate
+        // spinner long enough to read as hung.
+        final idA = await writeNasTrack('RootA', 'a.wav', 1);
+        await writeNasManifest('RootA', {
+          idA: ['a.wav'],
+        });
+
+        final activity = ActivityModel();
+        final labels = <String>[];
+        activity.addListener(() {
+          for (final job in activity.active) {
+            if (job.id == ActivityIds.sync && job.label != labels.lastOrNull) {
+              labels.add(job.label);
+            }
+          }
+        });
+
+        final engine = buildEngine(rootNames: ['RootA'], activity: activity);
+        await engine.run();
+
+        expect(labels.first, 'Contacting NAS');
+        expect(labels, contains('Checking RootA'));
+        expect(labels, contains('Updating library'));
+        // Phases arrive in order.
+        expect(
+          labels.indexOf('Checking RootA'),
+          lessThan(labels.indexOf('Updating library')),
+        );
+        // And the job is gone once run() returns.
+        expect(activity.active, isEmpty);
+      },
+    );
+  });
+
   group('SyncEngine.run -- probe', () {
     test(
       'an unreachable NAS aborts the whole run before touching playlists',
