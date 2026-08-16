@@ -41,6 +41,28 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-08-15--2135
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Remote syncs narrate instead of hanging on a bare spinner** (VTC
+  report + screenshot: two spinning wheels over Tailscale). On a slow
+  remote link the whole pre-download stretch — probe, playlist
+  reconcile, per-root listing/planning — sat under one unchanged
+  "Syncing" spinner (with "Loading library" queued behind the engine's
+  manifest lock next to it). The sync job now re-labels through each
+  phase: **Contacting NAS → Syncing playlists → Checking \<root\> →
+  byte progress → Updating library**. Same everywhere the job shows:
+  strip, Sync page, notification. 1.0.0+22.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Sync over Tailscale: the label steps through phases instead of sitting on "Syncing"
+>   - Notes:
+
 ## Build 2026-08-10--1502
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
