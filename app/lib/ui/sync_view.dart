@@ -8,7 +8,7 @@
 // injected seams below; this widget never touches `dart:io` or a
 // `SyncTransport` directly, which is what makes it testable with fakes.
 //
-// Last modified: 2026-08-05--1055
+// Last modified: 2026-09-10--0156
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -584,6 +584,21 @@ class SyncReportDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(line, style: const TextStyle(fontSize: 13)),
+          // The "why did nothing copy?" line. Without it, files added to
+          // the NAS since its last library scan are silently skipped and
+          // the run just says "0 files copied" (reported live).
+          if (r.unindexedRemote.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${r.unindexedRemote.length} file'
+                '${r.unindexedRemote.length == 1 ? "" : "s"} on the NAS '
+                "aren't in this folder's library index yet, so they were "
+                'skipped — run a scan on the desktop app, then sync again.',
+                key: const Key('sync-unindexed-remote'),
+                style: const TextStyle(fontSize: 12, color: Color(0xFFB25000)),
+              ),
+            ),
           if (r.aborted)
             Padding(
               padding: const EdgeInsets.only(top: 2),

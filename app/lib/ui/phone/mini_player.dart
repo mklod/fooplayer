@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--0340
+// Last modified: 2026-09-10--0156
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
@@ -108,6 +108,12 @@ class MiniPlayer extends StatelessWidget {
                     icon: MetroIcon(
                       player.playing ? kIconPause : kIconPlay,
                       size: 40,
+                      // Follows the palette's ink. Untinted, the glyph
+                      // renders its baked-in #1D1D1F, which on the dark
+                      // theme's bar (#2A2A2D) is grey-on-grey and all but
+                      // invisible -- reported live. Null in light mode
+                      // keeps the no-saveLayer fast path (see MetroIcon).
+                      color: AppColors.isDark ? AppColors.ink : null,
                     ),
                     onPressed: player.togglePlayPause,
                   ),

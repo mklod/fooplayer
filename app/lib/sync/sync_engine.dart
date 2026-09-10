@@ -1,4 +1,4 @@
-// Last modified: 2026-08-15--2134
+// Last modified: 2026-09-10--0156
 //
 // SyncEngine: the orchestrator that turns Task 6's pure `planRootSync`
 // decisions into a verified NAS->phone mirror. Per checked root it reads the
@@ -61,6 +61,12 @@ class RootSyncResult {
   final int adopted;
 
   final List<String> unindexedLocal;
+
+  /// Files sitting in the NAS folder that its `.library.json` doesn't know
+  /// yet -- see [core.SyncPlan.unindexedRemote]. Reported so "0 files
+  /// copied" can say WHY.
+  final List<String> unindexedRemote;
+
   final List<SyncFailure> failures;
 
   final bool aborted;
@@ -75,6 +81,7 @@ class RootSyncResult {
     required this.deleted,
     required this.adopted,
     required this.unindexedLocal,
+    this.unindexedRemote = const [],
     required this.failures,
     required this.aborted,
     this.abortReason,
@@ -352,6 +359,7 @@ class SyncEngine {
           deleted: 0,
           adopted: 0,
           unindexedLocal: plan.unindexedLocal,
+          unindexedRemote: plan.unindexedRemote,
           failures: const [],
           aborted: true,
           abortReason:
