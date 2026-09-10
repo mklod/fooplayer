@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1844
+// Last modified: 2026-09-10--0156
 //
 // Pure per-root sync planner: diffs a remote root's manifest + directory
 // listing against the local mirror's files + manifest + sync-state to
@@ -116,6 +116,16 @@ class SyncPlan {
   /// reported only -- the mirror never deletes what it never indexed.
   final List<String> unindexedLocal;
 
+  /// REMOTE audio files present in the listing that the remote manifest
+  /// doesn't know -- i.e. files dropped into the NAS folder since the
+  /// library was last scanned. They are skipped (the manifest is the join
+  /// key and the source of `date_added`, so copying an unindexed file
+  /// would invent both), but they MUST be reported: a user who adds
+  /// tracks and syncs otherwise gets "0 files copied" with no hint that
+  /// anything was even seen, which is indistinguishable from "already up
+  /// to date" (reported live).
+  final List<String> unindexedRemote;
+
   SyncPlan({
     required this.copies,
     required this.recopies,
@@ -124,6 +134,7 @@ class SyncPlan {
     required this.sidecarCopies,
     required this.adoptions,
     required this.unindexedLocal,
+    this.unindexedRemote = const [],
   });
 
   int get totalBytes => [...copies, ...recopies, ...sidecarCopies]
@@ -257,6 +268,12 @@ SyncPlan planRootSync({
     for (final path in remoteAudioPaths)
       if (remotePathToId.containsKey(path)) path,
   ];
+  // The other half of that intersection -- listed but unknown to the
+  // manifest. Skipped, but surfaced so the report can explain itself.
+  final unindexedRemote = <String>[
+    for (final path in remoteAudioPaths)
+      if (!remotePathToId.containsKey(path)) path,
+  ];
   final remoteTruthPathSet = remoteTruthPaths.toSet();
   final remoteTruthIds =
       remoteTruthPaths.map((path) => remotePathToId[path]!).toSet();
@@ -350,5 +367,6 @@ SyncPlan planRootSync({
     sidecarCopies: sidecarCopies,
     adoptions: adoptions,
     unindexedLocal: unindexedLocal,
+    unindexedRemote: unindexedRemote,
   );
 }

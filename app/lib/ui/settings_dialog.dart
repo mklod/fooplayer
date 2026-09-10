@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--1055
+// Last modified: 2026-09-10--0156
 import 'package:file_selector/file_selector.dart' as file_selector;
 import 'package:flutter/material.dart';
 
@@ -232,6 +232,8 @@ class SettingsDialog extends StatelessWidget {
             Text('APPEARANCE', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 6),
             const ThemePreferencePicker(),
+            const SizedBox(height: 16),
+            const AppVersionFooter(),
           ],
         ),
       ),

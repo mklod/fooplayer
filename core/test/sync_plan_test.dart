@@ -306,6 +306,40 @@ void main() {
       expect(unchanged.sidecarCopies, isEmpty);
     });
 
+    test('remote audio the manifest does not know is skipped BUT reported', () {
+      // Reported live: tracks dropped into a NAS folder since its last
+      // library scan produced "0 files copied" with no explanation.
+      final plan = planRootSync(
+        remoteManifest: mf({'idA': ['known.mp3']}),
+        remoteListing: [rf('known.mp3'), rf('brand new.mp3'), rf('other.mp3')],
+        localManifest: mf({'idA': ['known.mp3']}),
+        localFiles: {'known.mp3'},
+        state: SyncState(
+            {'known.mp3': SyncStateEntry(mtimeMs: 1000, size: 100)}),
+      );
+      // Still not copied -- the manifest is the join key and the source of
+      // date_added; inventing either is worse than skipping.
+      expect(plan.copies, isEmpty);
+      expect(plan.recopies, isEmpty);
+      // ...but no longer silent.
+      expect(
+        plan.unindexedRemote.toSet(),
+        {'brand new.mp3', 'other.mp3'},
+      );
+    });
+
+    test('unindexedRemote is empty when the manifest covers the listing', () {
+      final plan = planRootSync(
+        remoteManifest: mf({'idA': ['a.mp3']}),
+        remoteListing: [rf('a.mp3')],
+        localManifest: mf({}),
+        localFiles: {},
+        state: SyncState({}),
+      );
+      expect(plan.unindexedRemote, isEmpty);
+      expect(plan.copies.map((f) => f.relPath), ['a.mp3']);
+    });
+
     test('a file that is neither audio, sidecar, nor excluded is ignored '
         'entirely', () {
       final plan = planRootSync(

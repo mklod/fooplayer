@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 /// Central design tokens for the iTunes-style light theme.
 ///
@@ -120,6 +123,59 @@ bool resolveDarkPreference(
   'light' => false,
   _ => isAndroid && platformBrightness == Brightness.dark,
 };
+
+/// "fooplayer 1.0.0+22" — the installed build, read from the running
+/// package rather than a hand-maintained constant (which is exactly the
+/// kind of thing that silently goes stale). Shown as a quiet footer in
+/// both settings surfaces: reported live that there was no way at all to
+/// tell which build a phone was running.
+///
+/// Renders nothing until the async lookup lands, and nothing at all if it
+/// fails — a version line is a convenience, never worth an error state.
+class AppVersionFooter extends StatefulWidget {
+  /// Test seam: bypasses the platform channel (unavailable under
+  /// `flutter test`) with a fixed string.
+  final Future<String>? versionOverride;
+
+  const AppVersionFooter({super.key, this.versionOverride});
+
+  @override
+  State<AppVersionFooter> createState() => _AppVersionFooterState();
+}
+
+class _AppVersionFooterState extends State<AppVersionFooter> {
+  String? _label;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final text =
+          await (widget.versionOverride ??
+              PackageInfo.fromPlatform().then(
+                (i) => '${i.version}+${i.buildNumber}',
+              ));
+      if (mounted) setState(() => _label = text);
+    } catch (_) {
+      // No version line rather than a broken one.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _label;
+    if (label == null) return const SizedBox.shrink();
+    return Text(
+      'fooplayer $label',
+      key: const Key('app-version-footer'),
+      style: TextStyle(fontSize: 11.5, color: AppColors.inkSecondary),
+    );
+  }
+}
 
 /// The System / Light / Dark chooser both settings surfaces embed (the
 /// phone Settings page and the desktop/tablet Settings dialog). Writes

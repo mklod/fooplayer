@@ -1,4 +1,4 @@
-// Last modified: 2026-08-10--1505
+// Last modified: 2026-09-10--0156
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -286,16 +286,31 @@ class _MetroIcon extends StatelessWidget {
   final double size;
   const _MetroIcon(this.asset, {this.size = 26});
 
+  /// See the note in [build]: only dark mode repaints, and never the
+  /// self-coloured shuffle-on disc.
+  bool get _tinted => AppColors.isDark && asset != kIconShuffleOn;
+
   @override
   Widget build(BuildContext context) {
     return Image.asset(
       asset,
       width: size,
       height: size,
-      // No runtime color/colorBlendMode: srcIn forces a saveLayer, whose
-      // bounds SwiftShader (the Android emulator's software renderer)
-      // paints as a faint hairline box around every glyph. The ink color
-      // is baked into the PNGs instead (assets/icons/*.png).
+      // The PNGs bake in the LIGHT palette's ink, so light mode needs no
+      // runtime tint at all -- and skipping it avoids srcIn's saveLayer,
+      // whose bounds SwiftShader (the Android emulator's software
+      // renderer) paints as a faint hairline box around every glyph.
+      // Dark mode MUST repaint though: baked #1D1D1F on the dark bar
+      // (#2A2A2D) is grey-on-grey (reported live from the phone's mini
+      // player, which shares these assets).
+      //
+      // [kIconShuffleOn] is the one asset carrying its OWN colour (white
+      // arrows on the accent-blue disc) -- repainting it with ink would
+      // erase the whole point of the on-state, so it is never tinted.
+      // Checked here rather than at the call sites so no future caller
+      // can forget.
+      color: _tinted ? AppColors.ink : null,
+      colorBlendMode: _tinted ? BlendMode.srcIn : null,
       filterQuality: FilterQuality.medium,
     );
   }

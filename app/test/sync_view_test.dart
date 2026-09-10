@@ -498,4 +498,72 @@ void main() {
     // Unset -> the documented default.
     expect(SyncSettings().effectiveLocalFolder, kSyncDefaultLocalFolder);
   });
+
+  testWidgets(
+    'the report explains a 0-copied run caused by unindexed NAS files',
+    (tester) async {
+      final report = SyncReport(
+        playlistNotes: const [],
+        roots: [
+          RootSyncResult(
+            rootName: 'loose tracks',
+            copied: 0,
+            copiedBytes: 0,
+            updated: 0,
+            renamed: 0,
+            deleted: 0,
+            adopted: 0,
+            unindexedLocal: const [],
+            unindexedRemote: const ['new one.mp3', 'new two.mp3'],
+            failures: const [],
+            aborted: false,
+          ),
+        ],
+        finishedAt: DateTime(2026, 9, 10),
+      );
+
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () async => report,
+      );
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('sync-unindexed-remote')), findsOneWidget);
+      expect(find.textContaining('2 files on the NAS'), findsOneWidget);
+      expect(find.textContaining('run a scan on the desktop'), findsOneWidget);
+    },
+  );
+
+  testWidgets('no unindexed files -> no explanation line', (tester) async {
+    await _pumpSyncView(
+      tester,
+      settings: _fixtureSettings(),
+      onSave: (_) {},
+      runSync: () async => SyncReport(
+        playlistNotes: const [],
+        roots: [
+          RootSyncResult(
+            rootName: 'loose tracks',
+            copied: 3,
+            copiedBytes: 300,
+            updated: 0,
+            renamed: 0,
+            deleted: 0,
+            adopted: 0,
+            unindexedLocal: const [],
+            failures: const [],
+            aborted: false,
+          ),
+        ],
+        finishedAt: DateTime(2026, 9, 10),
+      ),
+    );
+    await tester.tap(find.byKey(const Key('sync-now')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('sync-unindexed-remote')), findsNothing);
+  });
 }
