@@ -41,6 +41,39 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-10--0157
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **"Sync now → 0 files copied" now explains itself.** Files added to a
+  NAS folder are invisible to sync until that folder's `.library.json`
+  is refreshed — the planner joins the directory listing against the
+  manifest and silently dropped everything else. They're still skipped
+  (the manifest is the join key *and* the source of `date_added`;
+  copying unindexed files would invent both), but the report now says:
+  *"N files on the NAS aren't in this folder's library index yet, so
+  they were skipped — run a scan on the desktop app, then sync again."*
+- **Dark-mode mini-player play/pause was grey-on-grey.** The metro PNGs
+  bake in the *light* palette's ink (#1D1D1F); the dark bar is #2A2A2D.
+  Both the phone mini-player and the desktop bar now repaint the glyph
+  with the palette's ink in dark mode (light mode unchanged, and the
+  accent-blue shuffle-on disc is never repainted).
+- **Version footer in Settings** — "fooplayer 1.0.0+23" at the foot of
+  the phone Settings page and the desktop Settings dialog, read from the
+  running package so it can't go stale. 1.0.0+23.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Dark mode: mini-player play/pause is clearly visible; light mode unchanged
+>   - Notes:
+> - [ ] Settings shows the installed version at the bottom
+>   - Notes:
+> - [ ] Drop a file into a NAS folder without rescanning, sync: report explains the skip instead of a bare "0 copied"
+>   - Notes:
+
 ## Build 2026-08-15--2135
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
