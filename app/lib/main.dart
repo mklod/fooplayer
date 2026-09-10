@@ -1,4 +1,4 @@
-// Last modified: 2026-08-05--0751
+// Last modified: 2026-09-10--0410
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
@@ -18,6 +18,7 @@ import 'model/activity_model.dart';
 import 'model/library_home.dart';
 import 'model/library_model.dart';
 import 'model/library_roots_prefs.dart';
+import 'model/library_watcher.dart';
 import 'model/playlist_migration.dart';
 import 'model/playlist_store.dart';
 import 'model/set_up_root.dart';
@@ -32,6 +33,7 @@ import 'sync/sync_foreground.dart';
 import 'sync/sync_settings.dart';
 import 'ui/adaptive.dart';
 import 'ui/app_theme.dart';
+import 'ui/desktop_tray.dart';
 import 'ui/home_screen.dart';
 import 'ui/layout_prefs.dart';
 import 'ui/phone/browse_views.dart';
@@ -44,7 +46,23 @@ import 'ui/sync_view.dart';
 
 /// How often [LibraryModel.rescan] runs on its own, in addition to the
 /// launch-time and Refresh-button triggers -- see main() below.
-const _rescanInterval = Duration(minutes: 5);
+///
+/// On DESKTOP this is only the safety net: [LibraryWatcher] reacts to the
+/// NAS telling us something changed, and this slow timer exists purely to
+/// cover a dropped/missed change notification. It used to be the primary
+/// mechanism at five minutes, which measured ~31s of SMB stat-walking per
+/// pass over ~7,000 files -- a ~10% duty cycle of permanent network
+/// chatter to almost always learn that nothing had changed.
+///
+/// On ANDROID it stays at five minutes and remains the primary trigger:
+/// the library there is a small app-private mirror (cheap to walk), and
+/// the same tick drives the playlist sync scheduler.
+Duration get _rescanInterval =>
+    Platform.isAndroid ? const Duration(minutes: 5) : const Duration(hours: 1);
+
+/// How long a watched root must go quiet before it is scanned -- long
+/// enough that a download finishes writing first. See [LibraryWatcher].
+const _watchQuietPeriod = Duration(seconds: 60);
 
 File _configFile(Directory dataDir) =>
     File(p.join(dataDir.path, 'config.json'));
@@ -166,7 +184,7 @@ Future<Uri?> _lockScreenArt(
   }
 }
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
   final dataDir = await appDataDir();
@@ -654,10 +672,47 @@ void main() async {
   // found afterward sat un-arted until the app restarted.
   final rescanTimer = Timer.periodic(_rescanInterval, (_) {
     unawaited(periodicRescanTick(library, artworkBackfill));
-    // Same 5-minute tick doubles as the sync scheduler's periodic trigger
+    // The same tick doubles as the sync scheduler's periodic trigger
     // (a no-op while [syncScheduler] is null).
     syncScheduler?.onPeriodicTick();
   });
+
+  // ---- desktop: stay resident and index on change ------------------------
+  //
+  // Music arrives on the NAS from anywhere (the voice-to-code download
+  // flow), but `.library.json` -- which the phone's sync joins against --
+  // is only refreshed while fooplayer runs. Keeping this always-on machine's
+  // copy resident in the tray, and reacting to change notifications rather
+  // than crawling on a timer, means new downloads are indexed within about a
+  // minute of landing without anyone opening anything.
+  DesktopTray? tray;
+  LibraryWatcher? watcher;
+  if (traySupported) {
+    Future<void> scanNow() async {
+      await periodicRescanTick(library, artworkBackfill);
+      await tray?.noteScanCompleted(DateTime.now());
+    }
+
+    watcher = LibraryWatcher(
+      roots: libraryRootsPrefs.roots,
+      onChanged: scanNow,
+      quietPeriod: _watchQuietPeriod,
+      onWatchError: (root, error) =>
+          debugPrint('fooplayer: cannot watch $root ($error) -- '
+              'the periodic rescan still covers it'),
+    )..start();
+
+    tray = DesktopTray(
+      onScanNow: scanNow,
+      onQuit: () async {
+        layoutPrefs.flush();
+        rescanTimer.cancel();
+        artworkBackfill.cancel();
+        await watcher?.dispose();
+      },
+    );
+    await tray.start(startHidden: startsHidden(args));
+  }
 
   _LifecycleFlusher(
     layoutPrefs,

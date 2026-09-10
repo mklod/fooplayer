@@ -50,6 +50,8 @@ dependencies:
   audio_session: ^0.2.4
   permission_handler: ^12.0.3
   package_info_plus: ^10.2.1
+  tray_manager: ^0.5.3
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
