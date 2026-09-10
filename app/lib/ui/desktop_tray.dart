@@ -14,12 +14,13 @@
 // One writer of `.library.json` is a property worth protecting -- see
 // docs/superpowers/specs for the sync design's date_added invariants.
 //
-// Last modified: 2026-09-10--0410
+// Last modified: 2026-09-10--1611
 
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -49,7 +50,28 @@ class DesktopTray with TrayListener, WindowListener {
 
   DesktopTray({required this.onScanNow, required this.onQuit});
 
-  static const _iconWindows = 'windows/runner/resources/app_icon.ico';
+  /// The tray icon, as an ABSOLUTE path.
+  ///
+  /// tray_manager hands the string straight to Win32 `LoadImage(...,
+  /// LR_LOADFROMFILE)`, which resolves a relative path against the
+  /// process working directory -- not the source tree and not the bundle.
+  /// The first version passed `windows/runner/resources/app_icon.ico`,
+  /// which never resolved at runtime, so LoadImage returned NULL and the
+  /// tray showed nothing at all. Build the path off [Platform
+  /// .resolvedExecutable] instead, where Flutter puts bundled assets.
+  ///
+  /// It is a purpose-built multi-size .ico (16/20/24/32/40/48/64/256)
+  /// rendered from the app's own pink-note artwork -- LoadImage asks for
+  /// `SM_CXSMICON` (16px), and the app icon alone starts at 48px, which
+  /// would only ever be downscaled.
+  static String get _iconPath => p.join(
+    p.dirname(Platform.resolvedExecutable),
+    'data',
+    'flutter_assets',
+    'assets',
+    'icons',
+    'tray_icon.ico',
+  );
 
   DateTime? _lastScan;
 
@@ -63,10 +85,12 @@ class DesktopTray with TrayListener, WindowListener {
 
     trayManager.addListener(this);
     try {
-      await trayManager.setIcon(_iconWindows);
-    } catch (_) {
-      // A missing icon must never stop the app from running; the menu
-      // still works from whatever default the platform shows.
+      await trayManager.setIcon(_iconPath);
+    } catch (e) {
+      // A missing icon must never stop the app from running -- but it must
+      // not fail SILENTLY either. Swallowing this is exactly why the first
+      // version shipped with an invisible tray icon and no clue why.
+      debugPrint('fooplayer: tray icon failed to load from $_iconPath ($e)');
     }
     await _refreshTooltip();
     await _buildMenu();
