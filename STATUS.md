@@ -4,6 +4,34 @@
 
 ## Next session starts here
 
+**Resident tray indexer SHIPPED (2026-09-10, merged `7be5565`).** The
+long-standing "0 files copied" confusion had one root cause: `.library.json`
+was only refreshed while the desktop app happened to be open, so music
+arriving on the NAS from anywhere (VTC downloads) stayed invisible to the
+phone. fooplayer now **lives in the Windows system tray, starts with
+Windows** (`Startup\fooplayer (tray).lnk` → `--tray`; the native runner
+suppresses show-on-first-frame so there's no flash), and **indexes on
+change** via SMB2 CHANGE_NOTIFY rather than crawling. The periodic rescan
+dropped 5min → **hourly** and is now only the missed-notification safety
+net — a full stat-walk measured **~31s over SMB for ~7,000 files**, i.e.
+the old cadence was ~10% duty cycle of permanent chatter. Window X hides
+rather than quits (an accidental click used to silently stop indexing).
+
+**Deliberately rejected:** a NAS-side indexer (would put a *second* writer
+on `.library.json`, risking the `date_added` invariants — one writer is
+the property worth protecting) and Syncthing (moves bytes, cannot index;
+would also fight the per-root opt-in and mirror deletions).
+
+**Verified twice end-to-end on the real NAS**, including against the
+deployed tray instance: track dropped 04:11:58 → indexed 04:13:35 (~60s
+quiet period + scan), manifests backed up and restored byte-for-byte.
+
+**If the watch method ever misbehaves**, the fallback is one line:
+`_rescanInterval` in `app/lib/main.dart` back to 5 minutes, and/or drop
+the `LibraryWatcher` wiring — hourly polling alone still works.
+
+
+
 **2026-08-04 afternoon wave (all live feedback, all shipped):**
 (1) **Apple-Music-style Now Playing** (build 2026-08-04--1655, 1.0.0+10,
 merged `23bd532`): art pushed up, left-aligned title/artist/source-folder,

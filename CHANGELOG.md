@@ -41,6 +41,58 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-10--0430 (desktop)
+
+Daily driver rebuilt (`C:\dev\foobar-app`, main @ `7be5565`) and set to start with Windows in the tray.
+
+### Changes
+
+- **fooplayer now indexes the library without anyone opening it.** The
+  root problem behind "0 files copied": `.library.json` was only ever
+  refreshed while the desktop app happened to be running, so music that
+  landed on the NAS from anywhere (the VTC download flow) stayed
+  invisible to the phone until someone sat down at the PC. This machine
+  is up 24/7 (verified: 12-day uptime, sleep disabled), so fooplayer
+  stays resident in the **system tray** and indexes on change.
+  - **Window X now hides instead of quitting** — an accidental click
+    would otherwise silently stop indexing. Tray menu: Show fooplayer /
+    Scan library now / Quit fooplayer. The tray tooltip shows the last
+    scan time as an at-a-glance health check.
+  - **Starts with Windows**, hidden, via a Startup-folder shortcut
+    (`fooplayer (tray).lnk`) passing `--tray`. The native Windows runner
+    honors that flag, so login never flashes a window.
+- **Watch-driven rescans instead of a 5-minute crawl.** The NAS now
+  *tells* us when something lands (SMB2 CHANGE_NOTIFY, verified working
+  against this Samba server) and only then does a scan run. Measured:
+  one full stat-walk is **~31s over SMB for ~7,000 files**, so the old
+  5-minute cadence was a ~10% duty cycle of permanent network chatter
+  almost always finding nothing. The periodic rescan drops to **hourly**
+  and is now only the safety net for a missed notification. Android is
+  unchanged (5-minute tick, small local mirror, drives playlist sync).
+  - Ignores every dot-path, or the scan's own sidecar writes would loop
+    scan → write → scan forever.
+  - 60-second quiet period before scanning, so a file still being
+    downloaded is never hashed half-written.
+- **Deliberately NOT a NAS-side indexer.** Keeping exactly one writer of
+  `.library.json` protects the `date_added` invariants; a second writer
+  racing the desktop on that file is the one risk not worth taking.
+  Syncthing was considered and rejected — it moves bytes but cannot
+  index, and would fight the per-root opt-in and mirror deletions.
+
+**Verified end-to-end on the real NAS, twice** (dev build, then the
+deployed tray instance): dropped a track in at 04:11:58 → manifest
+rewritten with it indexed at 04:13:35, nothing touched. Test manifests
+backed up and restored byte-for-byte afterwards.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Send a VTC download while away, then hit Sync now on the phone — the new track comes down without touching the PC
+> - [ ] Clicking the window X hides fooplayer; it's still in the tray and still indexing
+> - [ ] Reboot: fooplayer comes back on its own, hidden, no window flash
+> - [ ] Tray tooltip shows a recent "last scan" time
+> - [ ] NAS chatter feels acceptable (should be near-zero when idle now)
+
 ## Build 2026-09-10--0157
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
