@@ -41,6 +41,39 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-10--1726
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Synced tracks now show up without restarting the app.** After a LAN
+  sync the library looked untouched -- nothing new at the top, ordering
+  no longer matching the desktop. Cause: `rescan()` only surfaced tracks
+  it had freshly *minted into* the manifest, but a sync copies the audio
+  files **and** writes the NAS's manifest over the local one, so by the
+  time the post-sync rescan ran the manifest already listed every synced
+  track. The diff was empty, so the in-memory library gained nothing.
+  (`load()` never had the bug -- it builds the library straight from the
+  manifest -- which is exactly why restarting made them appear.)
+  rescan() is now driven by the scan instead of the diff, and takes each
+  track's date-added **from the manifest** rather than stamping "now", so
+  the phone's newest-first ordering matches the desktop exactly. 1.0.0+24.
+- Note on the previous sync's report: the handful of files copied from
+  *loose tracks - old*, *monthly* and *alternative times* were **not new**
+  -- those roots had gained nothing in three days. They were a backlog of
+  tracks long present in the index whose files had never successfully
+  landed on the phone (left over from the storage-root mix-up before the
+  "Sync to" fix). The sync simply caught up.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Sync, then go straight to Library: new tracks are at the top, no restart needed
+>   - Notes:
+> - [ ] Phone ordering matches the desktop's newest-first ordering
+>   - Notes:
+
 ## Build 2026-09-10--0430 (desktop)
 
 Daily driver rebuilt (`C:\dev\foobar-app`, main @ `7be5565`) and set to start with Windows in the tray.
