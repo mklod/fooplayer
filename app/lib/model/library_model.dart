@@ -1,4 +1,4 @@
-// Last modified: 2026-09-10--1724
+// Last modified: 2026-09-10--1739
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -305,7 +305,14 @@ class LibraryModel extends ChangeNotifier {
         fileTimeout: fileTimeout,
       );
     } finally {
+      // Must NOTIFY, not just clear the flag: main.dart mirrors `busy`
+      // into the activity strip and can only react to notifications it
+      // receives. Without this the last notification still said busy=true,
+      // so "Loading library" sat in the strip forever -- on the phone and
+      // the desktop -- long after the load had finished. (rescan() and the
+      // seed path have always notified here; load() was the odd one out.)
       _busy = false;
+      notifyListeners();
     }
     await _runPendingLoad();
   }

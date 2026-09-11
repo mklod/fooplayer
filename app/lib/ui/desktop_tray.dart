@@ -14,7 +14,7 @@
 // One writer of `.library.json` is a property worth protecting -- see
 // docs/superpowers/specs for the sync design's date_added invariants.
 //
-// Last modified: 2026-09-10--1611
+// Last modified: 2026-09-10--1739
 
 import 'dart:async';
 import 'dart:io';
@@ -161,7 +161,29 @@ class DesktopTray with TrayListener, WindowListener {
     await windowManager.focus();
   }
 
+  /// Marker the watchdog looks for, so a DELIBERATE quit is not undone.
+  ///
+  /// The watchdog exists to bring fooplayer back after a crash (it has
+  /// caught real ones -- flutter_windows.dll access violations). But
+  /// without this it also resurrected an app the user had just closed on
+  /// purpose, which is its own kind of obnoxious. Written just before
+  /// exit; the watchdog consumes and deletes it.
+  static File get quitMarkerFile => File(
+    p.join(
+      Platform.environment['LOCALAPPDATA'] ?? Directory.systemTemp.path,
+      'fooplayer-watchdog',
+      'quit.marker',
+    ),
+  );
+
   Future<void> _quit() async {
+    try {
+      final marker = quitMarkerFile;
+      await marker.parent.create(recursive: true);
+      await marker.writeAsString(DateTime.now().toIso8601String());
+    } catch (_) {
+      // Worst case the watchdog restarts us; never block the quit on it.
+    }
     await onQuit();
     await dispose();
     // setPreventClose(true) is still in force, so destroy() is what
