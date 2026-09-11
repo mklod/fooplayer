@@ -41,6 +41,51 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-10--1745
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+Desktop: rebuilt + redeployed to `C:\dev\foobar-app` (the tray/Startup exe).
+
+### Changes
+
+- **"Loading library" no longer runs forever.** The status strip could sit
+  on that job for the rest of the session -- "it feels like the app is
+  never really going to load". `main.dart` mirrors `library.busy` into the
+  strip and can only react to notifications it *receives*; `load()` cleared
+  the busy flag in a `finally` **without notifying** (the rescan path and
+  the seed path both notify -- `load` was the odd one out), so the last
+  notification of a load still said busy, and the job never finished.
+  Regression test asserts the final notification of a load reports
+  `busy == false`.
+- **Single instance on Windows.** Launching fooplayer while the hidden tray
+  copy was already running silently started a SECOND one -- reported live
+  ("two instances running"), and visible in WER as two distinct crash
+  hashes. That is a data-safety problem, not clutter: two instances both
+  scan the roots and both write `.library.json`, and *one* writer of that
+  file is the invariant protecting every track's `date_added`. The runner
+  now holds a named mutex; a later launch hands over the existing window
+  (`SW_SHOW` un-hides a tray-resident copy) and exits without starting an
+  engine.
+- **The watchdog respects a deliberate quit.** "Quit fooplayer" drops a
+  marker the watchdog consumes, so it only resurrects actual crashes.
+  Previously it restarted the app you had just closed on purpose.
+- **Crash evidence, first time captured**: the watchdog logged two
+  `AppCrash` reports at 17:33:52 -- `flutter_windows.dll`, exception offset
+  `0x1d7b0`, codes `c0000005` (access violation) and `c000041d`. So the
+  earlier "silent exit" class is a real crash, not a clean shutdown.
+  1.0.0+26.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Android: the status strip clears after the library finishes loading
+>   - Notes:
+> - [ ] Desktop: double-clicking the fooplayer shortcut while it sits in the
+>       tray surfaces the existing window instead of starting a second copy
+>   - Notes:
+> - [ ] Desktop: tray menu → Quit fooplayer, and it STAYS quit
+>   - Notes:
+
 ## Build 2026-09-10--1730
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)

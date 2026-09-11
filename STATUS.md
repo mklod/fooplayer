@@ -1,8 +1,45 @@
 # fooplayer — STATUS
 
-*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-08-04.*
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-09-10.*
 
 ## Next session starts here
+
+**Build 2026-09-10--1745 (1.0.0+26) -- three live-reported desktop/phone
+defects, all fixed and deployed.**
+
+1. **"Loading library" never cleared.** The activity strip sat on that job
+   indefinitely. `main.dart` mirrors `library.busy` into the strip and can
+   only react to notifications it *receives*; `load()` cleared `_busy` in a
+   `finally` **without** `notifyListeners()` -- the rescan path and the seed
+   path both notify, `load` was the odd one out. One added notification;
+   `app/test/library_model_busy_notify_test.dart` asserts the final
+   notification of a load reports `busy == false`.
+2. **Two desktop instances could run at once.** `windows/runner/main.cpp`
+   now holds the named mutex `fooplayer_single_instance`; a later launch
+   `FindWindow`s the existing `FLUTTER_RUNNER_WIN32_WINDOW`, `SW_SHOW`s it
+   (which un-hides a tray-resident copy) and exits before starting an
+   engine. This matters beyond tidiness: two instances both write
+   `.library.json`, and one writer is the invariant protecting `date_added`.
+   Verified on the deployed daily driver: 1st launch -> 1 process; 2nd
+   launch -> still 1, window visible; X -> hidden, process alive.
+3. **The watchdog no longer undoes a deliberate quit.** `DesktopTray._quit`
+   writes `%LOCALAPPDATA%\fooplayer-watchdog\quit.marker`, which the
+   watchdog consumes and honours.
+
+**The "silent exit" is a REAL CRASH -- evidence finally captured.** The
+watchdog logged two `AppCrash` reports at 17:33:52: faulting module
+`flutter_windows.dll`, exception offset `0x1d7b0`, codes `c0000005`
+(access violation) and `c000041d` (fatal user-callback exception), app
+version 1.0.0.23. Two processes were alive at the time, which the
+single-instance guard now prevents. Explorer restarted four times earlier
+the same afternoon (15:58 / 16:31 / 16:55 / 17:21) and remains a correlated
+suspect (shell-notification-icon teardown). The close path itself tested
+safe. Watch the watchdog log for the next occurrence.
+
+**Deployed state:** daily driver rebuilt from `main` @ `5d2dca9` at
+`C:\dev\foobar-app\app\build\windows\x64\runner\Release\` (what the
+Startup shortcut launches), running hidden in the tray; watchdog running.
+Android 1.0.0+26 on dist.flana.app.
 
 **Resident tray indexer SHIPPED (2026-09-10, merged `7be5565`).** The
 long-standing "0 files copied" confusion had one root cause: `.library.json`
