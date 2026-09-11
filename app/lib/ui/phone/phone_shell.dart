@@ -1,4 +1,4 @@
-// Last modified: 2026-08-04--1654
+// Last modified: 2026-09-10--1729
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -15,6 +15,8 @@ import 'now_playing_page.dart';
 import 'phone_activity_strip.dart';
 import 'phone_feed.dart';
 import 'phone_search_page.dart';
+import '../../sync/sync_engine.dart' show SyncReport;
+import '../sync_view.dart';
 
 /// The phone shell's body views, one per Drawer entry. [library] is the
 /// feed (home, built in); production (main.dart) supplies every other
@@ -115,6 +117,14 @@ class PhoneShell extends StatefulWidget {
   /// callback turn it off rather than dealing with a pushed route.
   final bool openNowPlayingOnPlay;
 
+  /// LAN-sync seams, so the drawer can offer a one-tap "Sync now" directly
+  /// rather than making the user go Settings -> Sync -> Sync now. Setting
+  /// sync UP is a rare, settings-shaped task; RUNNING one is routine, and
+  /// burying the routine action three taps deep was reported as digging.
+  /// Null (non-Android, or any test that doesn't wire sync) simply omits
+  /// the entry.
+  final SyncUiSeams? syncUi;
+
   const PhoneShell({
     super.key,
     required this.library,
@@ -128,6 +138,7 @@ class PhoneShell extends StatefulWidget {
     this.store,
     this.artwork,
     this.openNowPlayingOnPlay = true,
+    this.syncUi,
   });
 
   @override
@@ -151,6 +162,9 @@ class _PhoneShellState extends State<PhoneShell> {
   /// without this check Back would skip past an open drawer and change the
   /// view underneath it -- two levels for one press.
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// A drawer-initiated sync is in flight -- see [_syncNowTile].
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -261,6 +275,55 @@ class _PhoneShellState extends State<PhoneShell> {
     );
   }
 
+  /// One-tap sync, straight from the drawer. Progress shows in the
+  /// activity strip and the notification exactly as it does for a sync
+  /// started from the Sync page; the same report dialog ends it.
+  Widget _syncNowTile(BuildContext context) {
+    return ListTile(
+      key: const Key('drawer-sync-now'),
+      leading: _syncing
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.sync, size: 20),
+      title: Text(_syncing ? 'Syncing…' : 'Sync now'),
+      // Disabled mid-run: a second concurrent sync would race the first
+      // over the same files and manifest.
+      onTap: _syncing ? null : _syncNow,
+    );
+  }
+
+  Future<void> _syncNow() async {
+    final seams = widget.syncUi;
+    if (seams == null || _syncing) return;
+    // Close the drawer via the scaffold key rather than the tile's own
+    // BuildContext: that context belongs to the drawer being dismissed, so
+    // holding it across the (minutes-long) sync and then showing a dialog
+    // with it would be using a dead element. The shell's own State.context
+    // outlives the run, which is what the report dialog needs.
+    _scaffoldKey.currentState?.closeDrawer();
+    setState(() => _syncing = true);
+    final messenger = ScaffoldMessenger.of(context);
+    SyncReport? report;
+    try {
+      report = await seams.runSync();
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(SnackBar(content: Text('Sync failed — $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+    final finished = report;
+    if (finished == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => SyncReportDialog(report: finished),
+    );
+  }
+
   void _openSearch(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -316,18 +379,29 @@ class _PhoneShellState extends State<PhoneShell> {
                   _drawerTile(context, v),
                 const Divider(height: 1),
                 _drawerTile(context, PhoneView.settings),
+                if (widget.syncUi != null) _syncNowTile(context),
               ],
             ),
           ),
         ),
         body: _body(context),
-        bottomNavigationBar: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (widget.activity != null)
-              PhoneActivityStrip(activity: widget.activity!),
-            widget.miniPlayerBuilder?.call(context) ?? const SizedBox.shrink(),
-          ],
+        // SafeArea(top: false): on a gesture-navigation phone the system
+        // draws its home pill over the bottom of the window, which sat
+        // right on top of the activity strip and the mini-player's progress
+        // line (reported live -- the status panel looked clipped). Padding
+        // by the bottom inset lifts the panel clear of it; `top: false`
+        // leaves the AppBar's own inset handling alone.
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.activity != null)
+                PhoneActivityStrip(activity: widget.activity!),
+              widget.miniPlayerBuilder?.call(context) ??
+                  const SizedBox.shrink(),
+            ],
+          ),
         ),
       ),
     );

@@ -12,7 +12,10 @@ import 'package:fooplayer_app/model/library_model.dart';
 import 'package:fooplayer_app/model/playlist_store.dart';
 import 'package:fooplayer_app/model/track.dart';
 import 'package:fooplayer_app/player/player_service.dart';
+import 'package:fooplayer_app/sync/sync_engine.dart';
+import 'package:fooplayer_app/sync/sync_settings.dart';
 import 'package:fooplayer_app/ui/app_theme.dart';
+import 'package:fooplayer_app/ui/sync_view.dart';
 import 'package:fooplayer_app/ui/phone/phone_shell.dart';
 import 'package:fooplayer_app/ui/phone/track_context_sheet.dart';
 
@@ -49,6 +52,7 @@ Future<void> pumpShell(
   WidgetBuilder? miniPlayerBuilder,
   ActivityModel? activity,
   Map<PhoneView, WidgetBuilder> viewBuilders = const {},
+  SyncUiSeams? syncUi,
 }) {
   return tester.pumpWidget(
     MaterialApp(
@@ -63,6 +67,7 @@ Future<void> pumpShell(
         miniPlayerBuilder: miniPlayerBuilder,
         activity: activity,
         viewBuilders: viewBuilders,
+        syncUi: syncUi,
       ),
     ),
   );
@@ -249,5 +254,52 @@ void main() {
       tester.getTopLeft(find.byKey(const Key('phone-activity-strip'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('mini-player'))).dy),
     );
+  });
+
+  group('drawer Sync now', () {
+    SyncUiSeams seams({required Future<SyncReport> Function() runSync}) =>
+        SyncUiSeams(
+          currentSettings: SyncSettings.new,
+          onSave: (_) {},
+          runSync: runSync,
+          probe: () async => true,
+          discoverRoots: () async => const [],
+          cancelSync: () async {},
+        );
+
+    testWidgets('absent when sync is not wired', (tester) async {
+      await pumpShell(tester, library: fixtureLibrary());
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('drawer-sync-now')), findsNothing);
+    });
+
+    testWidgets('runs a sync straight from the drawer and shows the report',
+        (tester) async {
+      var runs = 0;
+      await pumpShell(
+        tester,
+        library: fixtureLibrary(),
+        syncUi: seams(runSync: () async {
+          runs++;
+          return SyncReport(
+            playlistNotes: const [],
+            roots: const [],
+            finishedAt: DateTime(2026, 9, 10),
+          );
+        }),
+      );
+
+      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('drawer-sync-now')), findsOneWidget);
+
+      // One tap -- no Settings, no Sync page in between.
+      await tester.tap(find.byKey(const Key('drawer-sync-now')));
+      await tester.pumpAndSettle();
+
+      expect(runs, 1);
+      expect(find.byKey(const Key('sync-report-dialog')), findsOneWidget);
+    });
   });
 }
