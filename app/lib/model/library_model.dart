@@ -1,4 +1,4 @@
-// Last modified: 2026-07-31--1619
+// Last modified: 2026-09-10--1724
 import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
@@ -734,16 +734,28 @@ class LibraryModel extends ChangeNotifier {
               onlyIds: diff.newTracks.map((t) => t.contentId),
             );
             await core.saveManifest(manifest, root);
-            for (final t in diff.newTracks) {
-              final entry = manifest.tracks[t.contentId];
-              if (entry != null) {
-                newRecords.add((
-                  t.contentId,
-                  entry.paths.first,
-                  entry.dateAdded,
-                ));
-              }
-            }
+          }
+          // Surface every scanned file the in-memory library does not have
+          // yet, taking its dateAdded FROM THE MANIFEST.
+          //
+          // Deliberately driven by the scan rather than by `diff.newTracks`
+          // (which is what this used to do): a track can be new to the
+          // LIBRARY while already being known to the MANIFEST, and that is
+          // exactly what a LAN sync produces -- SyncEngine copies the audio
+          // files and writes the NAS's manifest over the local one, so the
+          // diff is empty and the old code added nothing. The phone's feed
+          // then looked untouched after a sync until the app was restarted
+          // (restarting worked because load() builds allTracks from the
+          // manifest, which is the asymmetry this closes). Reported live.
+          //
+          // Reading the date from the manifest rather than stamping now()
+          // is what keeps the phone's newest-first ordering identical to
+          // the desktop's.
+          for (final t in scanned) {
+            if (knownIds.contains(t.contentId)) continue;
+            final entry = manifest.tracks[t.contentId];
+            if (entry == null || entry.paths.isEmpty) continue;
+            newRecords.add((t.contentId, entry.paths.first, entry.dateAdded));
           }
         } catch (e) {
           status = 'rescan of $rootName failed: $e';
