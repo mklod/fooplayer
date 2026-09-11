@@ -41,6 +41,27 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-10--1730
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **One-tap "Sync now" in the drawer**, directly under Settings. The Sync
+  *page* is for setting sync UP (host, share, which roots) -- a rare task
+  -- but running a sync is routine, and it was buried three taps deep.
+  Same progress in the activity strip and notification, same report
+  dialog at the end. Greys out while a run is in flight.
+- **Bottom panel clears the gesture bar.** The activity strip and the
+  mini-player's progress line were sitting underneath Android's home
+  pill; the bottom bar now respects the system inset. 1.0.0+25.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Drawer → Sync now runs a sync without visiting Settings
+> - [ ] Mini-player / activity strip are fully visible above the gesture pill
+
 ## Build 2026-09-10--1726
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
