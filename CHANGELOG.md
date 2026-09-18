@@ -41,6 +41,50 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1427
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **A post-sync rescan could be thrown away, hiding tracks you just
+  synced.** Reported live: the sync said files had copied, the library
+  showed nothing new for ~10 minutes, then the track appeared on its own.
+  `SyncEngine.run()` ends on `library.rescan(quiet: true)` -- the call that
+  puts freshly copied files in the feed -- and `rescan()` opened with
+  `if (_busy) return;`. A request arriving while any load or rescan held
+  the flag was **discarded, with nothing to retry it**; the next chance was
+  the periodic tick, five minutes away on Android. `load()` has queued
+  behind that flag for exactly this reason -- `rescan()` was the odd one
+  out. It now queues too (one coalesced completer, latest arguments win),
+  every site that releases the flag drains it, and the per-root
+  manifest-lock timeout re-queues instead of parking the root until the
+  next tick. `await rescan()` now genuinely means "the library is up to
+  date", which is what the sync always assumed.
+- **"2 files copied" now says how many were songs.** Only one track was
+  ever involved in that run: `copied` counts audio *and* sidecar files in
+  one figure, and the sync moved the new track plus the `.artwork.json`
+  that changed with it. Both numbers were right; together they read as a
+  bug. The report now says "2 files copied — 1 track, 1 artwork/playlist
+  file".
+- Two hazards introduced by making that future meaningful, both pinned by
+  tests: a queued load that *throws* can no longer strand the queued
+  rescan (which would hang the sync's report dialog forever), and the
+  sync's await carries a defensive 5-minute timeout. 1.0.0+27.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Add a track on the NAS, wait for the desktop to index it, then sync
+>       on the phone: it appears at the top of the library as soon as the
+>       report dialog shows — no waiting
+>   - Notes:
+> - [ ] The report line distinguishes tracks from artwork files
+>   - Notes:
+> - [ ] A sync run while the library is still loading still updates the feed
+>   - Notes:
+
 ## Build 2026-09-10--1745
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
@@ -1594,7 +1638,7 @@ tint is gone.
 - **Neither identity nor dates move.** The content ID hashes only the audio byte range (leading ID3v2 and trailing ID3v1/APEv2 are skipped, as are FLAC metadata blocks), so the rewrite copies every audio byte verbatim and *proves* the range is unchanged before writing. Dart can't set file times, so timestamps are restored through `SetFileTime` and read back to confirm — measured on this share, Samba reports creation time as equal to modified time, so restoring the write time fixes both.
 - **Files that can't be proven safe are refused untouched**: audio not starting with an MPEG frame sync (an MP4 or RIFF wearing an `.mp3` name — exactly what made one file unplayable), unsynchronised/extended/footer tags, non-image payloads.
 - **1,643 files were one step from losing their tags.** Of 1,644 MP3s with no ID3v2, all but one carry an ID3v1 tag — giving them a v2 tag containing only a picture would have made every player that prefers v2 show them as untitled. Those fields are now promoted into the new tag first (title/artist/album/year/genre); the v1 block stays put.
-- **The 13 `.m4a` files became MP3s without losing their date-added.** The core hashes an `.m4a` whole, so nothing can be embedded in one without changing its identity. Converting re-encodes the audio, which changes the ID by definition — so each conversion is paired with a manifest migration: the new ID inherits the old entry's `date_added`, the path is updated, playlist references are rewritten. Encoded at LAME V2 (~190 kbps) against ~135 kbps AAC sources; originals kept in `L:\BACKUPSooplayer-file-fixes\pre-mp3-conversion`. Verified afterwards: no `.m4a` left, zero manifest entries pointing at a missing file, dates identical to their untouched neighbours.
+- **The 13 `.m4a` files became MP3s without losing their date-added.** The core hashes an `.m4a` whole, so nothing can be embedded in one without changing its identity. Converting re-encodes the audio, which changes the ID by definition — so each conversion is paired with a manifest migration: the new ID inherits the old entry's `date_added`, the path is updated, playlist references are rewritten. Encoded at LAME V2 (~190 kbps) against ~135 kbps AAC sources; originals kept in `L:\BACKUPS\fooplayer-file-fixes\pre-mp3-conversion`. Verified afterwards: no `.m4a` left, zero manifest entries pointing at a missing file, dates identical to their untouched neighbours.
 - **The 3 FLACs were NOT converted** — deliberately. FLAC carries a PICTURE block natively with no identity change, so re-encoding lossless to lossy would have cost quality for nothing.
 - Proven on sandbox copies first (`testdata/embed-test`, `testdata/convert-sandbox`, `testdata/flac-sandbox`) across every tag shape in the library: no tag, v2.2, v2.3, v2.3-with-art, v2.4, and the MP4-as-MP3 pathology. 695 tests.
 
@@ -1621,7 +1665,7 @@ tint is gone.
 - **Artwork picker** (desktop right-click → "Album artwork…", phone long-press): candidate grid with source + resolution labels, current pick marked, plus Choose file / Paste URL / Search again / Remove artwork.
 - **Adversarial review paid for itself twice**: the first pass caught a multi-root backfill blind spot, a synchronous filesystem probe on the UI thread, and a non-durable "Remove artwork"; a rerun (the original died on a transient API error) caught four more, each proven with a live probe — backfill never re-running after a rescan, interactive picker searches starving behind the background queue, a resolver cache that could hand back stale art right after you picked a new cover, and orphaned image files on replace. All fixed, plus download size caps and image-format validation so a pasted non-image URL degrades to the placeholder instead of poisoning the cache. 592 tests.
 - **Phone library seeded for real**: the emulator's data partition was too small for a real library, so it was rebuilt at 16 GB and loaded with the full "loose tracks - 2020 and later" folder (444 files) instead of three sample tracks.
-- **Old repo retired**: `L:\PROJECTSoobar` deleted; verified nothing references it (no processes, services, scheduled tasks, or git plumbing — both build worktrees re-pointed at the fooplayer repo).
+- **Old repo retired**: `L:\PROJECTS\foobar` deleted; verified nothing references it (no processes, services, scheduled tasks, or git plumbing — both build worktrees re-pointed at the fooplayer repo).
 - **Polish from live use**: metro glyphs lost their hairline boxes (a runtime tint forced an offscreen layer the emulator outlined — the color is baked into the assets now), shuffle turns accent blue when active, an explicit ↑ up-one-level control with clickable blue breadcrumbs in the Folder pane, no volume slider on phone (hardware keys own it), sharper launcher icon, and both apps now identify as "fooplayer" rather than the project id.
 
 ## 2026-07-24 — late night: Android goes native (Plan 2b)

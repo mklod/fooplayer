@@ -1,8 +1,48 @@
 # fooplayer — STATUS
 
-*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-09-10.*
+*Current-state snapshot. History: [CHANGELOG.md](CHANGELOG.md) · Forward plan: [WORKPLAN.md](WORKPLAN.md). Last update: 2026-09-18.*
 
 ## Next session starts here
+
+**Build 2026-09-18--1427 (1.0.0+27) -- a synced track could stay invisible
+for a whole tick.**
+
+Reported: "lan sync reported two new loose tracks files sync'd; nothing
+shows up in main screen lib at top for ~10 mins, then single new track
+appears."
+
+*The delay.* `SyncEngine.run()` ends on `library.rescan(quiet: true)` --
+that call is what puts freshly copied files in the feed -- and `rescan()`
+opened with `if (_busy) return;`. A request arriving while any load or
+rescan held the flag was **discarded outright, with nothing to retry it**;
+the next chance was the periodic tick, five minutes away on Android.
+`load()` has queued behind that same flag since Plan 3 for exactly this
+reason; `rescan()` was the odd one out. It now queues (one coalesced
+`Completer`, latest arguments win), every `_busy` release drains the
+queue, and the per-root manifest-lock timeout re-queues instead of parking
+that root until the next tick. Consequence worth knowing: `await rescan()`
+now means "the library has been brought up to date", so the sync's report
+waits for it -- with a defensive 5-minute timeout so the dialog can never
+be held hostage, and a try/finally in the drain so a queued `load()` that
+throws cannot strand the rescan's completer (that would hang the sync
+forever).
+
+*The "two files".* Only ever one track. `RootSyncResult.copied` counts
+audio and sidecar copies in one figure, and that run moved
+`Slowburn - I Want You So Bad.mp3` plus the `.artwork.json` that changed
+with it. Verified on the NAS: `loose tracks - 2020 and later` has exactly
+one audio file newer than 2026-09-08, and its manifest entry (`date_added`
+2026-09-17T19:21:37Z) is the only one added since 09-10 -- the tray
+indexer worked correctly. `copiedTracks` is now a required field and the
+report says "2 files copied -- 1 track, 1 artwork/playlist file".
+
+Tests: 1182 pass, including an end-to-end one (real temp NAS + phone dirs,
+real transport, real `LibraryModel`) asserting a copied track is in
+`allTracks` the moment `run()` returns.
+
+**Crash watch:** the tray instance ran 2026-09-17 18:36 -> 2026-09-18
+14:28 (~20h) with no crash, and was only stopped by this build. No
+recurrence since the single-instance guard landed.
 
 **Build 2026-09-10--1745 (1.0.0+26) -- three live-reported desktop/phone
 defects, all fixed and deployed.**
