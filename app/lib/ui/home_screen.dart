@@ -36,6 +36,7 @@ import 'queue_view.dart';
 import 'settings_dialog.dart';
 import 'sync_view.dart';
 import 'track_list.dart';
+import 'track_columns.dart';
 
 /// Stand-in for widget tests that build a screen without wiring background
 /// activity: nothing ever registers with it, so the bar stays hidden.
@@ -410,6 +411,15 @@ class HomeScreen extends StatelessWidget {
                                               ) ??
                                               t.hasEmbeddedArt,
                                           artworkResolver: artworkResolver,
+                                          // Right-click the header to
+                                          // show/hide columns; the choice
+                                          // lives with the other layout
+                                          // preferences, so it survives a
+                                          // restart.
+                                          hiddenColumns:
+                                              layoutPrefs.hiddenColumns,
+                                          onToggleColumn:
+                                              layoutPrefs.toggleColumn,
                                         ),
                                       ),
                                     ),

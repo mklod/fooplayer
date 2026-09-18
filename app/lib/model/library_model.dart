@@ -78,7 +78,7 @@ const _durationSaveDebounce = Duration(seconds: 2);
 /// other column, both because [setAlbums] switches to it automatically
 /// (see its doc) and because that's what makes its header cell clickable
 /// the same way every other visible header is.
-enum SortColumn { title, artist, album, duration, dateAdded, trackNumber }
+enum SortColumn { title, artist, album, path, duration, dateAdded, trackNumber }
 
 class LibraryModel extends ChangeNotifier {
   List<Track> _allTracks = [];
@@ -2099,6 +2099,10 @@ List<Track> sortTracks(List<Track> tracks, SortColumn column, bool ascending) {
         return compareText(a.artist, b.artist);
       case SortColumn.album:
         return compareText(a.album, b.album);
+      case SortColumn.path:
+        // Sorting by full path is sorting by FOLDER, which is the reason
+        // to want this column at all.
+        return compareText(trackFilePath(a), trackFilePath(b));
       case SortColumn.duration:
         return compareNullableInt(a.durationMs, b.durationMs);
       case SortColumn.trackNumber:
