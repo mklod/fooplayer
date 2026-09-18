@@ -234,6 +234,27 @@ class LibraryModel extends ChangeNotifier {
   /// queued request running in turn.
   Future<void> Function()? _pendingLoad;
 
+  /// Completes the callers of a [rescan] that arrived while [_busy] was
+  /// held, and doubles as the "a rescan is queued" flag (non-null == one is
+  /// waiting).
+  ///
+  /// [rescan] used to simply `return` in that case. The request was gone:
+  /// nothing retried it, and the next opportunity was whatever periodic
+  /// tick came along -- five minutes on Android. That is exactly what a
+  /// LAN sync ends with (`SyncEngine.run` finishes on
+  /// `library.rescan(quiet: true)`, the call that surfaces freshly copied
+  /// files), so a sync that happened to land on top of a periodic pass
+  /// reported files copied and then showed nothing in the feed for
+  /// minutes. Reported live 2026-09-18.
+  ///
+  /// Queued rather than run concurrently for the same reason [load] is:
+  /// two passes would race each other's tag-cache and manifest writes.
+  Completer<void>? _queuedRescan;
+
+  /// Arguments of the queued rescan -- latest caller wins, matching
+  /// [_pendingLoad]'s "the newest request supersedes" rule.
+  ({Duration rootTimeout, bool quiet})? _queuedRescanArgs;
+
   // Remembered from the most recent [load] call so [rescan] -- which takes
   // no arguments of its own -- knows what to rescan. Empty/null until the
   // first [load] completes, at which point [rescan] is still a safe no-op
@@ -314,7 +335,7 @@ class LibraryModel extends ChangeNotifier {
       _busy = false;
       notifyListeners();
     }
-    await _runPendingLoad();
+    await _drainQueued();
   }
 
   /// Runs and clears [_pendingLoad], if any -- called once each of [load]
@@ -326,6 +347,52 @@ class LibraryModel extends ChangeNotifier {
     if (pending == null) return;
     _pendingLoad = null;
     await pending();
+  }
+
+  /// Runs whatever queued up behind [_busy], in the order the two kinds of
+  /// request affect the library: a queued [load] rebuilds everything from
+  /// the manifests, so running it first means a queued [rescan] then scans
+  /// against current state instead of being immediately overwritten.
+  ///
+  /// Called from every site that releases [_busy].
+  Future<void> _drainQueued() async {
+    // try/finally, not two statements: a queued load that THROWS must not
+    // strand the queued rescan's completer, because callers now await it
+    // (SyncEngine.run ends on `await library.rescan(...)`) and an
+    // uncompleted completer would hang that sync's report forever.
+    // try/finally, not two statements: a queued load that THROWS must not
+    // strand the queued rescan's completer, because callers now await it
+    // (SyncEngine.run ends on `await library.rescan(...)`) and an
+    // uncompleted completer would hang that sync's report forever.
+    try {
+      await _runPendingLoad();
+    } finally {
+      await _runQueuedRescan();
+    }
+  }
+
+  /// Runs and clears the rescan queued by [rescan] while [_busy] was held,
+  /// completing everyone who awaited that call.
+  ///
+  /// Errors are forwarded to the waiters and NOT rethrown here: this runs
+  /// from the `finally` of whatever pass happened to be holding the flag,
+  /// and a queued rescan failing must not turn that unrelated operation
+  /// into a failure.
+  Future<void> _runQueuedRescan() async {
+    final queued = _queuedRescan;
+    if (queued == null) return;
+    final args = _queuedRescanArgs;
+    _queuedRescan = null;
+    _queuedRescanArgs = null;
+    try {
+      await rescan(
+        rootTimeout: args?.rootTimeout ?? _defaultRescanRootTimeout,
+        quiet: args?.quiet ?? false,
+      );
+      if (!queued.isCompleted) queued.complete();
+    } catch (e, st) {
+      if (!queued.isCompleted) queued.completeError(e, st);
+    }
   }
 
   Future<void> _loadBody({
@@ -640,7 +707,16 @@ class LibraryModel extends ChangeNotifier {
     Duration rootTimeout = _defaultRescanRootTimeout,
     bool quiet = false,
   }) async {
-    if (_busy) return;
+    if (_busy) {
+      // Queue behind the in-flight pass rather than dropping the request
+      // on the floor -- see [_queuedRescan]. The returned future completes
+      // when the queued pass has actually run, so `await rescan()` means
+      // "the library has been brought up to date", which is what
+      // SyncEngine.run() has always assumed it meant.
+      final queued = _queuedRescan ??= Completer<void>();
+      _queuedRescanArgs = (rootTimeout: rootTimeout, quiet: quiet);
+      return queued.future;
+    }
     final roots = _libraryRoots;
     final cacheFile = _cacheFile;
     if (roots.isEmpty || cacheFile == null) return;
@@ -728,7 +804,16 @@ class LibraryModel extends ChangeNotifier {
           if (!quiet) {
             status = 'rescan skipped (another manifest write was in progress)';
           }
-          continue; // this root waits for the next tick
+          // Queue a retry rather than leaving this root until the next
+          // periodic tick (five minutes on Android). The writer we lost
+          // the race to is a sync's manifest adopt or another rescan --
+          // both measured in milliseconds once they start -- so the retry
+          // almost always succeeds, and if it doesn't, [_runQueuedRescan]
+          // is itself bounded by this same 5s wait per attempt before the
+          // periodic tick takes over again.
+          _queuedRescan ??= Completer<void>();
+          _queuedRescanArgs = (rootTimeout: rootTimeout, quiet: quiet);
+          continue;
         }
         try {
           final manifest = core.loadManifest(root);
@@ -815,10 +900,10 @@ class LibraryModel extends ChangeNotifier {
     } finally {
       _busy = false;
       notifyListeners();
-      // A load() that arrived while this rescan held `_busy` is queued
-      // (see [_pendingLoad]/[load]'s re-entrancy doc) rather than dropped
-      // -- run it now that this rescan is done with the flag.
-      await _runPendingLoad();
+      // A load() or rescan() that arrived while this pass held `_busy` is
+      // queued (see [_pendingLoad] / [_queuedRescan]) rather than dropped
+      // -- run it now that this one is done with the flag.
+      await _drainQueued();
     }
   }
 
@@ -1617,6 +1702,7 @@ class LibraryModel extends ChangeNotifier {
     } finally {
       _busy = false;
       notifyListeners();
+      await _drainQueued();
     }
   }
 

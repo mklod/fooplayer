@@ -573,8 +573,18 @@ class SyncReportDialog extends StatelessWidget {
     final bytesSuffix = r.copiedBytes > 0
         ? ' (${_humanBytes(r.copiedBytes)} new data)'
         : '';
+    // ...but say how many of them were SONGS whenever the two differ.
+    // "2 files copied" for one new song plus the artwork sidecar that
+    // changed with it reads as two new songs, and then one new row in the
+    // library looks like a sync bug. Reported live 2026-09-18.
+    final nonTracks = r.copied - r.copiedTracks;
+    final trackBreakdown = (r.copied > 0 && nonTracks > 0)
+        ? ' — ${r.copiedTracks} '
+              '${r.copiedTracks == 1 ? "track" : "tracks"}, $nonTracks '
+              'artwork/playlist ${nonTracks == 1 ? "file" : "files"}'
+        : '';
     final line =
-        '${r.rootName} — ${r.copied} files copied$bytesSuffix, '
+        '${r.rootName} — ${r.copied} files copied$trackBreakdown$bytesSuffix, '
         '${r.updated} files updated, ${r.renamed} files renamed, '
         '${r.deleted} files deleted, ${r.adopted} files adopted (already present)';
 
