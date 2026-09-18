@@ -41,6 +41,35 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1556 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Path column.** Shows the file as Windows writes it, and sorts -- which
+  is really sorting by folder, the reason to want the column. Clipped at
+  the START, not the end: every path begins with one of five root
+  prefixes, and it is the tail that says which file this is.
+- **Right-click the header to show/hide columns.** A checkbox each for
+  Artist, Album, Path, Time, Date, Art and Emb; Title is not in the list,
+  because a row with no title is not a row. Hiding takes the cells with
+  it, not just the label, and Title widens into Artist's space when
+  Artist is off. The choice is remembered across restarts.
+- Playlist view keeps its fixed four columns (#, Song, Album, Time) --
+  they are that view's whole structure, so no menu is offered there.
+  1.0.0+31.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Path column shows the full file path; clicking PATH sorts by folder
+>   - Notes:
+> - [ ] Right-click the header, uncheck a column: header and cells both go
+>   - Notes:
+> - [ ] The hidden columns are still hidden after a restart
+>   - Notes:
+
 ## Build 2026-09-18--1533 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
