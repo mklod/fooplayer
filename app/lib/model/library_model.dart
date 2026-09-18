@@ -1236,6 +1236,18 @@ class LibraryModel extends ChangeNotifier {
   /// the default sort for the new selection -- track-number order when the
   /// selected folder is a single album's, otherwise reverting a stale
   /// trackNumber sort -- see [_onFolderSelectionChanged].
+  /// Jumps the Folder pane straight to [rootPath], wherever it currently
+  /// sits -- what the sidebar's Folders section does.
+  ///
+  /// Not [drillIntoFolder]: that APPENDS to the current path, so reaching
+  /// a root from a pane already drilled two folders deep would build a
+  /// path that does not exist.
+  void showFolderRoot(String rootPath) {
+    folderPath = [rootPath];
+    folderSiblings = {};
+    _onFolderSelectionChanged();
+  }
+
   void drillIntoFolder(String entry) {
     folderPath = [...folderPath, entry];
     folderSiblings = {};

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../artwork/artwork_backfill.dart';
 import '../artwork/artwork_store.dart';
+import '../artwork/track_art_index.dart';
 import '../artwork/artwork_embed_pass.dart';
 import '../artwork/local_art_harvest.dart';
 import '../artwork/artwork_picker.dart';
@@ -68,6 +69,11 @@ class HomeScreen extends StatelessWidget {
   /// artwork feature wired).
   final ArtworkStoreRegistry? artworkStores;
 
+  /// Backs the Art column: album-level knowledge of which rows will
+  /// actually draw a cover. Null falls back to the track's own embedded
+  /// art alone.
+  final TrackArtIndex? trackArtIndex;
+
   /// Background best-guess artwork pass -- the Refresh button below queues a
   /// pass over any newly-discovered tracks once its manual rescan settles
   /// (mirroring what main.dart's periodic timer and launch-time rescan
@@ -111,6 +117,7 @@ class HomeScreen extends StatelessWidget {
     this.artworkResolver,
     this.artworkServices,
     this.artworkStores,
+    this.trackArtIndex,
     this.artworkBackfill,
     this.activity,
     this.tagSearch,
@@ -162,6 +169,7 @@ class HomeScreen extends StatelessWidget {
                           child: _Sidebar(
                             artworkBackfill: artworkBackfill,
                             artworkStores: artworkStores,
+                            trackArtIndex: trackArtIndex,
                             library: library,
                             libraryRootsPrefs: libraryRootsPrefs,
                             playlistStore: store,
@@ -364,26 +372,45 @@ class HomeScreen extends StatelessWidget {
                                             ),
                                       ),
                                     Expanded(
-                                      child: TrackListView(
-                                        library: library,
-                                        player: player,
-                                        playlistStore: store,
-                                        artwork: artworkServices,
-                                        tagSearch: tagSearch,
-                                        activity: activity,
-                                        // "Art" ticks when the app has a cover at all:
-                                        // the file's own, or one recorded in the sidecar
-                                        // (which, after a harvest, includes covers
-                                        // adopted from loose files in the folder).
-                                        hasArtwork: (t) =>
-                                            t.hasEmbeddedArt ||
-                                            (artworkStores
-                                                    ?.forRoot(t.rootPath)
-                                                    .entryFor(
-                                                      albumKeyForTrack(t),
-                                                    ) !=
-                                                null),
-                                        artworkResolver: artworkResolver,
+                                      // Rebuilds when the folder-image
+                                      // probes land, so the Art column
+                                      // fills in rather than staying
+                                      // stale until the next repaint.
+                                      child: ListenableBuilder(
+                                        // merge([]) is the do-nothing
+                                        // Listenable: with no index wired
+                                        // there is nothing to wait for.
+                                        listenable:
+                                            trackArtIndex ??
+                                            Listenable.merge(const []),
+                                        builder: (context, _) => TrackListView(
+                                          library: library,
+                                          player: player,
+                                          playlistStore: store,
+                                          artwork: artworkServices,
+                                          tagSearch: tagSearch,
+                                          activity: activity,
+                                          // "Art" means: this row will
+                                          // actually draw a cover -- its
+                                          // own embedded picture, one
+                                          // fooplayer recorded, a folder
+                                          // image, or one borrowed from an
+                                          // album-mate. "Emb" is the
+                                          // narrower question (is it IN
+                                          // the file), which is what other
+                                          // players see. That gap is why
+                                          // a row could show a cover with
+                                          // an empty tick.
+                                          hasArtwork: (t) =>
+                                              trackArtIndex?.showsArt(
+                                                t,
+                                                artworkStores?.forRoot(
+                                                  t.rootPath,
+                                                ),
+                                              ) ??
+                                              t.hasEmbeddedArt,
+                                          artworkResolver: artworkResolver,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -427,6 +454,11 @@ class _Sidebar extends StatefulWidget {
   /// Per-root artwork sidecars, read by "Embed art in files". Null hides it.
   final ArtworkStoreRegistry? artworkStores;
 
+  /// Backs the Art column: album-level knowledge of which rows will
+  /// actually draw a cover. Null falls back to the track's own embedded
+  /// art alone.
+  final TrackArtIndex? trackArtIndex;
+
   /// Drives the selected-track artwork preview under the button stack: it
   /// only shows when nothing is playing (the now-playing bar owns the cover
   /// otherwise).
@@ -456,6 +488,7 @@ class _Sidebar extends StatefulWidget {
     required this.player,
     this.artworkBackfill,
     this.artworkStores,
+    this.trackArtIndex,
     this.artworkResolver,
     this.artworkServices,
     required this.activity,
@@ -776,18 +809,40 @@ class _SidebarState extends State<_Sidebar> {
                     onTap: library.showQueue,
                   ),
                 const Divider(),
-                for (final pl in library.playlists)
-                  _PlaylistTile(
-                    library: library,
-                    store: playlistStore,
-                    playlist: pl,
-                  ),
-                ListTile(
-                  key: const Key('new-playlist'),
-                  leading: const Icon(Icons.add, size: 18),
-                  title: const Text('New playlist'),
-                  onTap: () => _createPlaylist(context),
+                // Two folding sections, both folded by default (asked for
+                // 2026-09-18). The playlist list used to run flat down the
+                // sidebar, growing without limit between Library and the
+                // pinned actions; folders were reachable only through the
+                // Folder filter pane.
+                _SidebarSection(
+                  sectionKey: const Key('playlists-section'),
+                  label: 'Playlists',
+                  expanded: widget.layoutPrefs.playlistsExpanded,
+                  onToggle: widget.layoutPrefs.togglePlaylistsExpanded,
                 ),
+                if (widget.layoutPrefs.playlistsExpanded) ...[
+                  for (final pl in library.playlists)
+                    _PlaylistTile(
+                      library: library,
+                      store: playlistStore,
+                      playlist: pl,
+                    ),
+                  ListTile(
+                    key: const Key('new-playlist'),
+                    leading: const Icon(Icons.add, size: 18),
+                    title: const Text('New playlist'),
+                    onTap: () => _createPlaylist(context),
+                  ),
+                ],
+                _SidebarSection(
+                  sectionKey: const Key('folders-section'),
+                  label: 'Folders',
+                  expanded: widget.layoutPrefs.foldersExpanded,
+                  onToggle: widget.layoutPrefs.toggleFoldersExpanded,
+                ),
+                if (widget.layoutPrefs.foldersExpanded)
+                  for (final root in library.folderNames)
+                    _FolderTile(library: library, rootPath: root),
               ],
             ),
           ),
@@ -832,6 +887,81 @@ class _SidebarState extends State<_Sidebar> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A folding sidebar section header: a chevron and a quiet label.
+///
+/// Deliberately not an [ExpansionTile]: that owns its own expansion state
+/// and animates, and this one's state lives in [LayoutPrefs] so it
+/// survives a restart. The rows it reveals are siblings in the sidebar
+/// list, not children, so a long playlist list scrolls with everything
+/// else rather than inside a nested scroller.
+class _SidebarSection extends StatelessWidget {
+  final Key sectionKey;
+  final String label;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  const _SidebarSection({
+    required this.sectionKey,
+    required this.label,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      key: sectionKey,
+      dense: true,
+      leading: Icon(
+        expanded ? Icons.expand_more : Icons.chevron_right,
+        size: 18,
+      ),
+      title: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+      onTap: onToggle,
+    );
+  }
+}
+
+/// One library root, as a sidebar shortcut to the Folder pane's view of it.
+///
+/// Shown by basename: the sidebar is a few hundred pixels wide and the
+/// full path is a NAS share path. Selecting leaves any active playlist
+/// first -- [LibraryModel.setPlaylist] clears the folder scope, so doing
+/// it the other way round would immediately undo the folder we just
+/// chose.
+class _FolderTile extends StatelessWidget {
+  final LibraryModel library;
+  final String rootPath;
+  const _FolderTile({required this.library, required this.rootPath});
+
+  @override
+  Widget build(BuildContext context) {
+    final name = p.basename(rootPath);
+    final selected =
+        library.activePlaylist == null &&
+        !library.showingQueue &&
+        library.folderPath.length == 1 &&
+        library.folderPath.first == rootPath;
+    return ListTile(
+      key: Key('folder-row-$name'),
+      dense: true,
+      contentPadding: const EdgeInsets.only(left: 32, right: 16),
+      leading: const Icon(Icons.folder_outlined, size: 18),
+      title: Text(name, overflow: TextOverflow.ellipsis),
+      selected: selected,
+      onTap: () {
+        if (library.activePlaylist != null || library.showingQueue) {
+          library.setPlaylist(null);
+        }
+        library.showFolderRoot(rootPath);
+      },
     );
   }
 }
