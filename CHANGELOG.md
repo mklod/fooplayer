@@ -41,6 +41,45 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1710 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Sidebar: Playlists and Folders are folding sections, both folded by
+  default.** Playlists used to run flat down the sidebar with no limit;
+  folders were reachable only through the Folder filter pane. Folder rows
+  show each library root by name and scope the library to it. The open/
+  closed state is remembered across restarts.
+- **The Art tick now means "this row draws a cover."** It used to check
+  only the track's own embedded picture or a recorded cover for the
+  album, while the display also uses a `folder.jpg` beside the file and,
+  failing that, another track's cover from the same album -- so a row
+  could draw a perfectly good cover with an empty tick (reported on
+  Kanye West - Late Registration, whose "Skit 3" has no picture of its
+  own). **Emb** keeps the narrower meaning: the picture is IN the file,
+  which is what foobar2000, Explorer and the loose-image cleanup care
+  about.
+- **Borrowing a cover from an album-mate is now deliberate.** It used to
+  be a side effect of the album-keyed cache: whichever track resolved
+  first handed its bytes to the rest, and a bare track resolving *first*
+  cached "no art" for the whole album. Also fixed: a cover pinned to one
+  specific track never lit the Art tick, because the column looked up the
+  album key and a pin is stored under the track key. 1.0.0+29.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Sidebar opens with Playlists and Folders both folded; each opens,
+>       closes, and stays that way after a restart
+>   - Notes:
+> - [ ] A folder row shows that root's tracks
+>   - Notes:
+> - [ ] Search "late regis": Skit #3 now ticks Art (it draws a cover) and
+>       leaves Emb blank (its own tag is still bare)
+>   - Notes:
+
 ## Build 2026-09-18--1439
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
