@@ -1,7 +1,14 @@
-// The library list's Path column, and hiding columns from the header's
-// right-click menu (asked for 2026-09-18).
+// The library list's Path column, and hiding columns by right-clicking
+// the one you mean (asked for 2026-09-18).
 //
-// Last modified: 2026-09-18--1610
+// The first cut put every column in one popup menu off the whole header.
+// Rejected: the menu you get should be about the column under the cursor,
+// with no animation and no list to read. So a right-click on ARTIST says
+// "Hide Artist" and nothing else -- except the way back, which has to
+// live somewhere, so any header also offers "Show <column>" for whatever
+// is currently hidden.
+//
+// Last modified: 2026-09-18--1630
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,9 +62,17 @@ Future<LayoutPrefs> pump(
   return layout;
 }
 
+/// Header labels render upper-cased (see _HeaderCell).
 Finder headerLabel(String text) => find.descendant(
   of: find.byKey(const Key('track-list-header')),
   matching: find.text(text),
+);
+
+/// The ACTIVE sort column's label carries its arrow in the same span
+/// ("DATE ▼"), so an exact match misses it.
+Finder headerLabelLoose(String text) => find.descendant(
+  of: find.byKey(const Key('track-list-header')),
+  matching: find.textContaining(text),
 );
 
 /// Scoped to the list: the Album/Artist FILTER panes show the same values,
@@ -65,75 +80,107 @@ Finder headerLabel(String text) => find.descendant(
 Finder inList(String text) =>
     find.descendant(of: find.byType(TrackListView), matching: find.text(text));
 
+Future<void> rightClick(WidgetTester tester, Finder target) async {
+  await tester.tapAt(tester.getCenter(target), buttons: kSecondaryButton);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('the Path column shows the track\'s file path', (tester) async {
     await pump(tester, fixtureLibrary());
 
     expect(headerLabel('PATH'), findsOneWidget);
     expect(
-      find.text(r'L:\Music\albums\Muse\Absolution\01 Apocalypse Please.mp3'),
+      inList(r'L:\Music\albums\Muse\Absolution\01 Apocalypse Please.mp3'),
       findsOneWidget,
     );
   });
 
-  testWidgets('right-clicking the header offers every hideable column', (
+  testWidgets('Path is the LAST column', (tester) async {
+    await pump(tester, fixtureLibrary());
+
+    final path = tester.getTopLeft(headerLabel('PATH')).dx;
+    for (final other in ['TITLE', 'ARTIST', 'ALBUM', 'TIME', 'EMB']) {
+      expect(
+        tester.getTopLeft(headerLabel(other)).dx,
+        lessThan(path),
+        reason: '$other must sit left of PATH',
+      );
+    }
+    // DATE is the active sort column, so its label carries the arrow.
+    expect(tester.getTopLeft(headerLabelLoose('DATE')).dx, lessThan(path));
+  });
+
+  testWidgets('right-clicking a column offers that column ALONE', (
     tester,
   ) async {
     await pump(tester, fixtureLibrary());
+    await rightClick(tester, headerLabel('ALBUM'));
 
-    await tester.tapAt(
-      tester.getCenter(find.byKey(const Key('track-list-header'))),
-      buttons: kSecondaryButton,
+    expect(find.byKey(const Key('column-hide-album')), findsOneWidget);
+    expect(
+      find.byKey(const Key('column-hide-artist')),
+      findsNothing,
+      reason: 'the menu is about the column under the cursor, not a list',
     );
-    await tester.pumpAndSettle();
-
-    for (final c in TrackColumn.values) {
-      expect(
-        find.byKey(Key('column-toggle-${c.id}')),
-        findsOneWidget,
-        reason: '${c.label} must be offered',
-      );
-    }
-    // Title is not hideable: a row with no title is not a row.
-    expect(find.byKey(const Key('column-toggle-title')), findsNothing);
+    expect(find.byKey(const Key('column-hide-path')), findsNothing);
   });
 
-  testWidgets('unchecking a column hides its header and its cells', (
-    tester,
-  ) async {
-    final lib = fixtureLibrary();
-    await pump(tester, lib);
-    expect(headerLabel('ALBUM'), findsOneWidget);
+  testWidgets('hiding takes the header and the cells with it', (tester) async {
+    await pump(tester, fixtureLibrary());
     expect(inList('Absolution'), findsOneWidget);
 
-    await tester.tapAt(
-      tester.getCenter(find.byKey(const Key('track-list-header'))),
-      buttons: kSecondaryButton,
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('column-toggle-album')));
+    await rightClick(tester, headerLabel('ALBUM'));
+    await tester.tap(find.byKey(const Key('column-hide-album')));
     await tester.pumpAndSettle();
 
     expect(headerLabel('ALBUM'), findsNothing);
-    expect(
-      inList('Absolution'),
-      findsNothing,
-      reason: 'the cells go with the header, not just the label',
-    );
-    // The rest of the row is untouched.
-    expect(inList('Apocalypse Please'), findsOneWidget);
+    expect(inList('Absolution'), findsNothing);
+    expect(inList('Apocalypse Please'), findsOneWidget, reason: 'rest intact');
+  });
+
+  testWidgets('a hidden column comes back from any header\'s menu', (
+    tester,
+  ) async {
+    await pump(tester, fixtureLibrary());
+    await rightClick(tester, headerLabel('ALBUM'));
+    await tester.tap(find.byKey(const Key('column-hide-album')));
+    await tester.pumpAndSettle();
+    expect(headerLabel('ALBUM'), findsNothing);
+
+    // The hidden column has no header left to right-click, so the way
+    // back has to live on the ones still showing.
+    await rightClick(tester, headerLabel('ARTIST'));
+    expect(find.byKey(const Key('column-hide-artist')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('column-show-album')));
+    await tester.pumpAndSettle();
+
+    expect(headerLabel('ALBUM'), findsOneWidget);
+  });
+
+  testWidgets('nothing hidden means no restore entries', (tester) async {
+    await pump(tester, fixtureLibrary());
+    await rightClick(tester, headerLabelLoose('DATE'));
+
+    expect(find.byKey(const Key('column-hide-date')), findsOneWidget);
+    for (final c in TrackColumn.values) {
+      expect(find.byKey(Key('column-show-${c.id}')), findsNothing);
+    }
+  });
+
+  testWidgets('Title is not hideable', (tester) async {
+    await pump(tester, fixtureLibrary());
+    await rightClick(tester, headerLabel('TITLE'));
+
+    expect(find.byKey(const Key('column-hide-title')), findsNothing);
   });
 
   testWidgets('the choice is remembered across a restart', (tester) async {
     final prefs = LayoutPrefs(writer: (_) {}, debounce: Duration.zero);
     await pump(tester, fixtureLibrary(), prefs: prefs);
 
-    await tester.tapAt(
-      tester.getCenter(find.byKey(const Key('track-list-header'))),
-      buttons: kSecondaryButton,
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('column-toggle-path')));
+    await rightClick(tester, headerLabel('PATH'));
+    await tester.tap(find.byKey(const Key('column-hide-path')));
     await tester.pumpAndSettle();
 
     expect(prefs.hiddenColumns, contains(TrackColumn.path));
