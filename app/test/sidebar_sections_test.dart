@@ -178,4 +178,53 @@ void main() {
     expect(prefs.playlistsExpanded, isFalse);
     expect(prefs.foldersExpanded, isFalse);
   });
+
+  testWidgets('New playlist sits at the TOP of the open section', (
+    tester,
+  ) async {
+    await pump(tester, fixtureLibrary());
+    await tester.tap(find.byKey(const Key('playlists-section')));
+    await tester.pumpAndSettle();
+
+    final header = tester.getTopLeft(find.byKey(const Key('playlists-section')));
+    final newRow = tester.getTopLeft(find.byKey(const Key('new-playlist')));
+    final mixRow = tester.getTopLeft(find.text('mix'));
+
+    expect(newRow.dy, greaterThan(header.dy));
+    expect(
+      newRow.dy,
+      lessThan(mixRow.dy),
+      reason: 'creating a playlist is the action; the list is the inventory',
+    );
+  });
+
+  testWidgets('playlist rows carry an icon and sit at the folder indent', (
+    tester,
+  ) async {
+    await pump(tester, fixtureLibrary());
+    await tester.tap(find.byKey(const Key('playlists-section')));
+    await tester.tap(find.byKey(const Key('folders-section')));
+    await tester.pumpAndSettle();
+
+    final playlistRow = find.byKey(const Key('playlist-row-mix'));
+    expect(playlistRow, findsOneWidget);
+    expect(
+      find.descendant(of: playlistRow, matching: find.byType(Icon)),
+      findsWidgets,
+      reason: 'a bare label read as a different kind of thing to a folder',
+    );
+
+    // Same left edge as a folder row -- the two sections are siblings and
+    // a half-indent between them looks like a mistake.
+    final label = tester.getTopLeft(
+      find.descendant(of: playlistRow, matching: find.text('mix')),
+    );
+    final folderLabel = tester.getTopLeft(
+      find.descendant(
+        of: find.byKey(const Key('folder-row-RockFolder')),
+        matching: find.text('RockFolder'),
+      ),
+    );
+    expect(label.dx, folderLabel.dx);
+  });
 }

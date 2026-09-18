@@ -821,18 +821,23 @@ class _SidebarState extends State<_Sidebar> {
                   onToggle: widget.layoutPrefs.togglePlaylistsExpanded,
                 ),
                 if (widget.layoutPrefs.playlistsExpanded) ...[
+                  // First, not last: creating one is the action, the list
+                  // below is the inventory -- and with a long list the
+                  // action was scrolled off the bottom of the section.
+                  ListTile(
+                    key: const Key('new-playlist'),
+                    dense: true,
+                    contentPadding: _sidebarRowPadding,
+                    leading: const Icon(Icons.add, size: 18),
+                    title: const Text('New playlist'),
+                    onTap: () => _createPlaylist(context),
+                  ),
                   for (final pl in library.playlists)
                     _PlaylistTile(
                       library: library,
                       store: playlistStore,
                       playlist: pl,
                     ),
-                  ListTile(
-                    key: const Key('new-playlist'),
-                    leading: const Icon(Icons.add, size: 18),
-                    title: const Text('New playlist'),
-                    onTap: () => _createPlaylist(context),
-                  ),
                 ],
                 _SidebarSection(
                   sectionKey: const Key('folders-section'),
@@ -890,6 +895,11 @@ class _SidebarState extends State<_Sidebar> {
     );
   }
 }
+
+/// Indent for a row INSIDE a folding section, shared by the playlist and
+/// folder rows so the two sections line up -- a half-indent between
+/// siblings reads as a mistake, not as hierarchy.
+const _sidebarRowPadding = EdgeInsets.only(left: 32, right: 16);
 
 /// A folding sidebar section header: a chevron and a quiet label.
 ///
@@ -952,7 +962,7 @@ class _FolderTile extends StatelessWidget {
     return ListTile(
       key: Key('folder-row-$name'),
       dense: true,
-      contentPadding: const EdgeInsets.only(left: 32, right: 16),
+      contentPadding: _sidebarRowPadding,
       leading: const Icon(Icons.folder_outlined, size: 18),
       title: Text(name, overflow: TextOverflow.ellipsis),
       selected: selected,
@@ -1024,6 +1034,10 @@ class _PlaylistTile extends StatelessWidget {
       onSecondaryTapDown: (details) =>
           _showContextMenu(context, details.globalPosition),
       child: ListTile(
+        key: Key('playlist-row-${playlist.name}'),
+        dense: true,
+        contentPadding: _sidebarRowPadding,
+        leading: const Icon(Icons.queue_music, size: 18),
         title: Text(
           playlist.name,
           maxLines: 1,
