@@ -41,7 +41,7 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
-## Build 2026-09-18--1710 (desktop)
+## Build 2026-09-18--1511 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
 
