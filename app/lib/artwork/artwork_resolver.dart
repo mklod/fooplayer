@@ -38,6 +38,14 @@ typedef ArtworkEmbeddedLoader = Future<List<int>?> Function(File file);
 /// tests wire a fake.
 typedef ArtworkDownloader = Future<List<int>?> Function(String url);
 
+/// Other files on the same album as [req], best candidates first -- the
+/// last link in the chain, for a track that has no cover of its own.
+///
+/// Wired in production from the loaded library, filtered to tracks whose
+/// tags are already known to carry a picture, so the borrow costs at most
+/// one extra tag read. Returning `[]` (the default) simply disables it.
+typedef ArtworkAlbumMates = List<File> Function(ArtworkRequest req);
+
 // ---------------------------------------------------------------------------
 // Provider seam
 //
@@ -193,12 +201,26 @@ class ArtworkResolver extends ChangeNotifier {
 
   final int maxCachedAlbums;
 
+  /// Where a bare track borrows a cover from -- see [ArtworkAlbumMates].
+  ///
+  /// This used to happen by accident: the cache is album-keyed, so whoever
+  /// resolved first handed their bytes to the rest of the album. That also
+  /// meant a bare track resolving FIRST cached "no art" for every one of
+  /// its album-mates (reported live on Kanye West - Late Registration,
+  /// where one skit carries no picture and the other twenty do). Making it
+  /// an explicit step means the album's answer no longer depends on which
+  /// row the UI happened to ask about first.
+  final ArtworkAlbumMates albumMates;
+
   ArtworkResolver({
     required this.stores,
     this.embeddedLoader = readArtSafe,
     this.preferSidecar = false,
     this.maxCachedAlbums = 64,
-  });
+    ArtworkAlbumMates? albumMates,
+  }) : albumMates = albumMates ?? _noMates;
+
+  static List<File> _noMates(ArtworkRequest _) => const [];
 
   /// LRU of resolved bytes. A present key with a null value means "resolved,
   /// and there is genuinely no art" -- cached so the chain isn't re-run on
@@ -358,7 +380,36 @@ class ArtworkResolver extends ChangeNotifier {
       if (chosen != null) return chosen;
     }
 
-    return _siblingBytes(req);
+    final sibling = await _siblingBytes(req);
+    if (sibling != null) return sibling;
+
+    return _albumMateBytes(req);
+  }
+
+  /// The embedded art of another track on the same album -- the deliberate
+  /// version of what the album-keyed cache used to do by chance. Reached
+  /// only when this track has nothing of its own, no recorded choice, and
+  /// no image in its folder.
+  ///
+  /// Suppression is checked well before this point, so "Remove artwork" on
+  /// one track is never undone by a borrow.
+  Future<Uint8List?> _albumMateBytes(ArtworkRequest req) async {
+    final List<File> mates;
+    try {
+      mates = albumMates(req);
+    } catch (_) {
+      return null; // a seam that throws must not break resolution
+    }
+    for (final mate in mates) {
+      if (mate.path == req.file.path) continue;
+      try {
+        final bytes = await embeddedLoader(mate);
+        if (bytes != null && bytes.isNotEmpty) return _bytes(bytes);
+      } catch (_) {
+        // Try the next mate.
+      }
+    }
+    return null;
   }
 
   Future<Uint8List?> _sidecarBytes(

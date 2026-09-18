@@ -11,6 +11,7 @@ import 'artwork/artwork_backfill.dart';
 import 'artwork/artwork_resolver.dart';
 import 'artwork/artwork_store.dart';
 import 'artwork/artwork_wiring.dart';
+import 'artwork/track_art_index.dart';
 import 'artwork/picker_seams.dart';
 import 'model/app_config.dart';
 import 'metadata/tag_providers.dart';
@@ -247,7 +248,16 @@ void main(List<String> args) async {
   // real: with the stub seams it shipped with, every album would have come
   // back "no confident match" and earned a 14-day negative-cache record.
   final activity = ActivityModel();
-  final artwork = ArtworkWiring.production(appDataDir: dataDir);
+  // Album-level artwork knowledge, shared by two consumers: the resolver
+  // (which borrows a cover from an album-mate for a track that has none)
+  // and the library's Art column (which promises "this row draws a
+  // cover"). Reads the library through a closure, so it is never holding a
+  // stale track list.
+  final trackArtIndex = TrackArtIndex(tracks: () => library.allTracks);
+  final artwork = ArtworkWiring.production(
+    appDataDir: dataDir,
+    albumMates: trackArtIndex.matesFor,
+  );
   final artworkResolver = artwork.resolver;
   final artworkBackfill = artwork.backfill;
   final artworkServices = artwork.services;
@@ -726,10 +736,27 @@ void main(List<String> args) async {
   // the activity bar so tag reading and scanning are as visible as the
   // artwork passes. Without this the bar would only ever show artwork work,
   // and "is anything happening?" would still be unanswerable during a scan.
+  // Folder images (`folder.jpg` and friends) are the one input to the Art
+  // column that needs the disk. Probed ONCE per directory when a load or
+  // rescan settles -- never per row, which over SMB would stall the
+  // repaint it was meant to inform.
+  var folderProbeScheduled = false;
+  void probeFoldersWhenIdle() {
+    if (folderProbeScheduled || library.busy) return;
+    folderProbeScheduled = true;
+    unawaited(
+      trackArtIndex.refreshFolders().whenComplete(() {
+        folderProbeScheduled = false;
+      }),
+    );
+  }
+
   library.addListener(() {
     final status = library.status;
     if (!library.busy) {
       activity.finish(ActivityIds.library);
+      // New tracks may have arrived with folders nobody has looked in yet.
+      probeFoldersWhenIdle();
       return;
     }
     final m = RegExp(r'^reading tags (\d+)/(\d+)').firstMatch(status);
@@ -776,6 +803,7 @@ void main(List<String> args) async {
         artworkResolver: artworkResolver,
         artworkServices: artworkServices,
         artworkStores: artwork.stores,
+        trackArtIndex: trackArtIndex,
         artworkBackfill: artworkBackfill,
         activity: activity,
         syncScheduler: syncScheduler,
@@ -858,6 +886,10 @@ class FooPlayerApp extends StatelessWidget {
   /// tags so other players can see it.
   final ArtworkStoreRegistry? artworkStores;
 
+  /// Album-level artwork knowledge behind the library's Art column -- see
+  /// [TrackArtIndex]. Null in widget tests that skip the artwork feature.
+  final TrackArtIndex? trackArtIndex;
+
   /// Background jobs, shown in the persistent activity bar.
   final ActivityModel? activity;
 
@@ -904,6 +936,7 @@ class FooPlayerApp extends StatelessWidget {
     this.artworkResolver,
     this.artworkServices,
     this.artworkStores,
+    this.trackArtIndex,
     this.artworkBackfill,
     this.activity,
     this.syncScheduler,
@@ -955,6 +988,7 @@ class FooPlayerApp extends StatelessWidget {
               artworkResolver: artworkResolver,
               artworkServices: artworkServices,
               artworkStores: artworkStores,
+              trackArtIndex: trackArtIndex,
               activity: activity,
               artworkBackfill: artworkBackfill,
               // Shares the artwork lookups' MusicBrainz rate limiter -- one
