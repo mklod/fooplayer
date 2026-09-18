@@ -51,6 +51,16 @@ class RootSyncResult {
   final int copied;
   final int copiedBytes;
 
+  /// How many of [copied] were actual TRACKS rather than sidecars.
+  ///
+  /// Reported separately because the combined figure reads as a track
+  /// count to anyone who just added music: a run that copied one new song
+  /// plus the artwork sidecar that changed with it said "2 files copied",
+  /// and one new row in the library then looked like a bug. Reported live
+  /// 2026-09-18 ("reported two new loose tracks files sync'd ... single
+  /// new track appears").
+  final int copiedTracks;
+
   /// Existing audio files that were re-downloaded because their recorded
   /// sync-state no longer matches the remote listing (a retag, a re-encode
   /// -- anything that changed the file without moving it).
@@ -76,6 +86,7 @@ class RootSyncResult {
     required this.rootName,
     required this.copied,
     required this.copiedBytes,
+    required this.copiedTracks,
     required this.updated,
     required this.renamed,
     required this.deleted,
@@ -207,6 +218,7 @@ class SyncEngine {
               rootName: '',
               copied: 0,
               copiedBytes: 0,
+              copiedTracks: 0,
               updated: 0,
               renamed: 0,
               deleted: 0,
@@ -257,7 +269,20 @@ class SyncEngine {
 
       if (rootNames.isNotEmpty) {
         activity.start(ActivityIds.sync, 'Updating library');
-        await library.rescan(quiet: true);
+        // Awaited on purpose: this is the call that puts freshly copied
+        // tracks in the feed, so the report must not claim the run is
+        // finished before it has happened. Since 2026-09-18 this future
+        // also covers the case where the rescan had to QUEUE behind an
+        // in-flight load (it used to be dropped outright, and the tracks
+        // then stayed invisible until Android's next five-minute tick).
+        //
+        // The timeout is purely defensive: whatever happens to the
+        // library, the user gets their report. Every pass inside has its
+        // own much shorter per-root timeout, so reaching this one means
+        // something is wrong that waiting longer would not fix.
+        await library
+            .rescan(quiet: true)
+            .timeout(const Duration(minutes: 5), onTimeout: () {});
       }
 
       return SyncReport(
@@ -354,6 +379,7 @@ class SyncEngine {
           rootName: rootName,
           copied: 0,
           copiedBytes: 0,
+          copiedTracks: 0,
           updated: 0,
           renamed: 0,
           deleted: 0,
@@ -385,6 +411,7 @@ class SyncEngine {
 
       final failures = <SyncFailure>[];
       var copiedCount = 0;
+      var copiedTrackCount = 0;
       var copiedBytes = 0;
       var updatedCount = 0;
       var renamedCount = 0;
@@ -479,6 +506,7 @@ class SyncEngine {
             updatedCount++;
           } else {
             copiedCount++;
+            copiedTrackCount++; // this loop is audio only -- sidecars below
             copiedBytes += rf.size;
           }
         } else if (outcome.transportFailure) {
@@ -674,6 +702,7 @@ class SyncEngine {
         rootName: rootName,
         copied: copiedCount,
         copiedBytes: copiedBytes,
+        copiedTracks: copiedTrackCount,
         updated: updatedCount,
         renamed: renamedCount,
         deleted: deletedCount,
@@ -865,6 +894,7 @@ class SyncEngine {
     rootName: rootName,
     copied: 0,
     copiedBytes: 0,
+    copiedTracks: 0,
     updated: 0,
     renamed: 0,
     deleted: 0,

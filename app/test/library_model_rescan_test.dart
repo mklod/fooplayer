@@ -170,7 +170,8 @@ void main() {
     }
   });
 
-  test('rescan is a no-op while a rescan is already in flight', () async {
+  test('a rescan arriving while one is in flight is QUEUED, not dropped',
+      () async {
     final root = await Directory('${tmp.path}/lib').create();
     final existingFile = File('${root.path}/Existing Song.mp3');
     await existingFile.writeAsBytes(List<int>.filled(64, 0x22));
@@ -194,6 +195,12 @@ void main() {
     ).writeAsBytes(List<int>.filled(200, 0));
 
     expect(model.busy, isFalse);
+    final statuses = <String>[];
+    model.addListener(() {
+      if (statuses.isEmpty || statuses.last != model.status) {
+        statuses.add(model.status);
+      }
+    });
     final first = model.rescan().timeout(const Duration(seconds: 30));
     // rescan()'s busy guard is its very first line, with no `await` ahead
     // of it -- so by the time this call has returned control here (having
@@ -203,17 +210,28 @@ void main() {
 
     final statusBeforeSecondCall = model.status;
     final second = model.rescan().timeout(const Duration(seconds: 30));
-    // A guarded call returns having touched nothing at all -- in
-    // particular, without ever assigning `status` -- so it is unchanged
-    // immediately after this synchronous call returns (still before either
-    // Future has settled).
+    // The queued call runs no work of its own yet -- in particular it never
+    // assigns `status` -- so it is unchanged immediately after this
+    // synchronous call returns (still before either Future has settled).
+    // Two concurrent passes would race each other's manifest and tag-cache
+    // writes, which is why the second waits rather than starting.
     expect(model.status, statusBeforeSecondCall);
 
     await Future.wait([first, second]);
 
     expect(model.busy, isFalse);
-    expect(model.status, 'added 1 new tracks');
-    expect(model.allTracks, hasLength(2)); // not duplicated by the no-op call
+    // The first pass found the new file...
+    expect(
+      statuses,
+      contains('added 1 new tracks'),
+      reason: 'the in-flight pass must still report what it found',
+    );
+    // ...and the queued one then really ran (it found nothing left to do,
+    // which is what 'ready' means here). It must NOT be discarded: a
+    // dropped request is how a post-sync rescan used to go missing for a
+    // whole five-minute tick.
+    expect(model.status, 'ready');
+    expect(model.allTracks, hasLength(2)); // and nothing got duplicated
   });
 
   test('a playlist write gets through while a rescan is scanning', () async {

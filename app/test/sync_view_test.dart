@@ -293,6 +293,7 @@ void main() {
             rootName: 'archive',
             copied: 1,
             copiedBytes: 1024,
+            copiedTracks: 1,
             updated: 0,
             renamed: 0,
             deleted: 0,
@@ -305,6 +306,7 @@ void main() {
             rootName: 'monthly',
             copied: 12,
             copiedBytes: 48 * 1024 * 1024,
+            copiedTracks: 12,
             updated: 3,
             renamed: 1,
             deleted: 2,
@@ -382,6 +384,7 @@ void main() {
             rootName: '',
             copied: 0,
             copiedBytes: 0,
+            copiedTracks: 0,
             updated: 0,
             renamed: 0,
             deleted: 0,
@@ -509,6 +512,7 @@ void main() {
             rootName: 'loose tracks',
             copied: 0,
             copiedBytes: 0,
+            copiedTracks: 0,
             updated: 0,
             renamed: 0,
             deleted: 0,
@@ -549,6 +553,7 @@ void main() {
             rootName: 'loose tracks',
             copied: 3,
             copiedBytes: 300,
+            copiedTracks: 3,
             updated: 0,
             renamed: 0,
             deleted: 0,
@@ -565,5 +570,81 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('sync-unindexed-remote')), findsNothing);
+  });
+
+  testWidgets(
+    'the copied line says how many of the files were TRACKS when a sidecar '
+    'is in the count',
+    (tester) async {
+      final report = SyncReport(
+        playlistNotes: const [],
+        roots: [
+          // Exactly the run reported live on 2026-09-18: one new song plus
+          // the artwork sidecar that changed with it.
+          RootSyncResult(
+            rootName: 'loose tracks - 2020 and later',
+            copied: 2,
+            copiedBytes: 3 * 1024 * 1024,
+            copiedTracks: 1,
+            updated: 0,
+            renamed: 0,
+            deleted: 0,
+            adopted: 0,
+            unindexedLocal: const [],
+            failures: const [],
+            aborted: false,
+          ),
+        ],
+        finishedAt: DateTime(2026, 9, 18),
+      );
+
+      await _pumpSyncView(
+        tester,
+        settings: _fixtureSettings(),
+        onSave: (_) {},
+        runSync: () async => report,
+      );
+      await tester.tap(find.byKey(const Key('sync-now')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('2 files copied — 1 track, 1 artwork/playlist file'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('an all-tracks run keeps the plain copied line', (tester) async {
+    final report = SyncReport(
+      playlistNotes: const [],
+      roots: [
+        RootSyncResult(
+          rootName: 'monthly',
+          copied: 3,
+          copiedBytes: 300,
+          copiedTracks: 3,
+          updated: 0,
+          renamed: 0,
+          deleted: 0,
+          adopted: 0,
+          unindexedLocal: const [],
+          failures: const [],
+          aborted: false,
+        ),
+      ],
+      finishedAt: DateTime(2026, 9, 18),
+    );
+
+    await _pumpSyncView(
+      tester,
+      settings: _fixtureSettings(),
+      onSave: (_) {},
+      runSync: () async => report,
+    );
+    await tester.tap(find.byKey(const Key('sync-now')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('3 files copied ('), findsOneWidget);
+    expect(find.textContaining('artwork/playlist'), findsNothing);
   });
 }
