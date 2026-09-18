@@ -19,6 +19,7 @@ import 'adaptive.dart';
 import 'app_theme.dart';
 import 'now_playing_bar.dart' show AlbumArt;
 import 'playlist_dialogs.dart';
+import 'track_columns.dart';
 
 String _fmtDate(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -69,6 +70,10 @@ const int _kTitleFlex = 3;
 const int _kArtistFlex = 2;
 const int _kTitleArtistFlex = _kTitleFlex + _kArtistFlex;
 const int _kAlbumFlex = 2;
+
+/// The Path column. Wider than Album: these are full NAS paths, and one
+/// clipped after two segments says nothing Album does not already.
+const int _kPathFlex = 3;
 
 // Playlist-view "Song" cell: a small square thumbnail (scaled down from the
 // now-playing bar's compact 44px [AlbumArt] -- see now_playing_bar.dart's
@@ -169,6 +174,15 @@ class TrackListView extends StatefulWidget {
   /// happens rather than leaving the user wondering.
   final ActivityModel? activity;
 
+  /// Columns the user has hidden (right-click the header). Empty -- the
+  /// default, and what every widget test that doesn't care gets -- shows
+  /// the full set.
+  final Set<TrackColumn> hiddenColumns;
+
+  /// Toggles one column's visibility. Null means the header offers no
+  /// menu at all, rather than one that cannot stick.
+  final void Function(TrackColumn column)? onToggleColumn;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -181,6 +195,8 @@ class TrackListView extends StatefulWidget {
     this.hasArtwork,
     this.tagSearch,
     this.activity,
+    this.hiddenColumns = const {},
+    this.onToggleColumn,
   });
 
   @override
@@ -333,9 +349,12 @@ class _TrackListViewState extends State<TrackListView> {
                     resolver: widget.artworkResolver,
                   ),
                 _TrackListHeader(
+                  key: const Key('track-list-header'),
                   library: library,
                   showTrackNumber: showTrackNumber,
                   playlistMode: isPlaylist,
+                  hidden: widget.hiddenColumns,
+                  onToggleColumn: widget.onToggleColumn,
                 ),
                 Expanded(
                   child: ListView.builder(
@@ -349,6 +368,7 @@ class _TrackListViewState extends State<TrackListView> {
                         t.contentId,
                       );
                       return _TrackRow(
+                        hidden: widget.hiddenColumns,
                         track: t,
                         isCurrent: isCurrent,
                         isSelected: isSelected,
@@ -504,22 +524,63 @@ class _TrackListHeader extends StatelessWidget {
   final LibraryModel library;
   final bool showTrackNumber;
   final bool playlistMode;
+  final Set<TrackColumn> hidden;
+  final void Function(TrackColumn column)? onToggleColumn;
 
   const _TrackListHeader({
+    super.key,
     required this.library,
     required this.showTrackNumber,
     required this.playlistMode,
+    this.hidden = const {},
+    this.onToggleColumn,
   });
+
+  bool _shows(TrackColumn c) => !hidden.contains(c);
+
+  /// Right-click anywhere on the header: one checkbox per hideable column.
+  ///
+  /// Not offered in playlist mode -- that view's four columns are its
+  /// whole structure, and hiding any of them leaves nothing to read.
+  Future<void> _showColumnMenu(BuildContext context, Offset position) async {
+    final toggle = onToggleColumn;
+    if (toggle == null || playlistMode) return;
+    final overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final picked = await showMenu<TrackColumn>(
+      context: context,
+      position: RelativeRect.fromRect(
+        position & const Size(40, 40),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        for (final c in TrackColumn.values)
+          CheckedPopupMenuItem<TrackColumn>(
+            key: Key('column-toggle-${c.id}'),
+            value: c,
+            checked: _shows(c),
+            child: Text(c.label),
+          ),
+      ],
+    );
+    if (picked != null) toggle(picked);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppColors.hairline)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: playlistMode ? _buildPlaylistRow() : _buildLibraryRow(),
+    return GestureDetector(
+      onSecondaryTapDown: (d) => _showColumnMenu(context, d.globalPosition),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppColors.hairline)),
+          // Painted, so a right-click on the header's empty space still
+          // hit-tests to the gesture detector above it.
+          color: AppColors.windowBg,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          child: playlistMode ? _buildPlaylistRow() : _buildLibraryRow(),
+        ),
       ),
     );
   }
@@ -537,7 +598,7 @@ class _TrackListHeader extends StatelessWidget {
             ),
           ),
         Expanded(
-          flex: _kTitleArtistFlex,
+          flex: _shows(TrackColumn.artist) ? _kTitleArtistFlex : _kTitleFlex,
           child: Row(
             children: [
               Expanded(
@@ -548,53 +609,68 @@ class _TrackListHeader extends StatelessWidget {
                   library: library,
                 ),
               ),
-              Expanded(
-                flex: _kArtistFlex,
-                child: _HeaderCell(
-                  label: 'Artist',
-                  column: SortColumn.artist,
-                  library: library,
+              if (_shows(TrackColumn.artist))
+                Expanded(
+                  flex: _kArtistFlex,
+                  child: _HeaderCell(
+                    label: 'Artist',
+                    column: SortColumn.artist,
+                    library: library,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
-        Expanded(
-          flex: _kAlbumFlex,
-          child: _HeaderCell(
-            label: 'Album',
-            column: SortColumn.album,
-            library: library,
+        if (_shows(TrackColumn.album))
+          Expanded(
+            flex: _kAlbumFlex,
+            child: _HeaderCell(
+              label: 'Album',
+              column: SortColumn.album,
+              library: library,
+            ),
           ),
-        ),
+        if (_shows(TrackColumn.path))
+          Expanded(
+            flex: _kPathFlex,
+            child: _HeaderCell(
+              label: 'Path',
+              column: SortColumn.path,
+              library: library,
+            ),
+          ),
         const SizedBox(width: 8),
-        SizedBox(
-          width: _kDurationColumnWidth,
-          child: _HeaderCell(
-            label: 'Time',
-            column: SortColumn.duration,
-            library: library,
-            alignEnd: true,
+        if (_shows(TrackColumn.time))
+          SizedBox(
+            width: _kDurationColumnWidth,
+            child: _HeaderCell(
+              label: 'Time',
+              column: SortColumn.duration,
+              library: library,
+              alignEnd: true,
+            ),
           ),
-        ),
         const SizedBox(width: 32),
-        SizedBox(
-          width: _kDateColumnWidth,
-          child: _HeaderCell(
-            label: 'Date',
-            column: SortColumn.dateAdded,
-            library: library,
+        if (_shows(TrackColumn.date))
+          SizedBox(
+            width: _kDateColumnWidth,
+            child: _HeaderCell(
+              label: 'Date',
+              column: SortColumn.dateAdded,
+              library: library,
+            ),
           ),
-        ),
         const SizedBox(width: 8),
-        const SizedBox(
-          width: _kArtColumnWidth,
-          child: PlainHeaderLabel(label: 'Art'),
-        ),
-        const SizedBox(
-          width: _kArtColumnWidth,
-          child: PlainHeaderLabel(label: 'Emb'),
-        ),
+        if (_shows(TrackColumn.art))
+          const SizedBox(
+            width: _kArtColumnWidth,
+            child: PlainHeaderLabel(label: 'Art'),
+          ),
+        if (_shows(TrackColumn.emb))
+          const SizedBox(
+            width: _kArtColumnWidth,
+            child: PlainHeaderLabel(label: 'Emb'),
+          ),
       ],
     );
   }
@@ -763,6 +839,10 @@ class _HeaderCellState extends State<_HeaderCell> {
 /// Stateful only to remember where a finger went down, which is what
 /// separates a tap from a scroll -- see [_TrackRowState._handleUp].
 class _TrackRow extends StatefulWidget {
+  /// Columns the user has hidden -- see [TrackListView.hiddenColumns].
+  /// The row must read the same set as the header or the two drift apart.
+  final Set<TrackColumn> hidden;
+
   final Track track;
   final bool isCurrent;
   final bool isSelected;
@@ -801,6 +881,7 @@ class _TrackRow extends StatefulWidget {
   final bool hasArtwork;
 
   const _TrackRow({
+    required this.hidden,
     required this.track,
     required this.isCurrent,
     required this.isSelected,
@@ -983,6 +1064,8 @@ class _TrackRowState extends State<_TrackRow> {
 
   /// The library view's five flat columns, unchanged from before the
   /// playlist-view layout existed.
+  bool _shows(TrackColumn c) => !widget.hidden.contains(c);
+
   List<Widget> _libraryCells(BuildContext context) => [
     if (showTrackNumber)
       SizedBox(
@@ -996,7 +1079,7 @@ class _TrackRowState extends State<_TrackRow> {
         ),
       ),
     Expanded(
-      flex: _kTitleArtistFlex,
+      flex: _shows(TrackColumn.artist) ? _kTitleArtistFlex : _kTitleFlex,
       child: Row(
         children: [
           Expanded(
@@ -1011,57 +1094,77 @@ class _TrackRowState extends State<_TrackRow> {
               ),
             ),
           ),
-          Expanded(
-            flex: _kArtistFlex,
-            child: Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: _kRowTextStyle,
+          if (_shows(TrackColumn.artist))
+            Expanded(
+              flex: _kArtistFlex,
+              child: Text(
+                track.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _kRowTextStyle,
+              ),
             ),
-          ),
         ],
       ),
     ),
-    Expanded(
-      flex: _kAlbumFlex,
-      child: Text(
-        track.album,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: _kRowTextStyle,
+    if (_shows(TrackColumn.album))
+      Expanded(
+        flex: _kAlbumFlex,
+        child: Text(
+          track.album,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _kRowTextStyle,
+        ),
       ),
-    ),
+    if (_shows(TrackColumn.path))
+      Expanded(
+        flex: _kPathFlex,
+        child: Text(
+          trackFilePath(track),
+          maxLines: 1,
+          // Clipped at the START: the end of a path is the part that
+          // tells you which file this is, and every one of these begins
+          // with the same handful of root prefixes.
+          overflow: TextOverflow.ellipsis,
+          textDirection: TextDirection.rtl,
+          style: _kRowTextStyle,
+        ),
+      ),
     const SizedBox(width: 8),
-    SizedBox(
-      width: _kDurationColumnWidth,
-      child: Text(
-        _fmtDuration(track.durationMs),
-        textAlign: TextAlign.right,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: _kRowTextStyle,
+    if (_shows(TrackColumn.time))
+      SizedBox(
+        width: _kDurationColumnWidth,
+        child: Text(
+          _fmtDuration(track.durationMs),
+          textAlign: TextAlign.right,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _kRowTextStyle,
+        ),
       ),
-    ),
     const SizedBox(width: 32),
-    SizedBox(
-      width: _kDateColumnWidth,
-      child: Text(
-        _fmtDate(track.dateAdded),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: _kRowTextStyle,
+    if (_shows(TrackColumn.date))
+      SizedBox(
+        width: _kDateColumnWidth,
+        child: Text(
+          _fmtDate(track.dateAdded),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _kRowTextStyle,
+        ),
       ),
-    ),
     const SizedBox(width: 8),
-    SizedBox(
-      width: _kArtColumnWidth,
-      child: _ArtTick(on: hasArtwork),
-    ),
-    SizedBox(
-      width: _kArtColumnWidth,
-      child: _ArtTick(on: track.hasEmbeddedArt),
-    ),
+    if (_shows(TrackColumn.art))
+      SizedBox(
+        width: _kArtColumnWidth,
+        child: _ArtTick(on: hasArtwork),
+      ),
+    if (_shows(TrackColumn.emb))
+      SizedBox(
+        width: _kArtColumnWidth,
+        child: _ArtTick(on: track.hasEmbeddedArt),
+      ),
   ];
 
   /// The playlist view's distinct four-column layout: #, Song (thumbnail +

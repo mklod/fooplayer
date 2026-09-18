@@ -92,6 +92,7 @@ void main() {
           'filtersCollapsed': false,
           'playlistsExpanded': false,
           'foldersExpanded': false,
+          'hiddenColumns': <String>[],
         });
       });
     });
@@ -114,6 +115,7 @@ void main() {
           'filtersCollapsed': false,
           'playlistsExpanded': false,
           'foldersExpanded': false,
+          'hiddenColumns': <String>[],
         });
       });
     });
@@ -147,6 +149,7 @@ void main() {
           'filtersCollapsed': false,
           'playlistsExpanded': false,
           'foldersExpanded': false,
+          'hiddenColumns': <String>[],
         });
 
         // The original timer must be cancelled -- letting the rest of the
@@ -189,6 +192,7 @@ void main() {
           'filtersCollapsed': false,
           'playlistsExpanded': false,
           'foldersExpanded': false,
+          'hiddenColumns': <String>[],
         });
 
         // No lingering timer either.

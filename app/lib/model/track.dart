@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 class Track {
   final String contentId;
   final String relPath; // forward slashes, relative to rootPath
@@ -78,3 +79,9 @@ class Track {
     isCompilation: isCompilation ?? this.isCompilation,
   );
 }
+
+/// The track's file, as the platform writes it: `rootPath` joined to
+/// `relPath`'s forward-slash segments. Shown by the library's Path column
+/// and sorted on by [SortColumn.path].
+String trackFilePath(Track t) =>
+    p.joinAll([t.rootPath, ...p.posix.split(t.relPath)]);

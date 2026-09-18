@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'track_columns.dart';
 
 /// Clamp bounds and defaults for the draggable panel sizes. Kept as public
 /// constants so tests and callers can reason about them without duplicating
@@ -36,6 +37,10 @@ class LayoutPrefs extends ChangeNotifier {
   /// section doesn't start folded again tomorrow.
   bool _playlistsExpanded;
   bool _foldersExpanded;
+
+  /// Library columns the user has hidden from the header's right-click
+  /// menu. Empty by default -- everything shows until you say otherwise.
+  final Set<TrackColumn> _hiddenColumns;
   final void Function(Map<String, dynamic> ui)? _writer;
   final Duration _debounce;
   Timer? _saveTimer;
@@ -46,6 +51,7 @@ class LayoutPrefs extends ChangeNotifier {
     bool filtersCollapsed = false,
     bool playlistsExpanded = false,
     bool foldersExpanded = false,
+    Set<TrackColumn> hiddenColumns = const {},
     void Function(Map<String, dynamic> ui)? writer,
     Duration debounce = kLayoutPrefsSaveDebounce,
   }) : _sidebarWidth = _clampSidebarWidth(sidebarWidth),
@@ -54,6 +60,7 @@ class LayoutPrefs extends ChangeNotifier {
        _playlistsExpanded = playlistsExpanded,
        // ignore: prefer_initializing_formals
        _foldersExpanded = foldersExpanded,
+       _hiddenColumns = Set<TrackColumn>.of(hiddenColumns),
        // Same reason as _writer/_debounce below: a `this._filtersCollapsed`
        // initializing formal would expose the private name as the public
        // parameter name.
@@ -88,6 +95,13 @@ class LayoutPrefs extends ChangeNotifier {
       // means folded -- the deliberate default, not just a falsy read.
       playlistsExpanded: ui?['playlistsExpanded'] == true,
       foldersExpanded: ui?['foldersExpanded'] == true,
+      // Unknown ids (a column this build no longer has, or one from a
+      // newer build) are dropped rather than treated as an error.
+      hiddenColumns: {
+        for (final raw in (ui?['hiddenColumns'] as List<dynamic>? ?? const []))
+          if (raw is String && TrackColumn.byId(raw) != null)
+            TrackColumn.byId(raw)!,
+      },
       writer: writer,
       debounce: debounce,
     );
@@ -98,6 +112,19 @@ class LayoutPrefs extends ChangeNotifier {
   bool get filtersCollapsed => _filtersCollapsed;
   bool get playlistsExpanded => _playlistsExpanded;
   bool get foldersExpanded => _foldersExpanded;
+
+  /// Read-only view; mutate through [toggleColumn].
+  Set<TrackColumn> get hiddenColumns => Set<TrackColumn>.unmodifiable(
+    _hiddenColumns,
+  );
+
+  bool isColumnVisible(TrackColumn column) => !_hiddenColumns.contains(column);
+
+  void toggleColumn(TrackColumn column) {
+    if (!_hiddenColumns.remove(column)) _hiddenColumns.add(column);
+    _scheduleSave();
+    notifyListeners();
+  }
 
   /// Whether the now-playing strip is hidden.
   ///
@@ -187,6 +214,8 @@ class LayoutPrefs extends ChangeNotifier {
     'filtersCollapsed': _filtersCollapsed,
     'playlistsExpanded': _playlistsExpanded,
     'foldersExpanded': _foldersExpanded,
+    // Sorted so the file doesn't churn on set-iteration order.
+    'hiddenColumns': (_hiddenColumns.map((c) => c.id).toList()..sort()),
   };
 
   void _scheduleSave() {
