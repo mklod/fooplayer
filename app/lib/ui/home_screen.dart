@@ -36,7 +36,6 @@ import 'queue_view.dart';
 import 'settings_dialog.dart';
 import 'sync_view.dart';
 import 'track_list.dart';
-import 'track_columns.dart';
 
 /// Stand-in for widget tests that build a screen without wiring background
 /// activity: nothing ever registers with it, so the bar stays hidden.
