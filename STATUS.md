@@ -4,7 +4,7 @@
 
 ## Next session starts here
 
-**Build 2026-09-18--1427 (1.0.0+27) -- a synced track could stay invisible
+**Build 2026-09-18--1439 (1.0.0+28) -- a synced track could stay invisible
 for a whole tick.**
 
 Reported: "lan sync reported two new loose tracks files sync'd; nothing
@@ -34,7 +34,10 @@ with it. Verified on the NAS: `loose tracks - 2020 and later` has exactly
 one audio file newer than 2026-09-08, and its manifest entry (`date_added`
 2026-09-17T19:21:37Z) is the only one added since 09-10 -- the tray
 indexer worked correctly. `copiedTracks` is now a required field and the
-report says "2 files copied -- 1 track, 1 artwork/playlist file".
+report line counts tracks: "1 track copied" (shipped as a files+breakdown
+line in +27, simplified to tracks-only in +28 on request -- sidecars are
+bookkeeping; the question a sync report answers is how much music
+arrived).
 
 Tests: 1182 pass, including an end-to-end one (real temp NAS + phone dirs,
 real transport, real `LibraryModel`) asserting a copied track is in

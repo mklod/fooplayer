@@ -41,7 +41,7 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
-## Build 2026-09-18--1427
+## Build 2026-09-18--1439
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
 Desktop: rebuilt + redeployed to the tray/Startup exe.
@@ -62,12 +62,13 @@ Desktop: rebuilt + redeployed to the tray/Startup exe.
   manifest-lock timeout re-queues instead of parking the root until the
   next tick. `await rescan()` now genuinely means "the library is up to
   date", which is what the sync always assumed.
-- **"2 files copied" now says how many were songs.** Only one track was
-  ever involved in that run: `copied` counts audio *and* sidecar files in
-  one figure, and the sync moved the new track plus the `.artwork.json`
-  that changed with it. Both numbers were right; together they read as a
-  bug. The report now says "2 files copied — 1 track, 1 artwork/playlist
-  file".
+- **The report's copied count is now TRACKS.** Only one track was ever
+  involved in that run: `copied` counts audio *and* sidecar files in one
+  figure, and the sync moved the new track plus the `.artwork.json` that
+  changed with it. Both numbers were right; together they read as a bug.
+  The line now says "1 track copied" — sidecars are bookkeeping, and the
+  question a sync report answers is how much music arrived. (Shipped as a
+  breakdown first, then simplified on request. 1.0.0+28.)
 - Two hazards introduced by making that future meaningful, both pinned by
   tests: a queued load that *throws* can no longer strand the queued
   rescan (which would hang the sync's report dialog forever), and the
