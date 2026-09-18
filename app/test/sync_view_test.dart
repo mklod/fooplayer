@@ -345,16 +345,17 @@ void main() {
         lessThan(tester.getTopLeft(archiveLine).dy),
       );
 
-      // Wording contract from Task 9's review: "files", never "tracks", for
-      // the copied count; adopted reads "already present"; a copied byte
+      // Wording contract: the COPIED count is in tracks (asked for
+      // 2026-09-18 -- it used to say "files", which folded in the artwork
+      // sidecars and made one new song read as two); every other clause
+      // stays in files; adopted reads "already present"; a copied byte
       // figure only for the copied clause, not the updated one.
       final monthlyText = tester.widget<Text>(monthlyLine).data!;
-      expect(monthlyText, contains('12 files copied'));
+      expect(monthlyText, contains('12 tracks copied'));
       expect(monthlyText, contains('48.0 MB new data'));
       expect(monthlyText, contains('3 files updated'));
       expect(monthlyText, contains('1 files renamed'));
       expect(monthlyText, contains('2 files deleted'));
-      expect(monthlyText, isNot(contains('tracks')));
       expect(monthlyText, contains('465 files adopted (already present)'));
 
       expect(
@@ -573,8 +574,7 @@ void main() {
   });
 
   testWidgets(
-    'the copied line says how many of the files were TRACKS when a sidecar '
-    'is in the count',
+    'the copied line counts TRACKS, not the sidecars folded in with them',
     (tester) async {
       final report = SyncReport(
         playlistNotes: const [],
@@ -607,14 +607,14 @@ void main() {
       await tester.tap(find.byKey(const Key('sync-now')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('2 files copied — 1 track, 1 artwork/playlist file'),
-        findsOneWidget,
-      );
+      // One song arrived, so the line says one -- the artwork sidecar that
+      // came with it is bookkeeping, not music.
+      expect(find.textContaining('1 track copied'), findsOneWidget);
+      expect(find.textContaining('2 files copied'), findsNothing);
     },
   );
 
-  testWidgets('an all-tracks run keeps the plain copied line', (tester) async {
+  testWidgets('several tracks are pluralised', (tester) async {
     final report = SyncReport(
       playlistNotes: const [],
       roots: [
@@ -644,7 +644,6 @@ void main() {
     await tester.tap(find.byKey(const Key('sync-now')));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('3 files copied ('), findsOneWidget);
-    expect(find.textContaining('artwork/playlist'), findsNothing);
+    expect(find.textContaining('3 tracks copied ('), findsOneWidget);
   });
 }
