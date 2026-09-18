@@ -41,6 +41,27 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1533 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Playlist rows get an icon and the folder rows' indent.** The two
+  sections are siblings; one indented and one not read as a mistake
+  rather than as hierarchy, so the indent is now a single shared value
+  both use.
+- **"New playlist" moved to the top of the section.** Creating one is the
+  action; the list under it is the inventory -- and with a long list the
+  action was scrolled off the bottom of its own section. 1.0.0+30.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Playlists section: New playlist first, then each playlist with an
+>       icon, lining up with the folder rows below
+>   - Notes:
+
 ## Build 2026-09-18--1511 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
