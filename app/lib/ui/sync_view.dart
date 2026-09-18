@@ -565,26 +565,24 @@ class SyncReportDialog extends StatelessWidget {
       );
     }
 
-    // "files", never "tracks" -- sidecar files (artwork, playlists) are
-    // folded into these same counts, so "tracks" would undercount what
-    // actually moved. copiedBytes deliberately excludes recopy bytes (a
-    // recopy is still content that changed, just not NEW content), so only
-    // the copied clause ever gets a size figure.
+    // The copied clause counts TRACKS, not files. `copied` also includes
+    // sidecars (artwork, playlists), and a run that moved one new song
+    // plus the `.artwork.json` that changed with it reported "2 files
+    // copied" -- which reads as two new songs, so one new row in the
+    // library then looks like a sync bug. Sidecars are bookkeeping; the
+    // question this line answers is "how much music arrived". Reported
+    // live 2026-09-18.
+    //
+    // copiedBytes deliberately excludes recopy bytes (a recopy is still
+    // content that changed, just not NEW content), so only the copied
+    // clause ever gets a size figure. It covers the sidecars too, which
+    // are a rounding error next to audio.
     final bytesSuffix = r.copiedBytes > 0
         ? ' (${_humanBytes(r.copiedBytes)} new data)'
         : '';
-    // ...but say how many of them were SONGS whenever the two differ.
-    // "2 files copied" for one new song plus the artwork sidecar that
-    // changed with it reads as two new songs, and then one new row in the
-    // library looks like a sync bug. Reported live 2026-09-18.
-    final nonTracks = r.copied - r.copiedTracks;
-    final trackBreakdown = (r.copied > 0 && nonTracks > 0)
-        ? ' — ${r.copiedTracks} '
-              '${r.copiedTracks == 1 ? "track" : "tracks"}, $nonTracks '
-              'artwork/playlist ${nonTracks == 1 ? "file" : "files"}'
-        : '';
     final line =
-        '${r.rootName} — ${r.copied} files copied$trackBreakdown$bytesSuffix, '
+        '${r.rootName} — ${r.copiedTracks} '
+        '${r.copiedTracks == 1 ? "track" : "tracks"} copied$bytesSuffix, '
         '${r.updated} files updated, ${r.renamed} files renamed, '
         '${r.deleted} files deleted, ${r.adopted} files adopted (already present)';
 
