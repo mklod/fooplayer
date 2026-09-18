@@ -41,6 +41,36 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1636 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **The column menu is per-column now, and does not animate.**
+  Right-click ARTIST and the only entry is "Hide Artist" -- each header
+  cell reports its own column, instead of one checklist hanging off the
+  whole header. `MenuAnchor` replaces `showMenu`, whose popup route was
+  the scale-and-fade being objected to.
+- **Un-hiding** is the one thing that cannot be per-column: a hidden
+  column has no header left to click. So every header also carries
+  "Show <column>" for whatever is hidden. With nothing hidden -- the
+  normal state -- the menu is a single line.
+- **Path is the last column**, header and cells both. It is the widest
+  thing in the row and the least often read, so it sits where it cannot
+  push the columns you actually scan off to the side. 1.0.0+32.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Right-click a column header: one "Hide <that column>" entry, no
+>       animation
+>   - Notes:
+> - [ ] Hide one, then right-click any header: "Show <it>" brings it back
+>   - Notes:
+> - [ ] Path sits at the far right of the row
+>   - Notes:
+
 ## Build 2026-09-18--1556 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
