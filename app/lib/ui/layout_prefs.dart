@@ -27,6 +27,15 @@ class LayoutPrefs extends ChangeNotifier {
   /// the track list the full height. Persisted like the sizes so the choice
   /// survives a restart.
   bool _filtersCollapsed;
+
+  /// Whether the sidebar's Playlists / Folders sections are unfolded.
+  ///
+  /// Both default to FOLDED (asked for 2026-09-18): the sidebar's job at
+  /// rest is Library, not an inventory of every playlist and root. The
+  /// choice is persisted like the sizes, so a session spent inside one
+  /// section doesn't start folded again tomorrow.
+  bool _playlistsExpanded;
+  bool _foldersExpanded;
   final void Function(Map<String, dynamic> ui)? _writer;
   final Duration _debounce;
   Timer? _saveTimer;
@@ -35,10 +44,16 @@ class LayoutPrefs extends ChangeNotifier {
     double sidebarWidth = kSidebarWidthDefault,
     double filterHeight = kFilterHeightDefault,
     bool filtersCollapsed = false,
+    bool playlistsExpanded = false,
+    bool foldersExpanded = false,
     void Function(Map<String, dynamic> ui)? writer,
     Duration debounce = kLayoutPrefsSaveDebounce,
   }) : _sidebarWidth = _clampSidebarWidth(sidebarWidth),
        _filterHeight = _clampFilterHeight(filterHeight),
+       // ignore: prefer_initializing_formals
+       _playlistsExpanded = playlistsExpanded,
+       // ignore: prefer_initializing_formals
+       _foldersExpanded = foldersExpanded,
        // Same reason as _writer/_debounce below: a `this._filtersCollapsed`
        // initializing formal would expose the private name as the public
        // parameter name.
@@ -69,6 +84,10 @@ class LayoutPrefs extends ChangeNotifier {
       sidebarWidth: sidebarWidth,
       filterHeight: filterHeight,
       filtersCollapsed: filtersCollapsed,
+      // Absent (a fresh config, or one written before these existed)
+      // means folded -- the deliberate default, not just a falsy read.
+      playlistsExpanded: ui?['playlistsExpanded'] == true,
+      foldersExpanded: ui?['foldersExpanded'] == true,
       writer: writer,
       debounce: debounce,
     );
@@ -77,6 +96,8 @@ class LayoutPrefs extends ChangeNotifier {
   double get sidebarWidth => _sidebarWidth;
   double get filterHeight => _filterHeight;
   bool get filtersCollapsed => _filtersCollapsed;
+  bool get playlistsExpanded => _playlistsExpanded;
+  bool get foldersExpanded => _foldersExpanded;
 
   /// Whether the now-playing strip is hidden.
   ///
@@ -119,6 +140,24 @@ class LayoutPrefs extends ChangeNotifier {
 
   void toggleFiltersCollapsed() => setFiltersCollapsed(!_filtersCollapsed);
 
+  void setPlaylistsExpanded(bool expanded) {
+    if (expanded == _playlistsExpanded) return;
+    _playlistsExpanded = expanded;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  void togglePlaylistsExpanded() => setPlaylistsExpanded(!_playlistsExpanded);
+
+  void setFoldersExpanded(bool expanded) {
+    if (expanded == _foldersExpanded) return;
+    _foldersExpanded = expanded;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  void toggleFoldersExpanded() => setFoldersExpanded(!_foldersExpanded);
+
   static double _clampSidebarWidth(double v) =>
       v.clamp(kSidebarWidthMin, kSidebarWidthMax);
   static double _clampFilterHeight(double v) =>
@@ -146,6 +185,8 @@ class LayoutPrefs extends ChangeNotifier {
     'sidebarWidth': _sidebarWidth,
     'filterHeight': _filterHeight,
     'filtersCollapsed': _filtersCollapsed,
+    'playlistsExpanded': _playlistsExpanded,
+    'foldersExpanded': _foldersExpanded,
   };
 
   void _scheduleSave() {

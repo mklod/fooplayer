@@ -90,6 +90,8 @@ void main() {
           'sidebarWidth': 240,
           'filterHeight': 200,
           'filtersCollapsed': false,
+          'playlistsExpanded': false,
+          'foldersExpanded': false,
         });
       });
     });
@@ -110,6 +112,8 @@ void main() {
           'sidebarWidth': 300,
           'filterHeight': 180,
           'filtersCollapsed': false,
+          'playlistsExpanded': false,
+          'foldersExpanded': false,
         });
       });
     });
@@ -141,6 +145,8 @@ void main() {
           'sidebarWidth': 220,
           'filterHeight': 260,
           'filtersCollapsed': false,
+          'playlistsExpanded': false,
+          'foldersExpanded': false,
         });
 
         // The original timer must be cancelled -- letting the rest of the
@@ -181,6 +187,8 @@ void main() {
           'sidebarWidth': 300,
           'filterHeight': 180,
           'filtersCollapsed': false,
+          'playlistsExpanded': false,
+          'foldersExpanded': false,
         });
 
         // No lingering timer either.

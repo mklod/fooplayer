@@ -109,7 +109,12 @@ Future<void> pumpHomeWithStore(
     home: HomeScreen(
       library: lib,
       player: PlayerService(),
-      layoutPrefs: LayoutPrefs(),
+      layoutPrefs: LayoutPrefs(
+        // The sidebar's Playlists section folds by default (see
+        // sidebar_sections_test.dart); these tests are about what is
+        // IN it, so they open it up front.
+        playlistsExpanded: true,
+      ),
       libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
       playlistStore: store,
     ),

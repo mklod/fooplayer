@@ -54,7 +54,7 @@ void main() {
         home: HomeScreen(
           library: lib,
           player: player,
-          layoutPrefs: LayoutPrefs(),
+          layoutPrefs: LayoutPrefs(playlistsExpanded: true),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
           playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
@@ -78,7 +78,7 @@ void main() {
         home: HomeScreen(
           library: lib,
           player: player,
-          layoutPrefs: LayoutPrefs(),
+          layoutPrefs: LayoutPrefs(playlistsExpanded: true),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
           playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
@@ -101,7 +101,7 @@ void main() {
         home: HomeScreen(
           library: lib,
           player: player,
-          layoutPrefs: LayoutPrefs(),
+          layoutPrefs: LayoutPrefs(playlistsExpanded: true),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
           playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
@@ -147,7 +147,7 @@ void main() {
           home: HomeScreen(
             library: lib,
             player: player,
-            layoutPrefs: LayoutPrefs(),
+            layoutPrefs: LayoutPrefs(playlistsExpanded: true),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
             playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
@@ -200,7 +200,7 @@ void main() {
           home: HomeScreen(
             library: lib,
             player: player,
-            layoutPrefs: LayoutPrefs(),
+            layoutPrefs: LayoutPrefs(playlistsExpanded: true),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
             playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
@@ -284,7 +284,7 @@ void main() {
         home: HomeScreen(
           library: lib,
           player: player,
-          layoutPrefs: LayoutPrefs(),
+          layoutPrefs: LayoutPrefs(playlistsExpanded: true),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
           playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),
@@ -312,7 +312,7 @@ void main() {
           home: HomeScreen(
             library: lib,
             player: player,
-            layoutPrefs: LayoutPrefs(),
+            layoutPrefs: LayoutPrefs(playlistsExpanded: true),
             libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
             playlistStore: PlaylistStore(library: lib, device: 'test'),
           ),
@@ -403,7 +403,7 @@ void main() {
         home: HomeScreen(
           library: lib,
           player: player,
-          layoutPrefs: LayoutPrefs(),
+          layoutPrefs: LayoutPrefs(playlistsExpanded: true),
           libraryRootsPrefs: LibraryRootsPrefs(roots: [], writer: (_) {}),
           playlistStore: PlaylistStore(library: lib, device: 'test'),
         ),

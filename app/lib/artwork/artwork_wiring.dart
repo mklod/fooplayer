@@ -265,11 +265,19 @@ class ArtworkWiring {
   factory ArtworkWiring.production({
     required Directory appDataDir,
     bool backfillEnabled = true,
+    ArtworkAlbumMates? albumMates,
   }) {
     final stores = ArtworkStoreRegistry(appDataDir: appDataDir);
     return ArtworkWiring(
       stores: stores,
-      resolver: ArtworkResolver(stores: stores, preferSidecar: true),
+      resolver: ArtworkResolver(
+        stores: stores,
+        preferSidecar: true,
+        // Lets a track with no cover of its own borrow one from an
+        // album-mate deliberately, instead of depending on which row the
+        // UI happened to resolve first. See [ArtworkResolver.albumMates].
+        albumMates: albumMates,
+      ),
       backfillEnabled: backfillEnabled,
     );
   }
