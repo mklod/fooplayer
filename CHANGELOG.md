@@ -41,6 +41,36 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1927 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **A soft hairline down every column boundary** in the header: it marks
+  where the grab target is without drawing a table.
+- **Album's edge was unhittable.** The target was the 8px gap between two
+  clickable header labels, so aiming slightly off sorted the column
+  instead -- worst exactly where Album is, with a short label and a wide
+  column, because "the right hand side of the column" was still inside
+  the cell. The gap is 14px now with the divider drawn in it to aim at.
+- **Double-click a divider to fit that column to its contents.** Measures
+  the header label and the listed tracks, capped at 2,000 rows.
+- The drag reads raw pointer moves rather than a drag gesture: a drag
+  recognizer next to a double-tap one has to win the gesture arena
+  first, and the ~18px that takes is dead travel on a divider you are
+  nudging. 1.0.0+37.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Dividers are visible but quiet at every boundary
+>   - Notes:
+> - [ ] Album's right edge grabs and drags, first pixel of movement
+>   - Notes:
+> - [ ] Double-click a divider: the column snaps to fit its contents
+>   - Notes:
+
 ## Build 2026-09-18--1922 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
