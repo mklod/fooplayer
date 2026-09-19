@@ -41,6 +41,42 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1851 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **The column menu dismisses on a click away.** It did not before --
+  Flutter's menu-anchor dismissal never fired here, so hiding the column
+  you had right-clicked was the only way out of the menu. It is now built
+  on a plain overlay with an explicit barrier that closes it and swallows
+  the click. No route, so nothing animates in or out either.
+- **The menu is the full checklist again**: every column with a tick
+  against the ones showing. Click a ticked row to hide it, an unticked
+  one to bring it back. Title is not listed -- a row with no title is not
+  a row.
+- **Columns can be dragged to resize.** The gap after each column header
+  is a grab handle. Widths persist with the rest of the layout, and a
+  column cannot be dragged below 28px.
+  - The refactor behind it: one ordered column list now drives the header
+    AND the rows. They used to be two hand-written rows that happened to
+    agree on widths -- fine while every width was a constant, but the
+    first dragged column would have leaned the two out of true. Flexible
+    columns (Title/Artist/Album/Path) share the leftover space; fixed
+    ones (Time/Date/Art/Emb) keep a pixel width. 1.0.0+33.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Right-click the header, click away: the menu goes, nothing hides
+>   - Notes:
+> - [ ] Click a ticked row: that column hides and the menu closes
+>   - Notes:
+> - [ ] Drag the gap right of a header: the column resizes, and is still
+>       that width after a restart
+>   - Notes:
+
 ## Build 2026-09-18--1636 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
