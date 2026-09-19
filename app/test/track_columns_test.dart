@@ -370,4 +370,68 @@ void main() {
       greaterThan(kMinColumnWidth),
     );
   });
+
+  testWidgets('Path stretches into the leftover space until it is dragged', (
+    tester,
+  ) async {
+    final prefs = await pump(tester, fixtureLibrary());
+
+    // Reported with a screenshot: at a wide window every row read
+    // "L:\music (original structu..." -- the same root prefix, the same
+    // 25 characters -- with a screen's worth of empty space to its
+    // right.
+    final pathRight =
+        tester.getTopLeft(headerLabel('PATH')).dx +
+        tester.getSize(headerLabel('PATH')).width;
+    final listRight =
+        tester.getTopLeft(find.byKey(const Key('track-list-header'))).dx +
+        tester.getSize(find.byKey(const Key('track-list-header'))).width;
+    expect(
+      pathRight,
+      closeTo(listRight - 16 - kColumnGap, 4),
+      reason: 'Path reaches the right edge, bar the list padding and the '
+          'grab handle past its edge',
+    );
+
+    // ...until it is given a width of its own, after which it stays put
+    // like every other column.
+    await tester.drag(
+      find.byKey(const Key('column-resize-album')),
+      const Offset(30, 0),
+    );
+    await tester.pumpAndSettle();
+    final stretched = tester.getSize(headerLabel('PATH')).width;
+
+    await tester.drag(
+      find.byKey(const Key('column-resize-path')),
+      const Offset(-100, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(prefs.columnSize(TrackColumn.path), lessThan(stretched));
+
+    final fixed = tester.getSize(headerLabel('PATH')).width;
+    await tester.drag(
+      find.byKey(const Key('column-resize-album')),
+      const Offset(-40, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSize(headerLabel('PATH')).width,
+      fixed,
+      reason: 'a dragged Path no longer absorbs the space others give up',
+    );
+  });
+
+  testWidgets('with Path hidden, nothing else stretches', (tester) async {
+    await pump(tester, fixtureLibrary());
+    await rightClick(tester, headerLabel('PATH'));
+    await tester.tap(find.byKey(const Key('column-toggle-path')));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(headerLabel('EMB')).width,
+      lessThan(60),
+      reason: 'a tick column must never stretch across the window',
+    );
+  });
 }

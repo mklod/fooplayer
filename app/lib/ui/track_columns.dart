@@ -41,7 +41,7 @@ enum TrackColumn {
   // Last on purpose: the widest thing in the row and the least often
   // read, so it goes where it cannot push the columns you actually scan
   // off to the side.
-  path('Path', width: 160);
+  path('Path', width: 160, fillsRemainder: true);
 
   const TrackColumn(
     this.label, {
@@ -49,6 +49,7 @@ enum TrackColumn {
     this.hideable = true,
     this.resizable = true,
     this.alignEnd = false,
+    this.fillsRemainder = false,
   });
 
   /// What the header and its menu call it.
@@ -65,6 +66,18 @@ enum TrackColumn {
   final bool resizable;
 
   final bool alignEnd;
+
+  /// Whether this column stretches into whatever space is left over,
+  /// while it is the last one showing and has never been dragged.
+  ///
+  /// Only Path does, and only until you drag it. Every column being a
+  /// plain fixed width left a screen's worth of empty space to the
+  /// right of a Path column too narrow to show anything but the root
+  /// prefix every row shares -- the column was there and said nothing.
+  /// Dragging Path stores a width and it stops stretching, so the
+  /// "one drag, one column" rule still holds for anything you have
+  /// actually set yourself.
+  final bool fillsRemainder;
 
   /// The stored id, so a renamed label never invalidates a saved choice.
   String get id => name;
@@ -119,11 +132,13 @@ class TrackColumnLayout {
     return (stored == null || stored < kMinColumnWidth) ? c.width : stored;
   }
 
-  /// Total the visible columns want, gaps included.
+  /// Total the visible columns want, gaps included -- one gap after
+  /// EVERY column, the last one included, because the header puts its
+  /// grab handle there and the rows leave the same space blank.
   double get totalWidth {
     final cols = visible;
     if (cols.isEmpty) return 0;
-    var total = (cols.length - 1) * kColumnGap;
+    var total = cols.length * kColumnGap;
     for (final c in cols) {
       total += widthOf(c);
     }
@@ -138,17 +153,37 @@ class TrackColumnLayout {
   Map<TrackColumn, double> widthsFor(double available) {
     final cols = visible;
     final wanted = totalWidth;
-    final gaps = cols.isEmpty ? 0.0 : (cols.length - 1) * kColumnGap;
+    final gaps = cols.length * kColumnGap;
     final scale = (wanted > available && wanted > gaps && available > gaps)
         ? (available - gaps) / (wanted - gaps)
         : 1.0;
-    return {for (final c in cols) c: widthOf(c) * scale};
+    final out = {for (final c in cols) c: widthOf(c) * scale};
+    final filler = fillerColumn;
+    if (filler != null && scale == 1.0) {
+      final others = wanted - widthOf(filler);
+      final rest = available - others;
+      if (rest > out[filler]!) out[filler] = rest;
+    }
+    return out;
+  }
+
+  /// The column that stretches into the leftover space, if any: the last
+  /// visible one, if it is built to stretch and has not been dragged.
+  TrackColumn? get fillerColumn {
+    final cols = visible;
+    if (cols.isEmpty) return null;
+    final last = cols.last;
+    if (!last.fillsRemainder || sizes.containsKey(last)) return null;
+    return last;
   }
 
   /// The most [column] may be dragged to: its own width plus whatever
   /// slack is left over at the right. Capping here is what stops a drag
   /// from pushing the table wider than the window.
   double maxWidthFor(TrackColumn column, double available) {
+    // [totalWidth] counts a stretching last column at its own width,
+    // not at the space it is currently filling -- so the slack here is
+    // exactly what that column would give back.
     final slack = available - totalWidth;
     final max = widthOf(column) + (slack > 0 ? slack : 0);
     return max < kMinColumnWidth ? kMinColumnWidth : max;
@@ -172,9 +207,13 @@ List<Widget> buildColumnRow({
   for (var i = 0; i < columns.length; i++) {
     final c = columns[i];
     out.add(SizedBox(width: widths[c] ?? c.width, child: cell(c)));
-    if (i != columns.length - 1) {
-      out.add(gapAfter?.call(c) ?? const SizedBox(width: kColumnGap));
-    }
+    // A gap after EVERY column, the last one included: that is where
+    // the header hangs its grab handle, and without it the rightmost
+    // column would be the one thing on the table that cannot be
+    // resized -- with Path last and stretching, the column most worth
+    // pinning to a width. The rows leave the same space blank so the
+    // two stay aligned.
+    out.add(gapAfter?.call(c) ?? const SizedBox(width: kColumnGap));
   }
   return out;
 }
