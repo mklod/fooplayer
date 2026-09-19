@@ -421,6 +421,8 @@ class HomeScreen extends StatelessWidget {
                                               layoutPrefs.toggleColumn,
                                           onResizeColumn:
                                               layoutPrefs.resizeColumn,
+                                          onFitColumn:
+                                              layoutPrefs.setColumnWidth,
                                         ),
                                       ),
                                     ),

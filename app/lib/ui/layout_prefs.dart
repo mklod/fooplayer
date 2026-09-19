@@ -169,6 +169,17 @@ class LayoutPrefs extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sets [column] to an exact width -- what a double-click on its
+  /// divider does, having measured the widest thing in it.
+  void setColumnWidth(TrackColumn column, double width, double maxWidth) {
+    final ceiling = maxWidth < kMinColumnWidth ? kMinColumnWidth : maxWidth;
+    final next = width.clamp(kMinColumnWidth, ceiling);
+    if (next == columnSize(column)) return;
+    _columnSizes[column] = next;
+    _scheduleSave();
+    notifyListeners();
+  }
+
   /// Puts every column back to its built-in size.
   void resetColumnSizes() {
     if (_columnSizes.isEmpty) return;

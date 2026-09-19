@@ -99,9 +99,20 @@ enum TrackColumn {
 /// couple of ellipsised characters and the column stops meaning anything.
 const double kMinColumnWidth = 28;
 
-/// Space between two columns -- and, in the header, the width of the grab
-/// area that resizes the one on its left.
-const double kColumnGap = 8;
+/// Space between two columns -- and, in the header, the width of the
+/// grab area that resizes the one on its left.
+///
+/// 14, not the 8 it started at: a divider you have to hit is a target,
+/// and 8px between two clickable header labels was too fine to find
+/// (reported -- Album's edge in particular, where the label is short
+/// and the column wide, so the obvious place to aim was still inside
+/// the cell and sorted instead).
+const double kColumnGap = 14;
+
+/// The hairline drawn down the middle of that gap: what makes the grab
+/// target visible at all. Soft on purpose -- it marks a boundary, it is
+/// not a table border.
+const double kColumnDividerWidth = 1;
 
 /// What the user has done to the columns: hidden some, resized others.
 @immutable

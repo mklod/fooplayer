@@ -434,4 +434,73 @@ void main() {
       reason: 'a tick column must never stretch across the window',
     );
   });
+
+  testWidgets('every column boundary carries a divider you can see', (
+    tester,
+  ) async {
+    await pump(tester, fixtureLibrary());
+
+    // One per visible column (the gap after each, the last included).
+    final dividers = find.descendant(
+      of: find.byKey(const Key('track-list-header')),
+      matching: find.byWidgetPredicate(
+        (w) => w is Container && w.constraints?.maxWidth == 1,
+      ),
+    );
+    expect(dividers, findsNWidgets(TrackColumn.values.length));
+  });
+
+  testWidgets('the Album divider is grabbable and resizes Album', (
+    tester,
+  ) async {
+    // Reported: "I am unable to grab the right hand side of the album
+    // column". The gap was 8px between two clickable header labels --
+    // aim slightly off and you sorted instead of resizing.
+    final prefs = await pump(tester, fixtureLibrary());
+    final before = prefs.columnSize(TrackColumn.album);
+
+    final handle = find.byKey(const Key('column-resize-album'));
+    expect(tester.getSize(handle).width, greaterThanOrEqualTo(12));
+
+    await tester.drag(handle, const Offset(50, 0));
+    await tester.pumpAndSettle();
+
+    expect(prefs.columnSize(TrackColumn.album), closeTo(before + 50, 0.01));
+    expect(
+      prefs.columnSize(TrackColumn.title),
+      TrackColumn.title.width,
+      reason: 'and only Album',
+    );
+  });
+
+  testWidgets('double-clicking a divider fits the column to its contents', (
+    tester,
+  ) async {
+    final lib = fixtureLibrary();
+    final prefs = await pump(tester, lib);
+
+    // Start far too wide, then fit: "Absolution" and the ALBUM header
+    // are both short, so the column must come in a long way.
+    await tester.drag(
+      find.byKey(const Key('column-resize-album')),
+      const Offset(300, 0),
+    );
+    await tester.pumpAndSettle();
+    final wide = prefs.columnSize(TrackColumn.album);
+
+    await tester.tap(find.byKey(const Key('column-resize-album')));
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.tap(find.byKey(const Key('column-resize-album')));
+    await tester.pumpAndSettle();
+
+    final fitted = prefs.columnSize(TrackColumn.album);
+    expect(fitted, lessThan(wide));
+    expect(
+      fitted,
+      greaterThan(kMinColumnWidth),
+      reason: 'fit means fits -- the widest value must still show',
+    );
+    // Wide enough for "Absolution" at 13px, which is about 65px.
+    expect(fitted, greaterThan(60));
+  });
 }
