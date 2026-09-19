@@ -41,6 +41,32 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1917 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Title and Artist came back.** After the 1904 build they were one and
+  a half pixels wide -- present, ticked in the header menu, invisible.
+  The 1851 build stored column sizes as flex WEIGHTS (`"title": 1.6438`
+  in config.json); 1904 changed that field to mean pixels and read the
+  old numbers straight back. The minimum width was enforced on a drag
+  but never on load, so the upgrade collapsed every column that had been
+  dragged.
+  A stored width below the 28px minimum is now treated as absent at both
+  ends: dropped when the config is read, and ignored at layout time if
+  one arrives any other way. Real dragged widths are untouched.
+  1.0.0+35.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Title and Artist are visible again, at sensible widths
+>   - Notes:
+> - [ ] The Time column is still as wide as you dragged it
+>   - Notes:
+
 ## Build 2026-09-18--1904 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
