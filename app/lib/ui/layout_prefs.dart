@@ -143,26 +143,20 @@ class LayoutPrefs extends ChangeNotifier {
       Map<TrackColumn, double>.unmodifiable(_columnSizes);
 
   double columnSize(TrackColumn column) =>
-      _columnSizes[column] ?? column.defaultSize;
+      _columnSizes[column] ?? column.width;
 
   /// Drag of the divider after [column]: [delta] is the pointer movement
-  /// in pixels, [renderedWidth] how wide the column is on screen right
-  /// now.
+  /// in pixels, and the new width is clamped into
+  /// [kMinColumnWidth]..[maxWidth].
   ///
-  /// A fixed column simply takes the pixels. A flexible one is scaled by
-  /// the same ratio the drag would have changed its width by, which is
-  /// what makes dragging feel one-to-one even though the stored number is
-  /// a weight and its neighbours give up the space.
-  void resizeColumn(TrackColumn column, double delta, double renderedWidth) {
-    if (delta == 0 || renderedWidth <= 0) return;
+  /// One column, one width -- no redistribution. The first cut stored
+  /// flex weights, so dragging Artist resized Title and Path too; that
+  /// was rejected, and this is the whole of the fix.
+  void resizeColumn(TrackColumn column, double delta, double maxWidth) {
+    if (delta == 0) return;
     final current = columnSize(column);
-    final double next;
-    if (column.isFlexible) {
-      final target = (renderedWidth + delta).clamp(kMinColumnWidth, 1 << 20);
-      next = (current * target / renderedWidth).clamp(kMinColumnFlex, 1000);
-    } else {
-      next = (current + delta).clamp(kMinColumnWidth, 1000);
-    }
+    final ceiling = maxWidth < kMinColumnWidth ? kMinColumnWidth : maxWidth;
+    final next = (current + delta).clamp(kMinColumnWidth, ceiling);
     if (next == current) return;
     _columnSizes[column] = next;
     _scheduleSave();

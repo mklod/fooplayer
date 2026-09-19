@@ -81,7 +81,15 @@ class Track {
 }
 
 /// The track's file, as the platform writes it: `rootPath` joined to
-/// `relPath`'s forward-slash segments. Shown by the library's Path column
-/// and sorted on by [SortColumn.path].
+/// `relPath`'s forward-slash segments. What [SortColumn.path] sorts on --
+/// by folder first, then by file within it, which is what makes that
+/// sort useful.
 String trackFilePath(Track t) =>
     p.joinAll([t.rootPath, ...p.posix.split(t.relPath)]);
+
+/// The FOLDER the track sits in -- what the library's Path column shows.
+///
+/// Deliberately not the file: the row already says which track this is,
+/// twice over (Title, and the filename is usually the same words again).
+/// The question the column answers is "where does this live".
+String trackFolderPath(Track t) => p.dirname(trackFilePath(t));
