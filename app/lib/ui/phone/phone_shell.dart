@@ -2,6 +2,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import '../../artwork/artwork_resolver.dart';
 import '../../artwork/picker_seams.dart' show ArtworkServices;
 import '../../model/activity_model.dart';
@@ -9,12 +10,15 @@ import '../../model/library_model.dart';
 import '../../model/playlist_store.dart';
 import '../../model/track.dart';
 import '../../player/player_service.dart';
+import '../app_theme.dart';
 import 'app_background.dart';
 import '../queue_view.dart';
 import 'now_playing_page.dart';
 import 'phone_activity_strip.dart';
 import 'phone_feed.dart';
+import 'browse_views.dart' show PlaylistsView;
 import 'phone_search_page.dart';
+import 'track_list_page.dart';
 import '../../sync/sync_engine.dart' show SyncReport;
 import '../sync_view.dart';
 
@@ -166,6 +170,12 @@ class _PhoneShellState extends State<PhoneShell> {
   /// A drawer-initiated sync is in flight -- see [_syncNowTile].
   bool _syncing = false;
 
+  /// Whether the drawer's Playlists / Folders sections are unfolded.
+  /// Folded by default, matching the desktop sidebar: the drawer's job
+  /// at rest is to get you to a place, not to list an inventory.
+  bool _playlistsOpen = false;
+  bool _foldersOpen = false;
+
   @override
   void initState() {
     super.initState();
@@ -275,6 +285,172 @@ class _PhoneShellState extends State<PhoneShell> {
     );
   }
 
+  /// The persistent footer: how big the library is and a rescan on the
+  /// left, sync on the right.
+  ///
+  /// The desktop has had a permanent strip like this since its track
+  /// count moved out of the sidebar; the phone's two most-wanted actions
+  /// were both buried in the drawer. Rebuilt on every library
+  /// notification, because the count is the thing it exists to show.
+  Widget _footer(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.library,
+      builder: (context, _) {
+        final count = widget.library.allTracks.length;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppColors.panelBg,
+            border: Border(top: BorderSide(color: AppColors.hairline)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
+            child: Row(
+              children: [
+                Text(
+                  '$count ${count == 1 ? 'track' : 'tracks'}',
+                  key: const Key('phone-footer-count'),
+                  style: TextStyle(fontSize: 12, color: AppColors.inkSecondary),
+                ),
+                IconButton(
+                  key: const Key('phone-footer-rescan'),
+                  tooltip: 'Rescan library',
+                  iconSize: 20,
+                  visualDensity: VisualDensity.compact,
+                  // Disabled mid-scan rather than hidden: a button that
+                  // vanishes while you are looking at it reads as a
+                  // glitch, and the activity strip above already says
+                  // what is happening.
+                  onPressed: widget.library.busy ? null : _rescan,
+                  icon: const Icon(Icons.refresh),
+                ),
+                const Spacer(),
+                if (widget.syncUi != null)
+                  IconButton(
+                    key: const Key('phone-footer-sync'),
+                    tooltip: 'Sync now',
+                    iconSize: 20,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _syncing ? null : _syncNow,
+                    icon: _syncing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.sync),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _rescan() {
+    if (widget.library.busy) return;
+    unawaited(widget.library.rescan());
+  }
+
+  /// A folding drawer section header -- the phone's copy of the desktop
+  /// sidebar's, chevron and all.
+  Widget _drawerSection({
+    required Key key,
+    required String label,
+    required bool open,
+    required VoidCallback onToggle,
+  }) {
+    return ListTile(
+      key: key,
+      leading: Icon(open ? Icons.expand_more : Icons.chevron_right, size: 20),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+      onTap: onToggle,
+    );
+  }
+
+  /// Indent for a row inside a section, so the two sections line up with
+  /// each other the way the desktop's do.
+  static const _sectionRowPadding = EdgeInsets.only(left: 36, right: 16);
+
+  /// The playlists themselves, each opening its own track list -- the
+  /// same page the Playlists view pushes, so a playlist is one tap from
+  /// the drawer instead of three.
+  List<Widget> _playlistRows(BuildContext context) {
+    final store = widget.store;
+    final playlists = widget.library.playlists;
+    if (playlists.isEmpty) {
+      return [
+        const ListTile(
+          dense: true,
+          contentPadding: _sectionRowPadding,
+          title: Text('No playlists yet'),
+        ),
+      ];
+    }
+    return [
+      for (final pl in playlists)
+        ListTile(
+          key: Key('phone-playlist-${pl.name}'),
+          dense: true,
+          contentPadding: _sectionRowPadding,
+          leading: const Icon(Icons.queue_music, size: 18),
+          title: Text(pl.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          onTap: store == null
+              ? null
+              : () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => TrackListPage(
+                        title: pl.name,
+                        library: widget.library,
+                        store: store,
+                        artwork: widget.artwork,
+                        player: widget.player,
+                        onPlayTrack: _onPlay,
+                        tracksOf: (lib) =>
+                            PlaylistsView.playlistTracks(lib, pl.name),
+                      ),
+                    ),
+                  );
+                },
+        ),
+    ];
+  }
+
+  /// The library roots, each opening the Folders view already inside it.
+  List<Widget> _folderRows(BuildContext context) {
+    final roots = widget.library.folderNames;
+    if (roots.isEmpty) {
+      return [
+        const ListTile(
+          dense: true,
+          contentPadding: _sectionRowPadding,
+          title: Text('No folders yet'),
+        ),
+      ];
+    }
+    return [
+      for (final root in roots)
+        ListTile(
+          key: Key('phone-folder-${p.basename(root)}'),
+          dense: true,
+          contentPadding: _sectionRowPadding,
+          leading: const Icon(Icons.folder_outlined, size: 18),
+          title: Text(
+            p.basename(root),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: () {
+            widget.library.showFolderRoot(root);
+            _selectView(PhoneView.folders);
+            Navigator.of(context).pop();
+          },
+        ),
+    ];
+  }
+
   /// One-tap sync, straight from the drawer. Progress shows in the
   /// activity strip and the notification exactly as it does for a sync
   /// started from the Sync page; the same report dialog ends it.
@@ -368,15 +544,28 @@ class _PhoneShellState extends State<PhoneShell> {
           child: SafeArea(
             child: ListView(
               children: [
-                for (final v in const [
-                  PhoneView.library,
-                  PhoneView.queue,
-                  PhoneView.folders,
-                  PhoneView.artists,
-                  PhoneView.albums,
-                  PhoneView.playlists,
-                ])
-                  _drawerTile(context, v),
+                // Same shape as the desktop sidebar: Library, then the
+                // two folding sections, then the browse views that only
+                // the phone has.
+                _drawerTile(context, PhoneView.library),
+                _drawerTile(context, PhoneView.queue),
+                _drawerSection(
+                  key: const Key('phone-section-playlists'),
+                  label: 'Playlists',
+                  open: _playlistsOpen,
+                  onToggle: () =>
+                      setState(() => _playlistsOpen = !_playlistsOpen),
+                ),
+                if (_playlistsOpen) ..._playlistRows(context),
+                _drawerSection(
+                  key: const Key('phone-section-folders'),
+                  label: 'Folders',
+                  open: _foldersOpen,
+                  onToggle: () => setState(() => _foldersOpen = !_foldersOpen),
+                ),
+                if (_foldersOpen) ..._folderRows(context),
+                _drawerTile(context, PhoneView.artists),
+                _drawerTile(context, PhoneView.albums),
                 const Divider(height: 1),
                 _drawerTile(context, PhoneView.settings),
                 if (widget.syncUi != null) _syncNowTile(context),
@@ -400,6 +589,7 @@ class _PhoneShellState extends State<PhoneShell> {
                 PhoneActivityStrip(activity: widget.activity!),
               widget.miniPlayerBuilder?.call(context) ??
                   const SizedBox.shrink(),
+              _footer(context),
             ],
           ),
         ),

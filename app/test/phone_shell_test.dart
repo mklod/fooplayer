@@ -25,6 +25,9 @@ LibraryModel fixtureLibrary() {
     Track(
       contentId: 'old',
       relPath: 'old.mp3',
+      // A real root, so the drawer's Folders section has something to
+      // list (it shows one row per library root).
+      rootPath: r'L:\Music\RockFolder',
       dateAdded: DateTime.utc(2020, 1, 1),
       title: 'Oldest Song',
       artist: 'Feed Me',
@@ -34,6 +37,7 @@ LibraryModel fixtureLibrary() {
     Track(
       contentId: 'new',
       relPath: 'new.mp3',
+      rootPath: r'L:\Music\RockFolder',
       dateAdded: DateTime.utc(2026, 7, 1),
       title: 'Newest Song',
       artist: 'Muse',
@@ -148,9 +152,19 @@ void main() {
   ) async {
     await pumpShell(tester, library: fixtureLibrary());
     await openDrawer(tester);
-    for (final v in PhoneView.values) {
+    // Playlists and Folders are folding SECTIONS now (the desktop
+    // sidebar's shape); the rest are still plain entries.
+    for (final v in const [
+      PhoneView.library,
+      PhoneView.queue,
+      PhoneView.artists,
+      PhoneView.albums,
+      PhoneView.settings,
+    ]) {
       expect(find.byKey(Key('phone-drawer-${v.name}')), findsOneWidget);
     }
+    expect(find.byKey(const Key('phone-section-playlists')), findsOneWidget);
+    expect(find.byKey(const Key('phone-section-folders')), findsOneWidget);
     // Library is the active entry initially.
     expect(
       tester
@@ -195,7 +209,11 @@ void main() {
       viewBuilders: {PhoneView.folders: (_) => const Text('REAL FOLDERS VIEW')},
     );
     await openDrawer(tester);
-    await tester.tap(find.byKey(const Key('phone-drawer-folders')));
+    // Reached through a folder row now: the section lists the roots and
+    // opens the Folders view inside the one you pick.
+    await tester.tap(find.byKey(const Key('phone-section-folders')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('phone-folder-RockFolder')));
     await tester.pumpAndSettle();
     expect(find.text('REAL FOLDERS VIEW'), findsOneWidget);
     expect(find.text('coming soon'), findsNothing);
