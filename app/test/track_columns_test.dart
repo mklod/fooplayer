@@ -1,14 +1,14 @@
-// The library list's Path column, and hiding columns by right-clicking
-// the one you mean (asked for 2026-09-18).
+// The library list's Path column, hiding columns from the header's
+// context menu, and dragging column widths (asked for 2026-09-18).
 //
-// The first cut put every column in one popup menu off the whole header.
-// Rejected: the menu you get should be about the column under the cursor,
-// with no animation and no list to read. So a right-click on ARTIST says
-// "Hide Artist" and nothing else -- except the way back, which has to
-// live somewhere, so any header also offers "Show <column>" for whatever
-// is currently hidden.
+// Two rejected cuts are pinned here as behaviour:
+//   - the menu must DISMISS on a click away. The MenuAnchor version did
+//     not, which left hiding the clicked column as the only way out.
+//   - it must not animate in.
+// The menu is the full list of columns with a tick against the ones
+// showing; clicking a ticked row hides that column.
 //
-// Last modified: 2026-09-18--1630
+// Last modified: 2026-09-18--1715
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -111,68 +111,148 @@ void main() {
     expect(tester.getTopLeft(headerLabelLoose('DATE')).dx, lessThan(path));
   });
 
-  testWidgets('right-clicking a column offers that column ALONE', (
+  testWidgets('the header menu lists every hideable column, ticked', (
     tester,
   ) async {
     await pump(tester, fixtureLibrary());
     await rightClick(tester, headerLabel('ALBUM'));
 
-    expect(find.byKey(const Key('column-hide-album')), findsOneWidget);
-    expect(
-      find.byKey(const Key('column-hide-artist')),
-      findsNothing,
-      reason: 'the menu is about the column under the cursor, not a list',
-    );
-    expect(find.byKey(const Key('column-hide-path')), findsNothing);
+    for (final c in TrackColumn.hideableColumns) {
+      expect(
+        find.byKey(Key('column-toggle-${c.id}')),
+        findsOneWidget,
+        reason: '${c.label} must be listed',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(Key('column-toggle-${c.id}')),
+          matching: find.byIcon(Icons.check),
+        ),
+        findsOneWidget,
+        reason: '${c.label} is showing, so it is ticked',
+      );
+    }
+    // Title is not hideable: a row with no title is not a row.
+    expect(find.byKey(const Key('column-toggle-title')), findsNothing);
   });
 
-  testWidgets('hiding takes the header and the cells with it', (tester) async {
+  testWidgets('clicking away dismisses the menu and changes nothing', (
+    tester,
+  ) async {
+    final lib = fixtureLibrary();
+    final prefs = await pump(tester, lib);
+    await rightClick(tester, headerLabel('ALBUM'));
+    expect(find.byKey(const Key('column-toggle-album')), findsOneWidget);
+
+    // Anywhere off the menu -- here, the top-left corner of the window.
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('column-toggle-album')), findsNothing);
+    expect(
+      prefs.hiddenColumns,
+      isEmpty,
+      reason: 'dismissing must not hide the column you right-clicked',
+    );
+    expect(headerLabel('ALBUM'), findsOneWidget);
+  });
+
+  testWidgets('clicking a ticked row hides that column, and closes', (
+    tester,
+  ) async {
     await pump(tester, fixtureLibrary());
     expect(inList('Absolution'), findsOneWidget);
 
     await rightClick(tester, headerLabel('ALBUM'));
-    await tester.tap(find.byKey(const Key('column-hide-album')));
+    await tester.tap(find.byKey(const Key('column-toggle-album')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const Key('column-toggle-album')), findsNothing);
     expect(headerLabel('ALBUM'), findsNothing);
     expect(inList('Absolution'), findsNothing);
     expect(inList('Apocalypse Please'), findsOneWidget, reason: 'rest intact');
   });
 
-  testWidgets('a hidden column comes back from any header\'s menu', (
-    tester,
-  ) async {
+  testWidgets('an unticked row brings the column back', (tester) async {
     await pump(tester, fixtureLibrary());
     await rightClick(tester, headerLabel('ALBUM'));
-    await tester.tap(find.byKey(const Key('column-hide-album')));
+    await tester.tap(find.byKey(const Key('column-toggle-album')));
     await tester.pumpAndSettle();
     expect(headerLabel('ALBUM'), findsNothing);
 
-    // The hidden column has no header left to right-click, so the way
-    // back has to live on the ones still showing.
     await rightClick(tester, headerLabel('ARTIST'));
-    expect(find.byKey(const Key('column-hide-artist')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('column-show-album')));
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('column-toggle-album')),
+        matching: find.byIcon(Icons.check),
+      ),
+      findsNothing,
+      reason: 'hidden columns are listed unticked',
+    );
+    await tester.tap(find.byKey(const Key('column-toggle-album')));
     await tester.pumpAndSettle();
 
     expect(headerLabel('ALBUM'), findsOneWidget);
   });
 
-  testWidgets('nothing hidden means no restore entries', (tester) async {
-    await pump(tester, fixtureLibrary());
-    await rightClick(tester, headerLabelLoose('DATE'));
+  testWidgets('dragging a divider widens the column to its left', (
+    tester,
+  ) async {
+    final prefs = await pump(tester, fixtureLibrary());
+    final before = tester.getSize(headerLabel('TITLE')).width;
 
-    expect(find.byKey(const Key('column-hide-date')), findsOneWidget);
-    for (final c in TrackColumn.values) {
-      expect(find.byKey(Key('column-show-${c.id}')), findsNothing);
-    }
+    await tester.drag(
+      find.byKey(const Key('column-resize-title')),
+      const Offset(120, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(headerLabel('TITLE')).width, greaterThan(before));
+    expect(prefs.columnSizes[TrackColumn.title], isNotNull);
   });
 
-  testWidgets('Title is not hideable', (tester) async {
-    await pump(tester, fixtureLibrary());
-    await rightClick(tester, headerLabel('TITLE'));
+  testWidgets('a fixed-width column takes the pixels it was dragged', (
+    tester,
+  ) async {
+    final prefs = await pump(tester, fixtureLibrary());
+    final before = prefs.columnSize(TrackColumn.date);
 
-    expect(find.byKey(const Key('column-hide-title')), findsNothing);
+    await tester.drag(
+      find.byKey(const Key('column-resize-date')),
+      const Offset(40, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(prefs.columnSize(TrackColumn.date), closeTo(before + 40, 0.01));
+  });
+
+  testWidgets('a dragged width survives a restart', (tester) async {
+    final prefs = LayoutPrefs(writer: (_) {}, debounce: Duration.zero);
+    await pump(tester, fixtureLibrary(), prefs: prefs);
+
+    await tester.drag(
+      find.byKey(const Key('column-resize-date')),
+      const Offset(25, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final reopened = LayoutPrefs.fromConfig(prefs.toJson());
+    expect(
+      reopened.columnSize(TrackColumn.date),
+      closeTo(prefs.columnSize(TrackColumn.date), 0.01),
+    );
+  });
+
+  testWidgets('a column cannot be dragged away to nothing', (tester) async {
+    final prefs = await pump(tester, fixtureLibrary());
+
+    await tester.drag(
+      find.byKey(const Key('column-resize-date')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(prefs.columnSize(TrackColumn.date), kMinColumnWidth);
   });
 
   testWidgets('the choice is remembered across a restart', (tester) async {
@@ -180,7 +260,7 @@ void main() {
     await pump(tester, fixtureLibrary(), prefs: prefs);
 
     await rightClick(tester, headerLabel('PATH'));
-    await tester.tap(find.byKey(const Key('column-hide-path')));
+    await tester.tap(find.byKey(const Key('column-toggle-path')));
     await tester.pumpAndSettle();
 
     expect(prefs.hiddenColumns, contains(TrackColumn.path));

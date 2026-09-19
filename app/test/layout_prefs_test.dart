@@ -93,6 +93,7 @@ void main() {
           'playlistsExpanded': false,
           'foldersExpanded': false,
           'hiddenColumns': <String>[],
+          'columnSizes': <String, double>{},
         });
       });
     });
@@ -116,6 +117,7 @@ void main() {
           'playlistsExpanded': false,
           'foldersExpanded': false,
           'hiddenColumns': <String>[],
+          'columnSizes': <String, double>{},
         });
       });
     });
@@ -150,6 +152,7 @@ void main() {
           'playlistsExpanded': false,
           'foldersExpanded': false,
           'hiddenColumns': <String>[],
+          'columnSizes': <String, double>{},
         });
 
         // The original timer must be cancelled -- letting the rest of the
@@ -193,6 +196,7 @@ void main() {
           'playlistsExpanded': false,
           'foldersExpanded': false,
           'hiddenColumns': <String>[],
+          'columnSizes': <String, double>{},
         });
 
         // No lingering timer either.

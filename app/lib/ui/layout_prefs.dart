@@ -41,6 +41,11 @@ class LayoutPrefs extends ChangeNotifier {
   /// Library columns the user has hidden from the header's right-click
   /// menu. Empty by default -- everything shows until you say otherwise.
   final Set<TrackColumn> _hiddenColumns;
+
+  /// Column sizes the user has dragged to, by column. Absent means the
+  /// column's own default (see [TrackColumn.defaultSize]); the value is a
+  /// flex weight or a pixel width depending on the column.
+  final Map<TrackColumn, double> _columnSizes;
   final void Function(Map<String, dynamic> ui)? _writer;
   final Duration _debounce;
   Timer? _saveTimer;
@@ -52,6 +57,7 @@ class LayoutPrefs extends ChangeNotifier {
     bool playlistsExpanded = false,
     bool foldersExpanded = false,
     Set<TrackColumn> hiddenColumns = const {},
+    Map<TrackColumn, double> columnSizes = const {},
     void Function(Map<String, dynamic> ui)? writer,
     Duration debounce = kLayoutPrefsSaveDebounce,
   }) : _sidebarWidth = _clampSidebarWidth(sidebarWidth),
@@ -61,6 +67,7 @@ class LayoutPrefs extends ChangeNotifier {
        // ignore: prefer_initializing_formals
        _foldersExpanded = foldersExpanded,
        _hiddenColumns = Set<TrackColumn>.of(hiddenColumns),
+       _columnSizes = Map<TrackColumn, double>.of(columnSizes),
        // Same reason as _writer/_debounce below: a `this._filtersCollapsed`
        // initializing formal would expose the private name as the public
        // parameter name.
@@ -102,6 +109,13 @@ class LayoutPrefs extends ChangeNotifier {
           if (raw is String && TrackColumn.byId(raw) != null)
             TrackColumn.byId(raw)!,
       },
+      columnSizes: {
+        for (final e
+            in (ui?['columnSizes'] as Map<String, dynamic>? ?? const {})
+                .entries)
+          if (TrackColumn.byId(e.key) != null && e.value is num)
+            TrackColumn.byId(e.key)!: (e.value as num).toDouble(),
+      },
       writer: writer,
       debounce: debounce,
     );
@@ -119,6 +133,49 @@ class LayoutPrefs extends ChangeNotifier {
   );
 
   bool isColumnVisible(TrackColumn column) => !_hiddenColumns.contains(column);
+
+  /// Hidden columns and dragged widths together -- what the track list
+  /// needs to lay itself out.
+  TrackColumnLayout get columnLayout =>
+      TrackColumnLayout(hidden: hiddenColumns, sizes: columnSizes);
+
+  Map<TrackColumn, double> get columnSizes =>
+      Map<TrackColumn, double>.unmodifiable(_columnSizes);
+
+  double columnSize(TrackColumn column) =>
+      _columnSizes[column] ?? column.defaultSize;
+
+  /// Drag of the divider after [column]: [delta] is the pointer movement
+  /// in pixels, [renderedWidth] how wide the column is on screen right
+  /// now.
+  ///
+  /// A fixed column simply takes the pixels. A flexible one is scaled by
+  /// the same ratio the drag would have changed its width by, which is
+  /// what makes dragging feel one-to-one even though the stored number is
+  /// a weight and its neighbours give up the space.
+  void resizeColumn(TrackColumn column, double delta, double renderedWidth) {
+    if (delta == 0 || renderedWidth <= 0) return;
+    final current = columnSize(column);
+    final double next;
+    if (column.isFlexible) {
+      final target = (renderedWidth + delta).clamp(kMinColumnWidth, 1 << 20);
+      next = (current * target / renderedWidth).clamp(kMinColumnFlex, 1000);
+    } else {
+      next = (current + delta).clamp(kMinColumnWidth, 1000);
+    }
+    if (next == current) return;
+    _columnSizes[column] = next;
+    _scheduleSave();
+    notifyListeners();
+  }
+
+  /// Puts every column back to its built-in size.
+  void resetColumnSizes() {
+    if (_columnSizes.isEmpty) return;
+    _columnSizes.clear();
+    _scheduleSave();
+    notifyListeners();
+  }
 
   void toggleColumn(TrackColumn column) {
     if (!_hiddenColumns.remove(column)) _hiddenColumns.add(column);
@@ -216,6 +273,10 @@ class LayoutPrefs extends ChangeNotifier {
     'foldersExpanded': _foldersExpanded,
     // Sorted so the file doesn't churn on set-iteration order.
     'hiddenColumns': (_hiddenColumns.map((c) => c.id).toList()..sort()),
+    'columnSizes': {
+      for (final id in (_columnSizes.keys.map((c) => c.id).toList()..sort()))
+        id: _columnSizes[TrackColumn.byId(id)!],
+    },
   };
 
   void _scheduleSave() {
