@@ -107,7 +107,17 @@ class TrackColumnLayout {
       if (shows(c)) c,
   ];
 
-  double widthOf(TrackColumn c) => sizes[c] ?? c.width;
+  /// [c]'s width: what the user dragged it to, or its default.
+  ///
+  /// A stored value below [kMinColumnWidth] is treated as absent, not
+  /// obeyed. +33 stored flex WEIGHTS in this same field -- numbers like
+  /// 1.64 -- and +34 changed them to mean pixels, so the first launch
+  /// after that upgrade rendered Title and Artist 1.6px wide: present,
+  /// checked in the menu, and invisible. Reported live.
+  double widthOf(TrackColumn c) {
+    final stored = sizes[c];
+    return (stored == null || stored < kMinColumnWidth) ? c.width : stored;
+  }
 
   /// Total the visible columns want, gaps included.
   double get totalWidth {

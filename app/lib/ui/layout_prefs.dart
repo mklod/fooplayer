@@ -113,7 +113,13 @@ class LayoutPrefs extends ChangeNotifier {
         for (final e
             in (ui?['columnSizes'] as Map<String, dynamic>? ?? const {})
                 .entries)
-          if (TrackColumn.byId(e.key) != null && e.value is num)
+          // Anything narrower than the minimum is not a width this app
+          // ever wrote deliberately -- see TrackColumnLayout.widthOf for
+          // the upgrade that produced some. Dropped here too, so they
+          // are not written back out.
+          if (TrackColumn.byId(e.key) != null &&
+              e.value is num &&
+              (e.value as num) >= kMinColumnWidth)
             TrackColumn.byId(e.key)!: (e.value as num).toDouble(),
       },
       writer: writer,

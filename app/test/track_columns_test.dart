@@ -335,4 +335,39 @@ void main() {
 
     expect(lib.sortColumn, SortColumn.path);
   });
+
+  testWidgets('a config from the flex-weight build does not collapse the '
+      'columns', (tester) async {
+    // Reported live: after the +34 upgrade Title and Artist were
+    // invisible. Their stored numbers were +33 flex WEIGHTS (1.64) in
+    // the field that now means pixels, so they laid out 1.6px wide --
+    // present, ticked in the menu, and impossible to see or grab.
+    final prefs = LayoutPrefs.fromConfig({
+      'columnSizes': {'title': 1.6438, 'artist': 1.6412, 'time': 177.0},
+    });
+
+    expect(prefs.columnSize(TrackColumn.title), TrackColumn.title.width);
+    expect(prefs.columnSize(TrackColumn.artist), TrackColumn.artist.width);
+    expect(
+      prefs.columnSize(TrackColumn.time),
+      177.0,
+      reason: 'a real dragged width still survives',
+    );
+    expect(
+      prefs.toJson()['columnSizes'],
+      {'time': 177.0},
+      reason: 'and the nonsense is not written back out',
+    );
+
+    await pump(tester, fixtureLibrary(), prefs: prefs);
+    expect(headerLabel('TITLE'), findsOneWidget);
+    expect(
+      tester.getSize(headerLabel('TITLE')).width,
+      greaterThan(kMinColumnWidth),
+    );
+    expect(
+      tester.getSize(headerLabel('ARTIST')).width,
+      greaterThan(kMinColumnWidth),
+    );
+  });
 }
