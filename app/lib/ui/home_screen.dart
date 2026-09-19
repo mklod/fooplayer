@@ -415,10 +415,12 @@ class HomeScreen extends StatelessWidget {
                                           // lives with the other layout
                                           // preferences, so it survives a
                                           // restart.
-                                          hiddenColumns:
-                                              layoutPrefs.hiddenColumns,
+                                          columnLayout:
+                                              layoutPrefs.columnLayout,
                                           onToggleColumn:
                                               layoutPrefs.toggleColumn,
+                                          onResizeColumn:
+                                              layoutPrefs.resizeColumn,
                                         ),
                                       ),
                                     ),
