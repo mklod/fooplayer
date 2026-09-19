@@ -41,6 +41,38 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1904 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **A drag now moves one column's edge.** The columns shared the window
+  as flex weights, so a weight only meant anything relative to the
+  others -- dragging Artist silently resized Title and Path too. They
+  are plain pixel widths now: the column you grab changes, the ones
+  after it slide along at the widths they already had. Art and Emb are
+  fixed with no handle at all.
+  - A drag is capped at the slack to the right, so the table can never
+    be wider than the window. The only time widths change without a drag
+    is a window pulled in narrower than they need, when everything
+    scales down to fit rather than overflowing.
+- **Path shows the FOLDER, not the file** -- the row already names the
+  track, and the filename is usually the same words again.
+- **Path reads left to right.** The trick that clipped the head of a
+  long path also right-aligned the whole column. 1.0.0+34.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Drag Artist's right edge: Artist changes, nothing else does
+>   - Notes:
+> - [ ] Art/Emb have no grab handle
+>   - Notes:
+> - [ ] Path reads "L:\music (original structure)\loose tracks - 2020 and
+>       later", left aligned, no filename
+>   - Notes:
+
 ## Build 2026-09-18--1851 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
