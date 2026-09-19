@@ -41,6 +41,32 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--1922 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Path fills the leftover space** -- while it is the last column
+  showing and has never been dragged. Every column being a fixed width
+  left a screen's worth of empty space to the right and a Path column so
+  narrow that every row read the same 25 characters of root prefix.
+  Drag Path and it stores a width like any other column, after which
+  nothing else moves it; hide it and nothing stretches in its place.
+- **The last column has a grab handle now.** Handles lived in the gaps
+  BETWEEN columns, so the rightmost one could not be resized at all.
+  There is a gap after every column now -- the header hangs its handle
+  there, the rows leave the same space blank, and the two stay aligned.
+  1.0.0+36.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Path runs to the right edge of the window and shows real folders
+>   - Notes:
+> - [ ] Drag Path narrower: it stays there when you then drag Album
+>   - Notes:
+
 ## Build 2026-09-18--1917 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
