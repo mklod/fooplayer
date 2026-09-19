@@ -41,6 +41,39 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-18--2038 (phone)
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **The drawer is laid out like the desktop sidebar**: Library, Queue, a
+  folding **Playlists** section, a folding **Folders** section, then
+  Artists and Albums (the browse views only the phone has), then
+  Settings and Sync now. Both sections fold by default.
+  - A playlist row opens that playlist's tracks directly -- one tap from
+    the drawer instead of three through the Playlists page.
+  - A folder row opens the Folders view already inside that root.
+  - Artists and Albums stay plain entries: this library has thousands of
+    each, and an inline list of them in a drawer is a scroll, not a
+    shortcut.
+- **A persistent footer** under the mini-player: track count and a
+  rescan button on the left, sync on the right. Both actions used to be
+  buried in the drawer. They grey out while busy rather than
+  disappearing. 1.0.0+38.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Drawer order: Library, Queue, Playlists, Folders, Artists, Albums
+>   - Notes:
+> - [ ] Open Playlists, tap one: its tracks open straight away
+>   - Notes:
+> - [ ] Open Folders, tap a root: the Folders view opens inside it
+>   - Notes:
+> - [ ] Footer shows the real track count; rescan and sync both work
+>   - Notes:
+
 ## Build 2026-09-18--1927 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
