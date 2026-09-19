@@ -58,6 +58,12 @@ final _kRowTextStyle = TextStyle(fontSize: 13, color: AppColors.ink);
 /// sluggish, so [_TrackRow] disables those and animates the
 /// [AppColors.selectionFill] tile color itself over this duration instead.
 const Duration _kSelectionAnimationDuration = Duration(milliseconds: 80);
+/// How many rows a double-click-to-fit measures before calling it: the
+/// widest of the first couple of thousand is the widest in practice,
+/// and laying out every string in a 5,000-track library to answer a
+/// double-click would be felt.
+const int _kFitSampleLimit = 2000;
+
 const double _kTrackNumberColumnWidth = 36;
 
 /// The PLAYLIST view's fixed layout (#, Song, Album, Time). Those four
@@ -183,6 +189,12 @@ class TrackListView extends StatefulWidget {
   final void Function(TrackColumn column, double delta, double width)?
   onResizeColumn;
 
+  /// Double-click on a divider: set that column to an exact width, the
+  /// one that fits its widest visible value. See
+  /// [LayoutPrefs.setColumnWidth].
+  final void Function(TrackColumn column, double width, double maxWidth)?
+  onFitColumn;
+
   const TrackListView({
     super.key,
     required this.library,
@@ -198,6 +210,7 @@ class TrackListView extends StatefulWidget {
     this.columnLayout = const TrackColumnLayout(),
     this.onToggleColumn,
     this.onResizeColumn,
+    this.onFitColumn,
   });
 
   @override
@@ -357,6 +370,7 @@ class _TrackListViewState extends State<TrackListView> {
                   layout: widget.columnLayout,
                   onToggleColumn: widget.onToggleColumn,
                   onResizeColumn: widget.onResizeColumn,
+                  onFitColumn: widget.onFitColumn,
                 ),
                 Expanded(
                   child: ListView.builder(
@@ -533,6 +547,8 @@ class _TrackListHeader extends StatefulWidget {
   /// that column is on screen right now (see LayoutPrefs.resizeColumn).
   final void Function(TrackColumn column, double delta, double width)?
   onResizeColumn;
+  final void Function(TrackColumn column, double width, double maxWidth)?
+  onFitColumn;
 
   const _TrackListHeader({
     super.key,
@@ -542,6 +558,7 @@ class _TrackListHeader extends StatefulWidget {
     this.layout = const TrackColumnLayout(),
     this.onToggleColumn,
     this.onResizeColumn,
+    this.onFitColumn,
   });
 
   @override
@@ -663,29 +680,103 @@ class _TrackListHeaderState extends State<_TrackListHeader> {
     TrackColumn.art || TrackColumn.emb => null,
   };
 
-  /// The gap after [column], as a grab handle that resizes it -- and
-  /// nothing else. [available] is the room the header has, so the drag
-  /// can be capped at the slack left over rather than pushing the table
-  /// wider than the window.
+  /// The gap after [column]: a soft divider line, and the grab handle
+  /// that resizes that column and nothing else.
+  ///
+  /// [available] is the room the header has, so a drag can be capped at
+  /// the slack left over rather than pushing the table wider than the
+  /// window. Double-click fits the column to its contents.
   Widget _resizeHandle(TrackColumn column, double available) {
+    final divider = Center(
+      child: Container(
+        width: kColumnDividerWidth,
+        height: 14,
+        color: AppColors.hairline,
+      ),
+    );
     final resize = widget.onResizeColumn;
     if (resize == null || !column.resizable) {
-      return const SizedBox(width: kColumnGap);
+      return SizedBox(width: kColumnGap, child: divider);
     }
     return MouseRegion(
       cursor: SystemMouseCursors.resizeColumn,
-      child: GestureDetector(
+      // A raw Listener for the drag, not a drag GestureDetector: a drag
+      // recognizer sitting next to a double-tap one has to win the
+      // gesture arena first, and the ~18px of movement that takes is
+      // dead travel on a divider you are trying to nudge. Pointer moves
+      // are 1:1 from the first pixel.
+      child: Listener(
         key: Key('column-resize-${column.id}'),
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (d) => resize(
-          column,
-          d.delta.dx,
-          widget.layout.maxWidthFor(column, available),
+        onPointerMove: (e) {
+          if (e.buttons & kPrimaryButton == 0) return;
+          resize(
+            column,
+            e.delta.dx,
+            widget.layout.maxWidthFor(column, available),
+          );
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: () => _fitColumn(column, available),
+          child: SizedBox(width: kColumnGap, height: 18, child: divider),
         ),
-        child: const SizedBox(width: kColumnGap, height: 18),
       ),
     );
   }
+
+  /// Double-click on a divider: make [column] exactly wide enough for
+  /// the widest value in it, header included.
+  ///
+  /// Measures the tracks currently listed, capped at [_kFitSampleLimit]
+  /// -- laying out five thousand strings to answer a double-click would
+  /// be felt, and the widest of the first two thousand is the widest in
+  /// practice.
+  void _fitColumn(TrackColumn column, double available) {
+    final fit = widget.onFitColumn;
+    if (fit == null) return;
+    final tracks = widget.library.visibleTracks;
+    final style = column == TrackColumn.title
+        ? const TextStyle(fontSize: 13)
+        : _kRowTextStyle;
+    var widest = _measure(
+      column.label.toUpperCase(),
+      Theme.of(context).textTheme.labelLarge,
+    );
+    final limit = tracks.length < _kFitSampleLimit
+        ? tracks.length
+        : _kFitSampleLimit;
+    for (var i = 0; i < limit; i++) {
+      final text = _columnText(column, tracks[i]);
+      if (text.isEmpty) continue;
+      final w = _measure(text, style);
+      if (w > widest) widest = w;
+    }
+    // The cell's own 2px padding each side, plus room for the sort
+    // arrow the header may add later.
+    fit(column, widest + 16, widget.layout.maxWidthFor(column, available));
+  }
+
+  double _measure(String text, TextStyle? style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return painter.width;
+  }
+
+  /// The text [column] shows for [track] -- the tick columns have none,
+  /// which is why they do not resize.
+  String _columnText(TrackColumn column, Track track) => switch (column) {
+    TrackColumn.title => track.title,
+    TrackColumn.artist => track.artist,
+    TrackColumn.album => track.album,
+    TrackColumn.time => _fmtDuration(track.durationMs),
+    TrackColumn.date => _fmtDate(track.dateAdded),
+    TrackColumn.path => trackFolderPath(track),
+    TrackColumn.art || TrackColumn.emb => '',
+  };
 
   @override
   Widget build(BuildContext context) {
