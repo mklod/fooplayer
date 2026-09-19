@@ -630,13 +630,6 @@ class _TrackListHeaderState extends State<_TrackListHeader> {
     setState(() => _menu = entry);
   }
 
-  /// How wide [column] is on screen right now.
-  double _renderedWidth(TrackColumn column) {
-    final box =
-        _cellKeys[column]?.currentContext?.findRenderObject() as RenderBox?;
-    return box?.size.width ?? 0;
-  }
-
   Widget _headerCellFor(TrackColumn column) {
     final library = widget.library;
     final sort = _sortFor(column);
@@ -670,17 +663,25 @@ class _TrackListHeaderState extends State<_TrackListHeader> {
     TrackColumn.art || TrackColumn.emb => null,
   };
 
-  /// The gap after [column], as a grab handle that resizes it.
-  Widget _resizeHandle(TrackColumn column) {
+  /// The gap after [column], as a grab handle that resizes it -- and
+  /// nothing else. [available] is the room the header has, so the drag
+  /// can be capped at the slack left over rather than pushing the table
+  /// wider than the window.
+  Widget _resizeHandle(TrackColumn column, double available) {
     final resize = widget.onResizeColumn;
-    if (resize == null) return const SizedBox(width: kColumnGap);
+    if (resize == null || !column.resizable) {
+      return const SizedBox(width: kColumnGap);
+    }
     return MouseRegion(
       cursor: SystemMouseCursors.resizeColumn,
       child: GestureDetector(
         key: Key('column-resize-${column.id}'),
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragUpdate: (d) =>
-            resize(column, d.delta.dx, _renderedWidth(column)),
+        onHorizontalDragUpdate: (d) => resize(
+          column,
+          d.delta.dx,
+          widget.layout.maxWidthFor(column, available),
+        ),
         child: const SizedBox(width: kColumnGap, height: 18),
       ),
     );
@@ -708,24 +709,35 @@ class _TrackListHeaderState extends State<_TrackListHeader> {
   }
 
   Widget _buildLibraryRow() {
-    return Row(
-      children: [
-        if (widget.showTrackNumber)
-          SizedBox(
-            width: _kTrackNumberColumnWidth,
-            child: _HeaderCell(
-              label: '#',
-              column: SortColumn.trackNumber,
-              library: widget.library,
-              onSecondaryTap: _openColumnMenu,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final lead = widget.showTrackNumber
+            ? _kTrackNumberColumnWidth + kColumnGap
+            : 0.0;
+        final available = constraints.maxWidth - lead;
+        return Row(
+          children: [
+            if (widget.showTrackNumber) ...[
+              SizedBox(
+                width: _kTrackNumberColumnWidth,
+                child: _HeaderCell(
+                  label: '#',
+                  column: SortColumn.trackNumber,
+                  library: widget.library,
+                  onSecondaryTap: _openColumnMenu,
+                ),
+              ),
+              const SizedBox(width: kColumnGap),
+            ],
+            ...buildColumnRow(
+              layout: widget.layout,
+              widths: widget.layout.widthsFor(available),
+              cell: _headerCellFor,
+              gapAfter: (c) => _resizeHandle(c, available),
             ),
-          ),
-        ...buildColumnRow(
-          layout: widget.layout,
-          cell: _headerCellFor,
-          gapAfter: _resizeHandle,
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 
@@ -1139,20 +1151,40 @@ class _TrackRowState extends State<_TrackRow> {
   /// The library view's five flat columns, unchanged from before the
   /// playlist-view layout existed.
   List<Widget> _libraryCells(BuildContext context) => [
-    if (showTrackNumber)
-      SizedBox(
-        width: _kTrackNumberColumnWidth,
-        child: Text(
-          trackNumberText ?? '',
-          textAlign: TextAlign.left,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: _kRowTextStyle,
-        ),
+    Expanded(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final lead = showTrackNumber
+              ? _kTrackNumberColumnWidth + kColumnGap
+              : 0.0;
+          return Row(
+            children: [
+              if (showTrackNumber) ...[
+                SizedBox(
+                  width: _kTrackNumberColumnWidth,
+                  child: Text(
+                    trackNumberText ?? '',
+                    textAlign: TextAlign.left,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: _kRowTextStyle,
+                  ),
+                ),
+                const SizedBox(width: kColumnGap),
+              ],
+              // Same widths, same gaps, same fit rule as the header --
+              // see buildColumnRow's doc for why they must not be worked
+              // out twice.
+              ...buildColumnRow(
+                layout: widget.layout,
+                widths: widget.layout.widthsFor(constraints.maxWidth - lead),
+                cell: _cellFor,
+              ),
+            ],
+          );
+        },
       ),
-    // Same list, same widths, same gaps as the header -- see
-    // buildColumnRow's doc for why they must not be built twice.
-    ...buildColumnRow(layout: widget.layout, cell: _cellFor),
+    ),
   ];
 
   Widget _cellFor(TrackColumn column) => switch (column) {
@@ -1192,14 +1224,14 @@ class _TrackRowState extends State<_TrackRow> {
     ),
     TrackColumn.art => _ArtTick(on: hasArtwork),
     TrackColumn.emb => _ArtTick(on: track.hasEmbeddedArt),
+    // The folder, not the file: the row already names the track, and
+    // the filename is usually the same words a third time. Plain
+    // left-to-right -- the rtl trick that clipped it from the start also
+    // right-aligned the whole column, which read as broken.
     TrackColumn.path => Text(
-      trackFilePath(track),
+      trackFolderPath(track),
       maxLines: 1,
-      // Clipped at the START: every path here opens with one of a
-      // handful of root prefixes, and it is the tail that says which
-      // file this is.
       overflow: TextOverflow.ellipsis,
-      textDirection: TextDirection.rtl,
       style: _kRowTextStyle,
     ),
   };

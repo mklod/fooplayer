@@ -1,14 +1,15 @@
 // The library list's Path column, hiding columns from the header's
 // context menu, and dragging column widths (asked for 2026-09-18).
 //
-// Two rejected cuts are pinned here as behaviour:
+// Three rejected cuts are pinned here as behaviour:
 //   - the menu must DISMISS on a click away. The MenuAnchor version did
 //     not, which left hiding the clicked column as the only way out.
 //   - it must not animate in.
-// The menu is the full list of columns with a tick against the ones
-// showing; clicking a ticked row hides that column.
+//   - a drag must move ONE column's edge. The flex-weight version had
+//     the columns share the leftover space, so dragging Artist quietly
+//     resized Title and Path as well.
 //
-// Last modified: 2026-09-18--1715
+// Last modified: 2026-09-18--1945
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +23,9 @@ import 'package:fooplayer_app/ui/home_screen.dart';
 import 'package:fooplayer_app/ui/layout_prefs.dart';
 import 'package:fooplayer_app/ui/track_columns.dart';
 import 'package:fooplayer_app/ui/track_list.dart';
+
+const _folder = r'L:\Music\albums\Muse\Absolution';
+const _file = r'L:\Music\albums\Muse\Absolution\01 Apocalypse Please.mp3';
 
 LibraryModel fixtureLibrary() {
   final m = LibraryModel();
@@ -45,6 +49,12 @@ Future<LayoutPrefs> pump(
   LibraryModel lib, {
   LayoutPrefs? prefs,
 }) async {
+  // A desktop-sized window: the columns are fixed widths now, and the
+  // 800x600 test default would clip the right-hand ones out of reach.
+  tester.view.physicalSize = const Size(1600, 1000);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.reset);
+
   final layout = prefs ?? LayoutPrefs();
   await tester.pumpWidget(
     MaterialApp(
@@ -75,8 +85,8 @@ Finder headerLabelLoose(String text) => find.descendant(
   matching: find.textContaining(text),
 );
 
-/// Scoped to the list: the Album/Artist FILTER panes show the same values,
-/// so an unscoped text matcher finds those too.
+/// Scoped to the list: the Album/Artist FILTER panes show the same
+/// values, so an unscoped text matcher finds those too.
 Finder inList(String text) =>
     find.descendant(of: find.byType(TrackListView), matching: find.text(text));
 
@@ -86,13 +96,25 @@ Future<void> rightClick(WidgetTester tester, Finder target) async {
 }
 
 void main() {
-  testWidgets('the Path column shows the track\'s file path', (tester) async {
+  testWidgets('the Path column shows the FOLDER, not the file', (
+    tester,
+  ) async {
     await pump(tester, fixtureLibrary());
 
     expect(headerLabel('PATH'), findsOneWidget);
+    expect(inList(_folder), findsOneWidget);
     expect(
-      inList(r'L:\Music\albums\Muse\Absolution\01 Apocalypse Please.mp3'),
-      findsOneWidget,
+      inList(_file),
+      findsNothing,
+      reason: 'the row already names the track twice over',
+    );
+  });
+
+  testWidgets('the Path cell reads left to right', (tester) async {
+    await pump(tester, fixtureLibrary());
+    expect(
+      tester.widget<Text>(inList(_folder)).textDirection,
+      isNot(TextDirection.rtl),
     );
   });
 
@@ -139,12 +161,10 @@ void main() {
   testWidgets('clicking away dismisses the menu and changes nothing', (
     tester,
   ) async {
-    final lib = fixtureLibrary();
-    final prefs = await pump(tester, lib);
+    final prefs = await pump(tester, fixtureLibrary());
     await rightClick(tester, headerLabel('ALBUM'));
     expect(find.byKey(const Key('column-toggle-album')), findsOneWidget);
 
-    // Anywhere off the menu -- here, the top-left corner of the window.
     await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
 
@@ -195,35 +215,77 @@ void main() {
     expect(headerLabel('ALBUM'), findsOneWidget);
   });
 
-  testWidgets('dragging a divider widens the column to its left', (
-    tester,
-  ) async {
+  testWidgets('dragging a divider resizes ONLY that column', (tester) async {
     final prefs = await pump(tester, fixtureLibrary());
-    final before = tester.getSize(headerLabel('TITLE')).width;
+    final before = {
+      for (final c in TrackColumn.values) c: prefs.columnSize(c),
+    };
+
+    await tester.drag(
+      find.byKey(const Key('column-resize-artist')),
+      const Offset(-60, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      prefs.columnSize(TrackColumn.artist),
+      closeTo(before[TrackColumn.artist]! - 60, 0.01),
+    );
+    for (final c in TrackColumn.values) {
+      if (c == TrackColumn.artist) continue;
+      expect(
+        prefs.columnSize(c),
+        before[c],
+        reason: 'dragging Artist must not touch ${c.label}',
+      );
+    }
+  });
+
+  testWidgets('a drag actually moves the column on screen', (tester) async {
+    final prefs = await pump(tester, fixtureLibrary());
+    final beforeX = tester.getTopLeft(headerLabel('ALBUM')).dx;
+    final beforeW = prefs.columnSize(TrackColumn.title);
+    final albumW = tester.getSize(headerLabel('ALBUM')).width;
 
     await tester.drag(
       find.byKey(const Key('column-resize-title')),
-      const Offset(120, 0),
+      const Offset(80, 0),
     );
     await tester.pumpAndSettle();
 
-    expect(tester.getSize(headerLabel('TITLE')).width, greaterThan(before));
-    expect(prefs.columnSizes[TrackColumn.title], isNotNull);
+    // However the test framework splits the gesture, the screen must
+    // agree with the stored width: Title grew by exactly that much, and
+    // everything after it slid along by the same amount, unresized.
+    final grew = prefs.columnSize(TrackColumn.title) - beforeW;
+    expect(grew, greaterThan(0));
+    expect(
+      tester.getTopLeft(headerLabel('ALBUM')).dx,
+      closeTo(beforeX + grew, 1),
+      reason: 'a wider Title pushes what follows along',
+    );
+    expect(
+      tester.getSize(headerLabel('ALBUM')).width,
+      albumW,
+      reason: '...without resizing it',
+    );
   });
 
-  testWidgets('a fixed-width column takes the pixels it was dragged', (
-    tester,
-  ) async {
+  testWidgets('the tick columns have no grab handle', (tester) async {
+    await pump(tester, fixtureLibrary());
+    expect(find.byKey(const Key('column-resize-art')), findsNothing);
+    expect(find.byKey(const Key('column-resize-emb')), findsNothing);
+  });
+
+  testWidgets('a column cannot be dragged away to nothing', (tester) async {
     final prefs = await pump(tester, fixtureLibrary());
-    final before = prefs.columnSize(TrackColumn.date);
 
     await tester.drag(
       find.byKey(const Key('column-resize-date')),
-      const Offset(40, 0),
+      const Offset(-500, 0),
     );
     await tester.pumpAndSettle();
 
-    expect(prefs.columnSize(TrackColumn.date), closeTo(before + 40, 0.01));
+    expect(prefs.columnSize(TrackColumn.date), kMinColumnWidth);
   });
 
   testWidgets('a dragged width survives a restart', (tester) async {
@@ -243,19 +305,9 @@ void main() {
     );
   });
 
-  testWidgets('a column cannot be dragged away to nothing', (tester) async {
-    final prefs = await pump(tester, fixtureLibrary());
-
-    await tester.drag(
-      find.byKey(const Key('column-resize-date')),
-      const Offset(-500, 0),
-    );
-    await tester.pumpAndSettle();
-
-    expect(prefs.columnSize(TrackColumn.date), kMinColumnWidth);
-  });
-
-  testWidgets('the choice is remembered across a restart', (tester) async {
+  testWidgets('a hidden column is remembered across a restart', (
+    tester,
+  ) async {
     final prefs = LayoutPrefs(writer: (_) {}, debounce: Duration.zero);
     await pump(tester, fixtureLibrary(), prefs: prefs);
 
@@ -271,6 +323,7 @@ void main() {
 
   testWidgets('every column is visible in a fresh config', (tester) async {
     expect(LayoutPrefs.fromConfig(null).hiddenColumns, isEmpty);
+    expect(LayoutPrefs.fromConfig(null).columnSizes, isEmpty);
   });
 
   testWidgets('clicking the Path header sorts by path', (tester) async {
