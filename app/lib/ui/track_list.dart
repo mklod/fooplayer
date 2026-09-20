@@ -227,6 +227,30 @@ class _TrackListViewState extends State<TrackListView> {
   /// [kDoubleTapTimeout] window to resolve.
   final FocusNode _focusNode = FocusNode(debugLabel: 'TrackListView');
 
+  /// Measured widths for the [TrackColumn.fitsByDefault] columns: the
+  /// narrowest each can be while showing its values in full.
+  ///
+  /// Computed from the WHOLE library rather than the filtered view, and
+  /// cached against that list's identity: fitting to what is on screen
+  /// would make those columns twitch on every keystroke in the search
+  /// box, and re-measuring on every notification would pay for a few
+  /// thousand text layouts to learn nothing.
+  Map<TrackColumn, double> _fitted = const {};
+  List<Track>? _fittedFor;
+
+  TrackColumnLayout _layoutFor(BuildContext context) {
+    final tracks = widget.library.allTracks;
+    if (!identical(tracks, _fittedFor)) {
+      final headerStyle = Theme.of(context).textTheme.labelLarge;
+      _fitted = {
+        for (final c in TrackColumn.values)
+          if (c.fitsByDefault) c: fitWidthFor(c, tracks, headerStyle),
+      };
+      _fittedFor = tracks;
+    }
+    return widget.columnLayout.withFitted(_fitted);
+  }
+
   /// Owned so arrow-key selection moves ([_moveSelection]) can keep the
   /// newly-selected row on screen -- the ListView otherwise scrolls only by
   /// mouse.
@@ -332,6 +356,9 @@ class _TrackListViewState extends State<TrackListView> {
     final library = widget.library;
     final player = widget.player;
     final store = widget.playlistStore;
+    // One layout object for the header AND the rows, so a measured
+    // default can never mean two different widths in the same table.
+    final columnLayout = _layoutFor(context);
     return Focus(
       focusNode: _focusNode,
       onKeyEvent: _handleKeyEvent,
@@ -367,7 +394,7 @@ class _TrackListViewState extends State<TrackListView> {
                   library: library,
                   showTrackNumber: showTrackNumber,
                   playlistMode: isPlaylist,
-                  layout: widget.columnLayout,
+                  layout: columnLayout,
                   onToggleColumn: widget.onToggleColumn,
                   onResizeColumn: widget.onResizeColumn,
                   onFitColumn: widget.onFitColumn,
@@ -384,7 +411,7 @@ class _TrackListViewState extends State<TrackListView> {
                         t.contentId,
                       );
                       return _TrackRow(
-                        layout: widget.columnLayout,
+                        layout: columnLayout,
                         track: t,
                         isCurrent: isCurrent,
                         isSelected: isSelected,
@@ -534,6 +561,57 @@ class _PlaylistBanner extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Width of [text] in [style], to the pixel.
+double measureText(String text, TextStyle? style) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  return painter.width;
+}
+
+/// The text [column] shows for [track] -- the tick columns have none,
+/// which is why they neither fit nor resize.
+String columnTextOf(TrackColumn column, Track track) => switch (column) {
+  TrackColumn.title => track.title,
+  TrackColumn.artist => track.artist,
+  TrackColumn.album => track.album,
+  TrackColumn.time => _fmtDuration(track.durationMs),
+  TrackColumn.date => _fmtDate(track.dateAdded),
+  TrackColumn.path => trackFolderPath(track),
+  TrackColumn.art || TrackColumn.emb => '',
+};
+
+/// The narrowest [column] can be while still showing every value in
+/// [tracks] in full, header label included.
+///
+/// Capped at [_kFitSampleLimit] rows: laying out every string in a
+/// 5,000-track library is felt, and the widest of the first couple of
+/// thousand is the widest in practice.
+double fitWidthFor(
+  TrackColumn column,
+  List<Track> tracks,
+  TextStyle? headerStyle,
+) {
+  var widest = measureText(column.label.toUpperCase(), headerStyle);
+  final style = column == TrackColumn.title
+      ? const TextStyle(fontSize: 13)
+      : _kRowTextStyle;
+  final limit = tracks.length < _kFitSampleLimit
+      ? tracks.length
+      : _kFitSampleLimit;
+  for (var i = 0; i < limit; i++) {
+    final text = columnTextOf(column, tracks[i]);
+    if (text.isEmpty) continue;
+    final w = measureText(text, style);
+    if (w > widest) widest = w;
+  }
+  // The cell's own 2px padding each side, plus room for the sort arrow
+  // the header adds when this column is the one being sorted on.
+  return widest + 16;
 }
 
 class _TrackListHeader extends StatefulWidget {
@@ -1338,7 +1416,7 @@ class _TrackRowState extends State<_TrackRow> {
       // The folder, not the file: the row already names the track, and
       // the filename is usually the same words a third time.
       TrackColumn.path => Text(
-        trackFolderPath(track),
+        columnTextOf(column, track),
         maxLines: 1,
         textAlign: align,
         overflow: TextOverflow.ellipsis,

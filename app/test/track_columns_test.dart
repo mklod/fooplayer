@@ -372,20 +372,43 @@ void main() {
     );
   });
 
-  testWidgets('Time, Date and Path start at the minimum width', (
-    tester,
-  ) async {
-    // Asked for 2026-09-19: these three start as narrow as a column can
-    // be, and are widened by hand (or by double-clicking to fit).
-    final prefs = await pump(tester, fixtureLibrary());
+  testWidgets('Time, Date and Path start at the narrowest width that '
+      'shows their values IN FULL', (tester) async {
+    // "By minimum I meant the smallest width that displays content in
+    // full" -- so the default is measured from the library, not a
+    // constant: a date needs ~70px, a folder path several hundred.
+    final lib = fixtureLibrary();
+    await pump(tester, lib);
+
+    final headerStyle = Theme.of(
+      tester.element(find.byType(TrackListView)),
+    ).textTheme.labelLarge;
+
     for (final c in [TrackColumn.time, TrackColumn.date, TrackColumn.path]) {
-      expect(prefs.columnSize(c), kMinColumnWidth, reason: c.label);
+      // Loose: DATE is the active sort column, so its label carries
+      // the arrow in the same span.
+      final rendered = tester
+          .getSize(headerLabelLoose(c.label.toUpperCase()))
+          .width;
+      final needed = measureText(
+        columnTextOf(c, lib.allTracks.first),
+        const TextStyle(fontSize: 13),
+      );
+      expect(
+        rendered,
+        greaterThanOrEqualTo(needed),
+        reason: '${c.label} must show its value in full',
+      );
+      // ...and no wider than it has to be: the fitted width, which is
+      // that value (or the header label) plus the cell padding.
+      expect(
+        rendered,
+        lessThanOrEqualTo(
+          fitWidthFor(c, lib.allTracks, headerStyle) + 1,
+        ),
+        reason: '${c.label} must not be padded out beyond the fit',
+      );
     }
-    expect(
-      prefs.columnSize(TrackColumn.title),
-      greaterThan(kMinColumnWidth),
-      reason: 'the text columns keep a readable default',
-    );
   });
 
   testWidgets('every column is right-aligned except Time', (tester) async {
