@@ -41,6 +41,40 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-19--1810 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **Every column reads right-aligned except Time**, which reads left.
+  The tick columns follow the same edge, so a narrow Art/Emb pair does
+  not float in the middle of its box.
+- **Time, Date and Path start at the minimum width** (28px). Anything
+  that does not fit ellipsises; double-clicking a divider fits that
+  column to its contents in one gesture.
+- Path's fill-the-leftover-space behaviour is gone with it -- a column
+  cannot both start minimal and stretch to the window edge. Leftover
+  space sits empty at the right.
+- The sort arrow always follows its label now. It used to LEAD on a
+  right-aligned column, which never showed while Time was the only one;
+  with everything but Time right-aligned it would have flipped the
+  header around. 1.0.0+39.
+
+Also, on this machine: the Time/Date/Path widths stored from the
+broken-resize builds were cleared from config.json so the new defaults
+show through. Artist and Title keep the widths they were dragged to.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Titles, artists, albums, dates and paths sit flush right; times
+>       sit left
+>   - Notes:
+> - [ ] Time, Date and Path open narrow; double-clicking each divider
+>       fits it
+>   - Notes:
+
 ## Build 2026-09-18--2038 (phone)
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
