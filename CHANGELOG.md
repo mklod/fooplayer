@@ -41,6 +41,40 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-09-19--1856 (desktop)
+
+Desktop: rebuilt + redeployed to the tray/Startup exe.
+
+### Changes
+
+- **"Minimum width" now means fits the content.** The 1810 build read it
+  as the 28px floor, which showed "2026..." for a date. Time, Date and
+  Path default to a width MEASURED from the library -- the widest value
+  in that column (2,000 rows sampled) or the header label, whichever is
+  wider, plus the cell padding. The same computation the double-click
+  gesture runs, applied as the default. A constant could not do it: a
+  date needs about 70px and a folder path several hundred.
+  - Measured from the whole library rather than the filtered view, and
+    cached: fitting to what is on screen would make those columns twitch
+    on every keystroke in the search box.
+- **The last column absorbs any overflow.** A Path fitted to real NAS
+  paths is wider than the window on its own, which under the old
+  "columns can never exceed the window" rule left nothing draggable and
+  scaled everything down. The last column now renders as much as there
+  is room for while keeping its own width, and drags are no longer
+  capped at the leftover space. 1.0.0+40.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] Time and Date open exactly wide enough for their values
+>   - Notes:
+> - [ ] Path opens wide (fitted to your longest folder) and clips at the
+>       window edge rather than squashing the other columns
+>   - Notes:
+> - [ ] Dragging any column still moves only that column
+>   - Notes:
+
 ## Build 2026-09-19--1810 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
