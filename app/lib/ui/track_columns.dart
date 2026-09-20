@@ -28,16 +28,19 @@ import 'package:flutter/widgets.dart';
 
 /// A column in the library (non-playlist) track list, in display order.
 ///
-/// Everything is right-aligned except Time, and Time, Date and Path
-/// start at [kMinColumnWidth] -- both asked for directly (2026-09-19).
-/// A column too narrow for its value shows an ellipsis; double-clicking
-/// its divider fits it in one gesture.
+/// Everything is right-aligned except Time (asked for 2026-09-19).
+///
+/// Time, Date and Path start at the narrowest width that shows their
+/// values IN FULL -- measured from the library rather than guessed at,
+/// because the answer depends on the data: a date is about 70px, a
+/// folder path several hundred. [width] is only the fallback used
+/// before anything has been measured.
 enum TrackColumn {
   title('Title', width: 230, hideable: false, alignEnd: true),
   artist('Artist', width: 150, alignEnd: true),
   album('Album', width: 150, alignEnd: true),
-  time('Time', width: kMinColumnWidth),
-  date('Date', width: kMinColumnWidth, alignEnd: true),
+  time('Time', width: 46, fitsByDefault: true),
+  date('Date', width: 84, alignEnd: true, fitsByDefault: true),
   // The two tick columns: at-a-glance state, not data to read, and
   // nothing about them gets better with more room -- so they are fixed
   // and not draggable.
@@ -46,7 +49,7 @@ enum TrackColumn {
   // Last on purpose: the widest thing in the row and the least often
   // read, so it goes where it cannot push the columns you actually scan
   // off to the side.
-  path('Path', width: kMinColumnWidth, alignEnd: true);
+  path('Path', width: 220, alignEnd: true, fitsByDefault: true);
 
   const TrackColumn(
     this.label, {
@@ -54,6 +57,7 @@ enum TrackColumn {
     this.hideable = true,
     this.resizable = true,
     this.alignEnd = false,
+    this.fitsByDefault = false,
   });
 
   /// What the header and its menu call it.
@@ -70,6 +74,11 @@ enum TrackColumn {
   final bool resizable;
 
   final bool alignEnd;
+
+  /// Whether this column's default width is measured from the data --
+  /// the narrowest that shows its values in full -- rather than being
+  /// the fixed [width] above. Only until the user drags it.
+  final bool fitsByDefault;
 
   /// The stored id, so a renamed label never invalidates a saved choice.
   String get id => name;
@@ -111,10 +120,21 @@ const double kColumnDividerWidth = 1;
 class TrackColumnLayout {
   final Set<TrackColumn> hidden;
 
-  /// Width overrides by column; absent means [TrackColumn.width].
+  /// Widths the user dragged to. These always win.
   final Map<TrackColumn, double> sizes;
 
-  const TrackColumnLayout({this.hidden = const {}, this.sizes = const {}});
+  /// Widths measured from the data for the [TrackColumn.fitsByDefault]
+  /// columns -- used only where the user has not dragged one.
+  final Map<TrackColumn, double> fitted;
+
+  const TrackColumnLayout({
+    this.hidden = const {},
+    this.sizes = const {},
+    this.fitted = const {},
+  });
+
+  TrackColumnLayout withFitted(Map<TrackColumn, double> measured) =>
+      TrackColumnLayout(hidden: hidden, sizes: sizes, fitted: measured);
 
   bool shows(TrackColumn c) => !hidden.contains(c);
 
@@ -132,7 +152,12 @@ class TrackColumnLayout {
   /// checked in the menu, and invisible. Reported live.
   double widthOf(TrackColumn c) {
     final stored = sizes[c];
-    return (stored == null || stored < kMinColumnWidth) ? c.width : stored;
+    if (stored != null && stored >= kMinColumnWidth) return stored;
+    final measured = fitted[c];
+    if (c.fitsByDefault && measured != null && measured >= kMinColumnWidth) {
+      return measured;
+    }
+    return c.width;
   }
 
   /// Total the visible columns want, gaps included -- one gap after
@@ -150,30 +175,49 @@ class TrackColumnLayout {
 
   /// The widths to lay out in [available] pixels.
   ///
-  /// The stored widths, which is the point -- dragging one column must
-  /// not move the others. Scaled down proportionally ONLY when they no
-  /// longer fit, so a window pulled in narrow clips nothing.
+  /// Every column keeps its own width -- that is the whole point, and
+  /// dragging one must not move the others. When they add up to more
+  /// than the window, the LAST column gives way: it renders as much as
+  /// there is room for, down to [kMinColumnWidth], while its own width
+  /// is left alone. Path is last, and a clipped path is the cheapest
+  /// thing on the row to lose.
+  ///
+  /// Only if even that is not enough -- a window narrower than the
+  /// other columns combined -- does everything scale down together.
   Map<TrackColumn, double> widthsFor(double available) {
     final cols = visible;
-    final wanted = totalWidth;
+    if (cols.isEmpty) return const {};
+    final out = {for (final c in cols) c: widthOf(c)};
+    var over = totalWidth - available;
+    if (over <= 0) return out;
+
+    final last = cols.last;
+    final give = out[last]! - kMinColumnWidth;
+    if (give > 0) {
+      final taken = over < give ? over : give;
+      out[last] = out[last]! - taken;
+      over -= taken;
+    }
+    if (over <= 0) return out;
+
     final gaps = cols.length * kColumnGap;
-    final scale = (wanted > available && wanted > gaps && available > gaps)
-        ? (available - gaps) / (wanted - gaps)
-        : 1.0;
-    return {for (final c in cols) c: widthOf(c) * scale};
+    var wanted = gaps;
+    for (final c in cols) {
+      wanted += out[c]!;
+    }
+    if (wanted <= gaps || available <= gaps) return out;
+    final scale = (available - gaps) / (wanted - gaps);
+    return {for (final c in cols) c: out[c]! * scale};
   }
 
-  /// The most [column] may be dragged to: its own width plus whatever
-  /// slack is left over at the right. Capping here is what stops a drag
-  /// from pushing the table wider than the window.
-  double maxWidthFor(TrackColumn column, double available) {
-    // [totalWidth] counts a stretching last column at its own width,
-    // not at the space it is currently filling -- so the slack here is
-    // exactly what that column would give back.
-    final slack = available - totalWidth;
-    final max = widthOf(column) + (slack > 0 ? slack : 0);
-    return max < kMinColumnWidth ? kMinColumnWidth : max;
-  }
+  /// The most [column] may be dragged to.
+  ///
+  /// No longer capped at the leftover space: a column can be wider than
+  /// the window now that the last one absorbs the overflow, and Path
+  /// fitted to real folder paths is routinely wider than the window on
+  /// its own.
+  double maxWidthFor(TrackColumn column, double available) =>
+      kMaxColumnWidth;
 }
 
 /// Lays the visible columns out as Row children at [widths], with
@@ -203,3 +247,7 @@ List<Widget> buildColumnRow({
   }
   return out;
 }
+
+/// Widest a column may be dragged to. Generous -- it stops a runaway
+/// drag storing an absurd number, it does not second-guess the user.
+const double kMaxColumnWidth = 1200;
