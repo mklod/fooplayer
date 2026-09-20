@@ -27,21 +27,26 @@
 import 'package:flutter/widgets.dart';
 
 /// A column in the library (non-playlist) track list, in display order.
+///
+/// Everything is right-aligned except Time, and Time, Date and Path
+/// start at [kMinColumnWidth] -- both asked for directly (2026-09-19).
+/// A column too narrow for its value shows an ellipsis; double-clicking
+/// its divider fits it in one gesture.
 enum TrackColumn {
-  title('Title', width: 220, hideable: false),
-  artist('Artist', width: 150),
-  album('Album', width: 150),
-  time('Time', width: 46, alignEnd: true),
-  date('Date', width: 84),
+  title('Title', width: 230, hideable: false, alignEnd: true),
+  artist('Artist', width: 150, alignEnd: true),
+  album('Album', width: 150, alignEnd: true),
+  time('Time', width: kMinColumnWidth),
+  date('Date', width: kMinColumnWidth, alignEnd: true),
   // The two tick columns: at-a-glance state, not data to read, and
   // nothing about them gets better with more room -- so they are fixed
   // and not draggable.
-  art('Art', width: 34, resizable: false),
-  emb('Emb', width: 34, resizable: false),
+  art('Art', width: 34, resizable: false, alignEnd: true),
+  emb('Emb', width: 34, resizable: false, alignEnd: true),
   // Last on purpose: the widest thing in the row and the least often
   // read, so it goes where it cannot push the columns you actually scan
   // off to the side.
-  path('Path', width: 160, fillsRemainder: true);
+  path('Path', width: kMinColumnWidth, alignEnd: true);
 
   const TrackColumn(
     this.label, {
@@ -49,7 +54,6 @@ enum TrackColumn {
     this.hideable = true,
     this.resizable = true,
     this.alignEnd = false,
-    this.fillsRemainder = false,
   });
 
   /// What the header and its menu call it.
@@ -66,18 +70,6 @@ enum TrackColumn {
   final bool resizable;
 
   final bool alignEnd;
-
-  /// Whether this column stretches into whatever space is left over,
-  /// while it is the last one showing and has never been dragged.
-  ///
-  /// Only Path does, and only until you drag it. Every column being a
-  /// plain fixed width left a screen's worth of empty space to the
-  /// right of a Path column too narrow to show anything but the root
-  /// prefix every row shares -- the column was there and said nothing.
-  /// Dragging Path stores a width and it stops stretching, so the
-  /// "one drag, one column" rule still holds for anything you have
-  /// actually set yourself.
-  final bool fillsRemainder;
 
   /// The stored id, so a renamed label never invalidates a saved choice.
   String get id => name;
@@ -168,24 +160,7 @@ class TrackColumnLayout {
     final scale = (wanted > available && wanted > gaps && available > gaps)
         ? (available - gaps) / (wanted - gaps)
         : 1.0;
-    final out = {for (final c in cols) c: widthOf(c) * scale};
-    final filler = fillerColumn;
-    if (filler != null && scale == 1.0) {
-      final others = wanted - widthOf(filler);
-      final rest = available - others;
-      if (rest > out[filler]!) out[filler] = rest;
-    }
-    return out;
-  }
-
-  /// The column that stretches into the leftover space, if any: the last
-  /// visible one, if it is built to stretch and has not been dragged.
-  TrackColumn? get fillerColumn {
-    final cols = visible;
-    if (cols.isEmpty) return null;
-    final last = cols.last;
-    if (!last.fillsRemainder || sizes.containsKey(last)) return null;
-    return last;
+    return {for (final c in cols) c: widthOf(c) * scale};
   }
 
   /// The most [column] may be dragged to: its own width plus whatever

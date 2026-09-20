@@ -38,6 +38,7 @@ LibraryModel fixtureLibrary() {
       title: 'Apocalypse Please',
       artist: 'Muse',
       album: 'Absolution',
+      durationMs: 230000,
     ),
   ];
   m.status = 'ready';
@@ -371,67 +372,51 @@ void main() {
     );
   });
 
-  testWidgets('Path stretches into the leftover space until it is dragged', (
+  testWidgets('Time, Date and Path start at the minimum width', (
     tester,
   ) async {
+    // Asked for 2026-09-19: these three start as narrow as a column can
+    // be, and are widened by hand (or by double-clicking to fit).
     final prefs = await pump(tester, fixtureLibrary());
-
-    // Reported with a screenshot: at a wide window every row read
-    // "L:\music (original structu..." -- the same root prefix, the same
-    // 25 characters -- with a screen's worth of empty space to its
-    // right.
-    final pathRight =
-        tester.getTopLeft(headerLabel('PATH')).dx +
-        tester.getSize(headerLabel('PATH')).width;
-    final listRight =
-        tester.getTopLeft(find.byKey(const Key('track-list-header'))).dx +
-        tester.getSize(find.byKey(const Key('track-list-header'))).width;
+    for (final c in [TrackColumn.time, TrackColumn.date, TrackColumn.path]) {
+      expect(prefs.columnSize(c), kMinColumnWidth, reason: c.label);
+    }
     expect(
-      pathRight,
-      closeTo(listRight - 16 - kColumnGap, 4),
-      reason: 'Path reaches the right edge, bar the list padding and the '
-          'grab handle past its edge',
-    );
-
-    // ...until it is given a width of its own, after which it stays put
-    // like every other column.
-    await tester.drag(
-      find.byKey(const Key('column-resize-album')),
-      const Offset(30, 0),
-    );
-    await tester.pumpAndSettle();
-    final stretched = tester.getSize(headerLabel('PATH')).width;
-
-    await tester.drag(
-      find.byKey(const Key('column-resize-path')),
-      const Offset(-100, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(prefs.columnSize(TrackColumn.path), lessThan(stretched));
-
-    final fixed = tester.getSize(headerLabel('PATH')).width;
-    await tester.drag(
-      find.byKey(const Key('column-resize-album')),
-      const Offset(-40, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      tester.getSize(headerLabel('PATH')).width,
-      fixed,
-      reason: 'a dragged Path no longer absorbs the space others give up',
+      prefs.columnSize(TrackColumn.title),
+      greaterThan(kMinColumnWidth),
+      reason: 'the text columns keep a readable default',
     );
   });
 
-  testWidgets('with Path hidden, nothing else stretches', (tester) async {
+  testWidgets('every column is right-aligned except Time', (tester) async {
     await pump(tester, fixtureLibrary());
+
+    for (final c in TrackColumn.values) {
+      expect(
+        c.alignEnd,
+        c != TrackColumn.time,
+        reason: '${c.label} alignment',
+      );
+    }
+    expect(
+      tester.widget<Text>(inList('Apocalypse Please')).textAlign,
+      TextAlign.right,
+    );
+    expect(tester.widget<Text>(inList('3:50')).textAlign, TextAlign.left);
+  });
+
+  testWidgets('hiding a column never stretches another', (tester) async {
+    await pump(tester, fixtureLibrary());
+    final embBefore = tester.getSize(headerLabel('EMB')).width;
+
     await rightClick(tester, headerLabel('PATH'));
     await tester.tap(find.byKey(const Key('column-toggle-path')));
     await tester.pumpAndSettle();
 
     expect(
       tester.getSize(headerLabel('EMB')).width,
-      lessThan(60),
-      reason: 'a tick column must never stretch across the window',
+      embBefore,
+      reason: 'columns keep their widths; the space just goes unused',
     );
   });
 
