@@ -982,10 +982,13 @@ class _HeaderCellState extends State<_HeaderCell> {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
             child: Text.rich(
+              // Always LABEL then arrow, whichever edge the column is
+              // aligned to: the arrow used to lead on right-aligned
+              // columns, which was invisible while Time was the only
+              // one -- now that everything but Time is right-aligned it
+              // would have flipped the whole header around.
               TextSpan(
-                children: alignEnd && active
-                    ? [arrowSpan, const TextSpan(text: ' '), labelSpan]
-                    : active
+                children: active
                     ? [labelSpan, const TextSpan(text: ' '), arrowSpan]
                     : [labelSpan],
               ),
@@ -1278,54 +1281,71 @@ class _TrackRowState extends State<_TrackRow> {
     ),
   ];
 
-  Widget _cellFor(TrackColumn column) => switch (column) {
-    TrackColumn.title => Text(
-      track.title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(
-        fontSize: 13,
-        color: isCurrent ? AppColors.accent : AppColors.ink,
+  /// Every column reads right-aligned except Time (asked for
+  /// 2026-09-19), so values sit flush against the divider that follows
+  /// them rather than drifting away from it in a wide column.
+  Widget _cellFor(TrackColumn column) {
+    final align = column.alignEnd ? TextAlign.right : TextAlign.left;
+    return switch (column) {
+      TrackColumn.title => Text(
+        track.title,
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 13,
+          color: isCurrent ? AppColors.accent : AppColors.ink,
+        ),
       ),
-    ),
-    TrackColumn.artist => Text(
-      track.artist,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: _kRowTextStyle,
-    ),
-    TrackColumn.album => Text(
-      track.album,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: _kRowTextStyle,
-    ),
-    TrackColumn.time => Text(
-      _fmtDuration(track.durationMs),
-      textAlign: TextAlign.right,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: _kRowTextStyle,
-    ),
-    TrackColumn.date => Text(
-      _fmtDate(track.dateAdded),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: _kRowTextStyle,
-    ),
-    TrackColumn.art => _ArtTick(on: hasArtwork),
-    TrackColumn.emb => _ArtTick(on: track.hasEmbeddedArt),
-    // The folder, not the file: the row already names the track, and
-    // the filename is usually the same words a third time. Plain
-    // left-to-right -- the rtl trick that clipped it from the start also
-    // right-aligned the whole column, which read as broken.
-    TrackColumn.path => Text(
-      trackFolderPath(track),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: _kRowTextStyle,
-    ),
-  };
+      TrackColumn.artist => Text(
+        track.artist,
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+      TrackColumn.album => Text(
+        track.album,
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+      TrackColumn.time => Text(
+        _fmtDuration(track.durationMs),
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+      TrackColumn.date => Text(
+        _fmtDate(track.dateAdded),
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+      // The ticks follow the same edge as the text columns, so a narrow
+      // Art/Emb pair does not float in the middle of its box.
+      TrackColumn.art => Align(
+        alignment: Alignment.centerRight,
+        child: _ArtTick(on: hasArtwork),
+      ),
+      TrackColumn.emb => Align(
+        alignment: Alignment.centerRight,
+        child: _ArtTick(on: track.hasEmbeddedArt),
+      ),
+      // The folder, not the file: the row already names the track, and
+      // the filename is usually the same words a third time.
+      TrackColumn.path => Text(
+        trackFolderPath(track),
+        maxLines: 1,
+        textAlign: align,
+        overflow: TextOverflow.ellipsis,
+        style: _kRowTextStyle,
+      ),
+    };
+  }
 
   /// The playlist view's distinct four-column layout: #, Song (thumbnail +
   /// title/artist), Album, Time -- no Date (playlist order carries no
