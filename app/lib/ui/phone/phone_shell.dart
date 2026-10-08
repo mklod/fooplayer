@@ -285,13 +285,15 @@ class _PhoneShellState extends State<PhoneShell> {
     );
   }
 
-  /// The persistent footer: how big the library is and a rescan on the
-  /// left, sync on the right.
+  /// The persistent footer: how big the library is, and the one button
+  /// that brings it up to date.
   ///
-  /// The desktop has had a permanent strip like this since its track
-  /// count moved out of the sidebar; the phone's two most-wanted actions
-  /// were both buried in the drawer. Rebuilt on every library
-  /// notification, because the count is the thing it exists to show.
+  /// ONE button, deliberately. It used to be two -- a local rescan and
+  /// a sync -- which read as "two refresh buttons" and begged the
+  /// question the second one could not answer: why would you re-read
+  /// what is already on the phone? A sync does that anyway; the engine
+  /// finishes every run by rescanning the library, so this single
+  /// button both pulls from the NAS and surfaces whatever arrived.
   Widget _footer(BuildContext context) {
     return ListenableBuilder(
       listenable: widget.library,
@@ -311,25 +313,17 @@ class _PhoneShellState extends State<PhoneShell> {
                   key: const Key('phone-footer-count'),
                   style: TextStyle(fontSize: 12, color: AppColors.inkSecondary),
                 ),
-                IconButton(
-                  key: const Key('phone-footer-rescan'),
-                  tooltip: 'Rescan library',
-                  iconSize: 20,
-                  visualDensity: VisualDensity.compact,
-                  // Disabled mid-scan rather than hidden: a button that
-                  // vanishes while you are looking at it reads as a
-                  // glitch, and the activity strip above already says
-                  // what is happening.
-                  onPressed: widget.library.busy ? null : _rescan,
-                  icon: const Icon(Icons.refresh),
-                ),
                 const Spacer(),
                 if (widget.syncUi != null)
                   IconButton(
                     key: const Key('phone-footer-sync'),
-                    tooltip: 'Sync now',
+                    tooltip: 'Sync from the NAS',
                     iconSize: 20,
                     visualDensity: VisualDensity.compact,
+                    // Greyed out mid-run rather than hidden: a control
+                    // that vanishes while you are looking at it reads
+                    // as a glitch, and the activity strip above already
+                    // narrates the run.
                     onPressed: _syncing ? null : _syncNow,
                     icon: _syncing
                         ? const SizedBox(
@@ -337,14 +331,7 @@ class _PhoneShellState extends State<PhoneShell> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        // A cloud, not another ring of arrows: next to
-                        // the rescan button above, Icons.sync read as a
-                        // second refresh (reported live with a
-                        // screenshot). The two do different things --
-                        // one re-reads what is already on the phone,
-                        // the other pulls from the NAS -- and the
-                        // icons now say which is which.
-                        : const Icon(Icons.cloud_sync_outlined),
+                        : const Icon(Icons.refresh),
                   ),
               ],
             ),
@@ -352,11 +339,6 @@ class _PhoneShellState extends State<PhoneShell> {
         );
       },
     );
-  }
-
-  void _rescan() {
-    if (widget.library.busy) return;
-    unawaited(widget.library.rescan());
   }
 
   /// A folding drawer section header -- the phone's copy of the desktop
