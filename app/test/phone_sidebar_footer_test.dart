@@ -221,4 +221,61 @@ void main() {
     expect(find.byKey(const Key('phone-footer-sync')), findsNothing);
     expect(find.byKey(const Key('phone-footer-count')), findsOneWidget);
   });
+
+  testWidgets('rescan and sync do not wear the same glyph', (tester) async {
+    await pumpShell(
+      tester,
+      fixtureLibrary(),
+      syncUi: SyncUiSeams(
+        currentSettings: SyncSettings.new,
+        onSave: (_) {},
+        runSync: () async => SyncReport(
+          playlistNotes: const [],
+          roots: const [],
+          finishedAt: DateTime(2026, 10, 7),
+        ),
+        probe: () async => true,
+        discoverRoots: () async => const [],
+        cancelSync: () async {},
+      ),
+    );
+
+    // Reported with a screenshot: "why are there two refresh buttons at
+    // the bottom". Icons.sync is a ring of arrows, same as Icons.refresh
+    // at 20px.
+    Icon iconOf(String key) => tester.widget<Icon>(
+      find.descendant(
+        of: find.byKey(Key(key)),
+        matching: find.byType(Icon),
+      ),
+    );
+    expect(iconOf('phone-footer-rescan').icon, Icons.refresh);
+    expect(
+      iconOf('phone-footer-sync').icon,
+      isNot(Icons.refresh),
+      reason: 'the two must not read as the same button',
+    );
+    expect(iconOf('phone-footer-sync').icon, Icons.cloud_sync_outlined);
+  });
+
+  testWidgets('the bottom bar is one colour, gesture inset included', (
+    tester,
+  ) async {
+    await pumpShell(tester, fixtureLibrary());
+
+    // Reported: "why is there a two tone on the horizontal". The paint
+    // has to sit OUTSIDE the SafeArea, or the inset it adds shows the
+    // scaffold through and splits the bar in two.
+    final painted = find.ancestor(
+      of: find.byType(SafeArea),
+      matching: find.byType(ColoredBox),
+    );
+    expect(painted, findsWidgets);
+    expect(
+      tester.widgetList<ColoredBox>(painted).any(
+        (b) => b.color == AppColors.panelBg,
+      ),
+      isTrue,
+    );
+  });
 }
