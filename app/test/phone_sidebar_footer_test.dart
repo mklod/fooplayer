@@ -177,9 +177,12 @@ void main() {
     );
   });
 
-  testWidgets('the footer carries rescan on the left and sync on the right', (
+  testWidgets('the footer carries exactly one button, and it syncs', (
     tester,
   ) async {
+    // It used to carry two -- a local rescan and a sync -- which read
+    // as "two refresh buttons". A sync rescans at the end of its run
+    // anyway, so one button does both jobs.
     var ran = 0;
     await pumpShell(
       tester,
@@ -192,7 +195,7 @@ void main() {
           return SyncReport(
             playlistNotes: const [],
             roots: const [],
-            finishedAt: DateTime(2026, 9, 18),
+            finishedAt: DateTime(2026, 10, 7),
           );
         },
         probe: () async => true,
@@ -201,14 +204,30 @@ void main() {
       ),
     );
 
-    final rescan = find.byKey(const Key('phone-footer-rescan'));
-    final sync = find.byKey(const Key('phone-footer-sync'));
-    expect(rescan, findsOneWidget);
-    expect(sync, findsOneWidget);
+    final footer = find.ancestor(
+      of: find.byKey(const Key('phone-footer-count')),
+      matching: find.byType(Row),
+    );
     expect(
-      tester.getCenter(rescan).dx,
-      lessThan(tester.getCenter(sync).dx),
-      reason: 'rescan sits with the count on the left, sync on the right',
+      find.descendant(of: footer.first, matching: find.byType(IconButton)),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('phone-footer-rescan')), findsNothing);
+
+    final sync = find.byKey(const Key('phone-footer-sync'));
+    expect(
+      tester
+          .widget<Icon>(
+            find.descendant(of: sync, matching: find.byType(Icon)),
+          )
+          .icon,
+      Icons.refresh,
+      reason: 'it is the refresh button -- it just refreshes from the NAS',
+    );
+    expect(
+      tester.getCenter(sync).dx,
+      greaterThan(tester.getCenter(find.byKey(const Key('phone-footer-count'))).dx),
+      reason: 'count left, button right',
     );
 
     await tester.tap(sync);
@@ -220,42 +239,6 @@ void main() {
     await pumpShell(tester, fixtureLibrary());
     expect(find.byKey(const Key('phone-footer-sync')), findsNothing);
     expect(find.byKey(const Key('phone-footer-count')), findsOneWidget);
-  });
-
-  testWidgets('rescan and sync do not wear the same glyph', (tester) async {
-    await pumpShell(
-      tester,
-      fixtureLibrary(),
-      syncUi: SyncUiSeams(
-        currentSettings: SyncSettings.new,
-        onSave: (_) {},
-        runSync: () async => SyncReport(
-          playlistNotes: const [],
-          roots: const [],
-          finishedAt: DateTime(2026, 10, 7),
-        ),
-        probe: () async => true,
-        discoverRoots: () async => const [],
-        cancelSync: () async {},
-      ),
-    );
-
-    // Reported with a screenshot: "why are there two refresh buttons at
-    // the bottom". Icons.sync is a ring of arrows, same as Icons.refresh
-    // at 20px.
-    Icon iconOf(String key) => tester.widget<Icon>(
-      find.descendant(
-        of: find.byKey(Key(key)),
-        matching: find.byType(Icon),
-      ),
-    );
-    expect(iconOf('phone-footer-rescan').icon, Icons.refresh);
-    expect(
-      iconOf('phone-footer-sync').icon,
-      isNot(Icons.refresh),
-      reason: 'the two must not read as the same button',
-    );
-    expect(iconOf('phone-footer-sync').icon, Icons.cloud_sync_outlined);
   });
 
   testWidgets('the bottom bar is one colour, gesture inset included', (
