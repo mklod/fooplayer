@@ -41,6 +41,28 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-10-07--1830 (phone)
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **One footer button: refresh, and it syncs from the NAS.** The local
+  rescan is gone. It existed because the desktop has one, but on the
+  phone it answers a question nobody asks -- the library there is a
+  mirror of the NAS, so re-reading it without pulling first can only
+  find what the last sync already brought. A sync rescans anyway
+  (`SyncEngine.run()` ends on `library.rescan()`, which is what
+  surfaces newly copied tracks), so the second button was doing a
+  subset of the first. The five-minute tick still rescans in the
+  background. 1.0.0+42.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] One button in the footer, bottom right, and it runs a sync
+>   - Notes:
+
 ## Build 2026-10-07--1802 (phone)
 
 APK: https://dist.flana.app/fooplayer/index.html (tap-install)
