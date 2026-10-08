@@ -337,7 +337,14 @@ class _PhoneShellState extends State<PhoneShell> {
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : const Icon(Icons.sync),
+                        // A cloud, not another ring of arrows: next to
+                        // the rescan button above, Icons.sync read as a
+                        // second refresh (reported live with a
+                        // screenshot). The two do different things --
+                        // one re-reads what is already on the phone,
+                        // the other pulls from the NAS -- and the
+                        // icons now say which is which.
+                        : const Icon(Icons.cloud_sync_outlined),
                   ),
               ],
             ),
@@ -580,17 +587,25 @@ class _PhoneShellState extends State<PhoneShell> {
         // line (reported live -- the status panel looked clipped). Padding
         // by the bottom inset lifts the panel clear of it; `top: false`
         // leaves the AppBar's own inset handling alone.
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.activity != null)
-                PhoneActivityStrip(activity: widget.activity!),
-              widget.miniPlayerBuilder?.call(context) ??
-                  const SizedBox.shrink(),
-              _footer(context),
-            ],
+        // The colour goes OUTSIDE the SafeArea so it also paints the
+        // gesture-bar inset underneath. With it inside, the footer sat
+        // on panelBg and the strip below it showed the scaffold's own
+        // background -- two tones across the bottom of the phone, with
+        // the seam landing in the middle of what reads as one bar.
+        bottomNavigationBar: ColoredBox(
+          color: AppColors.panelBg,
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.activity != null)
+                  PhoneActivityStrip(activity: widget.activity!),
+                widget.miniPlayerBuilder?.call(context) ??
+                    const SizedBox.shrink(),
+                _footer(context),
+              ],
+            ),
           ),
         ),
       ),
