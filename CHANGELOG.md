@@ -41,6 +41,31 @@
 >   equal to the release-group's `first-release-date` (that is what "original"
 >   means). Then stop scoring album against the existing tag.
 
+## Build 2026-10-07--1802 (phone)
+
+APK: https://dist.flana.app/fooplayer/index.html (tap-install)
+
+### Changes
+
+- **Sync no longer looks like a second refresh button.** At 20px
+  `Icons.sync` (a ring of two arrows) and `Icons.refresh` (a ring of
+  one) are the same picture. They do different things -- rescan
+  re-reads what is already on the phone, sync pulls from the NAS -- so
+  sync wears a cloud now.
+- **The bottom bar is one colour again.** The footer painted its
+  background INSIDE the SafeArea, so the inset added for the gesture
+  bar showed the scaffold through: two tones across the bottom, with
+  the seam in the middle of what reads as one bar. The paint moved
+  outside the SafeArea. 1.0.0+41.
+
+### Testing Checklist
+
+> [!warning] Testing Checklist
+> - [ ] The two footer buttons are clearly different things
+>   - Notes:
+> - [ ] The bottom strip is a single tone down to the gesture pill
+>   - Notes:
+
 ## Build 2026-09-19--1856 (desktop)
 
 Desktop: rebuilt + redeployed to the tray/Startup exe.
